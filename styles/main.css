@@ -1,0 +1,176 @@
+:root {
+  --color-background: #20304a;
+  --color-frame: #2f4260;
+  --color-text: #f3f0e6;
+  --color-copy: #cfe0f2;
+  --color-accent: #ffd766;
+  --color-accent-shadow: #b6902f;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+#hud {
+  display: flex;
+  width: 720px;
+  max-width: 96vw;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 6px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 0 rgb(0 0 0 / 35%);
+}
+
+#hud b {
+  font-weight: 700;
+}
+
+.hud__level { color: #9fe0ff; }
+.hud__parcels { color: var(--color-accent); }
+.hud__ammo { color: var(--color-copy); }
+.hud__lives { color: #ff9aa2; }
+.hud__time { color: #b8f2a0; }
+.hud__best { color: #d9c2ff; }
+
+#wrap {
+  position: relative;
+}
+
+canvas {
+  display: block;
+  max-width: 96vw;
+  height: auto;
+  border: 3px solid var(--color-frame);
+  border-radius: 10px;
+  background: #78b859;
+  box-shadow: 0 14px 40px rgb(0 0 0 / 45%);
+  touch-action: none;
+}
+
+canvas.aim {
+  cursor: crosshair;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  border-radius: 10px;
+  background: rgb(24 36 56 / 88%);
+  text-align: center;
+}
+
+#overlay h1 {
+  margin-bottom: 6px;
+  color: var(--color-accent);
+  font-size: 38px;
+  letter-spacing: 6px;
+  text-shadow: 0 3px 0 #8a5a1e;
+}
+
+#overlay h2 {
+  margin-bottom: 10px;
+  color: #a9c6e8;
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 2px;
+}
+
+#overlay p {
+  max-width: 620px;
+  color: var(--color-copy);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+#overlay .key {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.legend--parcel { color: var(--color-accent); }
+.legend--door { color: #8fe388; }
+.legend--zombie { color: #9fd36a; }
+.legend--walker { color: #a8cc79; }
+.legend--runner { color: #f0a25d; }
+.legend--brute { color: #b5a4e8; }
+.legend--filth { color: #c6d85c; }
+.legend--battery { color: #8ee6a0; }
+.legend--neutral { color: var(--color-copy); }
+.legend--car { color: #ff8b7a; }
+.legend--patrol { color: #8fb6ff; }
+.legend--rain { color: #a9d6ff; }
+.legend--thunder { color: #e8f0ff; }
+
+.quality-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 13px;
+  color: #a9c6e8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.quality-control select {
+  padding: 5px 8px;
+  border: 1px solid #526b8e;
+  border-radius: 4px;
+  background: #17253a;
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 1px;
+}
+
+#qualityStatus {
+  min-width: 150px;
+  color: #8fe388;
+  text-align: left;
+}
+
+#overlay button {
+  margin-top: 14px;
+  padding: 12px 36px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--color-accent);
+  box-shadow: 0 5px 0 var(--color-accent-shadow);
+  color: #3a2a08;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+#overlay button:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 var(--color-accent-shadow);
+}
+
+.hidden {
+  display: none !important;
+}

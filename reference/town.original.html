@@ -1,0 +1,2369 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>КУРЬЕР</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#20304a; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh;
+         font-family:'Trebuchet MS','Segoe UI',sans-serif; color:#f3f0e6; overflow:hidden; }
+  #hud { display:flex; gap:12px; padding:10px 6px; font-size:13px; letter-spacing:1px; width:720px; max-width:96vw;
+         justify-content:space-between; text-shadow:0 2px 0 rgba(0,0,0,.35); }
+  canvas.aim { cursor:crosshair; }
+  #hud b { font-weight:bold; }
+  #wrap { position:relative; }
+  canvas { background:#78b859; border:3px solid #2f4260; border-radius:10px; box-shadow:0 14px 40px rgba(0,0,0,.45);
+           display:block; max-width:96vw; height:auto; touch-action:none; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+             background:rgba(24,36,56,.88); border-radius:10px; text-align:center; padding:18px; }
+  #overlay h1 { font-size:38px; color:#ffd766; letter-spacing:6px; margin-bottom:6px; text-shadow:0 3px 0 #8a5a1e; }
+  #overlay h2 { font-size:17px; color:#a9c6e8; font-weight:normal; margin-bottom:16px; letter-spacing:2px; }
+  #overlay p { line-height:1.95; color:#cfe0f2; font-size:14px; max-width:520px; }
+  #overlay .key { color:#ffd766; font-weight:bold; }
+  #overlay button { margin-top:22px; background:#ffd766; border:none; color:#3a2a08; padding:12px 36px; font-family:inherit;
+                    font-size:16px; letter-spacing:3px; cursor:pointer; border-radius:6px; box-shadow:0 5px 0 #b6902f; font-weight:bold; }
+  #overlay button:active { transform:translateY(3px); box-shadow:0 2px 0 #b6902f; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <span style="color:#9fe0ff">РАЙОН <b id="lvl">1</b></span>
+  <span style="color:#ffd766">ПОСЫЛКИ <b id="box">0/3</b></span>
+  <span style="color:#cfe0f2">ПАТРОНЫ <b id="ammo">12</b></span>
+  <span style="color:#ff9aa2">ЖИЗНИ <b id="lives">♥♥♥</b></span>
+  <span style="color:#b8f2a0">ВРЕМЯ <b id="time">0.0</b></span>
+  <span style="color:#d9c2ff">РЕКОРД <b id="best">1</b></span>
+</div>
+<div id="wrap">
+  <canvas id="c" width="720" height="560"></canvas>
+  <div id="overlay">
+    <h1>КУРЬЕР</h1>
+    <h2>ночная смена, вид сверху</h2>
+    <p>
+      <span class="key">← ↑ ↓ →</span> или <span class="key">W A S D</span> — идти (на телефоне — палец по экрану)<br>
+      <span class="key">мышь</span> — целиться фонариком, <span class="key">клик</span> или <span class="key">ПРОБЕЛ</span> — стрелять<br>
+      (на телефоне — второй палец по экрану)<br>
+      Собери все <span style="color:#ffd766">посылки</span> во дворах и занеси их в дом с <span style="color:#8fe388">зелёной дверью</span>.<br>
+      <span class="key">F</span> — фонарь, <span class="key">SHIFT</span> — бежать. И то, и другое выдаёт тебя.<br>
+      Со светом видно дорогу, но <span style="color:#9fd36a">зомби</span> замечают луч за сотни шагов.
+      Бег и выстрелы слышно ещё дальше, а увидев тебя, зомби рычат и созывают остальных.<br>
+      Заряд и дыхание кончаются: <span style="color:#8ee6a0">батарейки</span> и
+      <span style="color:#cfe0f2">патроны</span> лежат во дворах.<br>
+      Зомби сбивают <span style="color:#ff8b7a">машины</span> — а на сирену
+      <span style="color:#8fb6ff">патруля</span> и на грохот аварии они сбегаются сами.<br>
+      По <span style="color:#cfe0f2">асфальту</span> бежишь быстрее, но и топаешь громче, чем по дворам.<br>
+      В <span style="color:#a9d6ff">дождь</span> зомби хуже слышат, а <span style="color:#e8f0ff">гром</span>
+      уводит их с твоего следа. <span class="key">M</span> — звук.
+    </p>
+    <button id="startBtn">НА МАРШРУТ</button>
+  </div>
+</div>
+<script>
+(() => {
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const $ = id => document.getElementById(id);
+const overlay = $('overlay'), startBtn = $('startBtn');
+
+// ---------- размеры города ----------
+const ROAD  = 116;                   // ширина асфальта
+const GN    = 4;                     // узлов улиц по стороне
+const GS    = 400;                   // шаг узлов
+const MRG   = 165;                   // отступ сетки от края мира
+const WORLD = MRG * 2 + (GN - 1) * GS;
+const LANE  = 29;                    // смещение полосы от осевой
+const PR    = 12;                    // радиус игрока
+const ZR    = 12;                    // радиус зомби
+const CAR_L = 46, CAR_W = 22;
+const BV    = 660;                   // скорость пули
+const FIRE_CD = .26;                 // задержка между выстрелами
+const WALK  = 166, RUN = 252;        // шаг и рывок
+const BATT_DRAIN = 1 / 52;           // фонарь съедает заряд за ~52 секунды
+const STAM_DRAIN = .42, STAM_REGEN = .3;
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const rnd  = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[(Math.random() * a.length) | 0];
+
+// ---------- повёрнутые коробки: дома, изгороди, машины ----------
+const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];   // по часовой — так же читают тени
+function setOBB(o, cx, cy, ang, hw, hh) {
+  o.cx = cx; o.cy = cy; o.ang = ang; o.hw = hw; o.hh = hh; o.rad = Math.hypot(hw, hh);
+  const c = Math.cos(ang), s = Math.sin(ang);
+  const p = o.pts || (o.pts = [[0, 0], [0, 0], [0, 0], [0, 0]]);
+  for (let i = 0; i < 4; i++) {
+    const lx = CORN[i][0] * hw, ly = CORN[i][1] * hh;
+    p[i][0] = cx + lx * c - ly * s; p[i][1] = cy + lx * s + ly * c;
+  }
+  return o;
+}
+const obb = (cx, cy, ang, hw, hh, extra) => Object.assign(setOBB({}, cx, cy, ang, hw, hh), extra);
+
+function inOBB(x, y, o) {
+  const c = Math.cos(o.ang), s = Math.sin(o.ang), dx = x - o.cx, dy = y - o.cy;
+  return Math.abs(dx * c + dy * s) < o.hw && Math.abs(dy * c - dx * s) < o.hh;
+}
+// насколько точка близка к коробке (0 — внутри)
+function distOBB(x, y, o) {
+  const c = Math.cos(o.ang), s = Math.sin(o.ang), dx = x - o.cx, dy = y - o.cy;
+  const lx = Math.abs(dx * c + dy * s) - o.hw, ly = Math.abs(dy * c - dx * s) - o.hh;
+  return Math.hypot(Math.max(lx, 0), Math.max(ly, 0));
+}
+
+// ---------- звук: всё синтезируется на лету, файлов нет ----------
+const SND = (() => {
+  let ac = null, master = null, buf = null, rainSrc = null, rainGain = null;
+  let muted = localStorage.getItem('townMute') === '1';
+  const ear = { x: 0, y: 0 };                          // где сейчас уши курьера
+
+  function init() {                                    // только из обработчика клика — иначе браузер не пустит
+    if (ac) { if (ac.state === 'suspended') ac.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try { ac = new AC(); } catch (e) { return; }
+    master = ac.createGain();
+    master.gain.value = muted ? 0 : .55;
+    const comp = ac.createDynamicsCompressor();        // толпа рычащих зомби не должна рвать динамик
+    comp.threshold.value = -16; comp.ratio.value = 8;
+    master.connect(comp); comp.connect(ac.destination);
+    buf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+
+  // громкость по расстоянию, панорама по экранному сдвигу
+  const at = (x, y) => x === undefined ? { g: 1, pan: 0 } : (() => {
+    const dx = x - ear.x, dy = y - ear.y, d = Math.hypot(dx, dy);
+    return { g: Math.max(0, 1 - d / 640) ** 1.7, pan: clamp(dx / 400, -1, 1) };
+  })();
+
+  function out(pan) {
+    const n = ac.createGain();
+    if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = pan; n.connect(p); p.connect(master); }
+    else n.connect(master);
+    return n;
+  }
+  // тон с падающей высотой
+  function tone(f, f2, dur, type, vol, pan, delay, atk) {
+    const t0 = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = out(pan);
+    o.type = type;
+    o.frequency.setValueAtTime(f, t0);
+    if (f2 && f2 !== f) o.frequency.exponentialRampToValueAtTime(Math.max(18, f2), t0 + dur);
+    g.gain.setValueAtTime(.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + (atk || .004));
+    g.gain.exponentialRampToValueAtTime(.0006, t0 + dur);
+    o.connect(g); o.start(t0); o.stop(t0 + dur + .03);
+  }
+  // шум через фильтр: хлопки, шаги, стекло, гром
+  function hiss(dur, hz, hz2, vol, pan, q, type, delay) {
+    const t0 = ac.currentTime + (delay || 0), s = ac.createBufferSource(), g = out(pan);
+    s.buffer = buf; s.playbackRate.value = rnd(.85, 1.15);
+    const f = ac.createBiquadFilter();
+    f.type = type || 'bandpass'; f.Q.value = q || 1;
+    f.frequency.setValueAtTime(hz, t0);
+    if (hz2 && hz2 !== hz) f.frequency.exponentialRampToValueAtTime(Math.max(30, hz2), t0 + dur);
+    g.gain.setValueAtTime(.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + .006);
+    g.gain.exponentialRampToValueAtTime(.0006, t0 + dur);
+    s.connect(f); f.connect(g); s.start(t0, rnd(0, 1.4)); s.stop(t0 + dur + .03);
+  }
+
+  // тот же шум, но с мгновенной атакой: без неё любой хлопок звучит как «пуф»
+  function crack(dur, hz, hz2, vol, pan, q, type, delay) {
+    const t0 = ac.currentTime + (delay || 0), s = ac.createBufferSource(), g = out(pan);
+    s.buffer = buf; s.playbackRate.value = rnd(.9, 1.1);
+    const f = ac.createBiquadFilter();
+    f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(hz, t0);
+    if (hz2 !== hz) f.frequency.exponentialRampToValueAtTime(Math.max(30, hz2), t0 + dur);
+    g.gain.setValueAtTime(.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + .0007);          // 0.7 мс — вот это и есть щелчок
+    g.gain.exponentialRampToValueAtTime(.0005, t0 + dur);
+    s.connect(f); f.connect(g); s.start(t0, rnd(0, 1.4)); s.stop(t0 + dur + .02);
+  }
+
+  // вой сирены: один непрерывный подъём и спуск ровно на период вызова, стыки без щелчка
+  function siren(vol, pan) {
+    const t0 = ac.currentTime, T = 1.1, g = out(pan);
+    const lp = ac.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = .7;
+    lp.connect(g);
+    for (const det of [1, 1.006]) {                           // две расстроенные — «мясистее»
+      const o = ac.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(640 * det, t0);
+      o.frequency.linearRampToValueAtTime(1240 * det, t0 + T * .5);
+      o.frequency.linearRampToValueAtTime(640 * det, t0 + T);
+      o.connect(lp); o.start(t0); o.stop(t0 + T + .02);
+    }
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + .05);
+    g.gain.linearRampToValueAtTime(vol, t0 + T - .05);
+    g.gain.linearRampToValueAtTime(0, t0 + T);
+  }
+
+  // рык: голосовой источник через форманты — иначе выходит пила, а не глотка
+  function moan(vol, pan, k) {
+    const t0 = ac.currentTime, dur = rnd(.8, 1.15), f0 = 68 + (k || 0) * 44;
+    const g = out(pan);
+    g.gain.setValueAtTime(.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + .16);            // рык нарастает, а не щёлкает
+    g.gain.linearRampToValueAtTime(vol, t0 + dur * .5);
+    g.gain.exponentialRampToValueAtTime(.0005, t0 + dur);
+
+    const src = ac.createOscillator();
+    src.type = 'sawtooth';
+    src.frequency.setValueAtTime(f0 * 1.14, t0);
+    src.frequency.exponentialRampToValueAtTime(f0 * .8, t0 + dur);   // голос сползает вниз
+    const lfo = ac.createOscillator(), lg = ac.createGain();         // дрожь в глотке
+    lfo.frequency.value = rnd(5, 8.5); lg.gain.value = f0 * .07;
+    lfo.connect(lg); lg.connect(src.frequency);
+    lfo.start(t0); lfo.stop(t0 + dur + .05);
+
+    // три форманты: от них звук читается как горло, а не как синтезатор
+    for (const [hz, q, amp] of [[rnd(370, 520), 6, 1], [rnd(920, 1240), 9, .5], [rnd(2200, 2700), 12, .16]]) {
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = hz; bp.Q.value = q;
+      const a = ac.createGain(); a.gain.value = amp;
+      src.connect(bp); bp.connect(a); a.connect(g);
+    }
+    const ns = ac.createBufferSource();                             // придыхание
+    ns.buffer = buf; ns.playbackRate.value = rnd(.7, 1);
+    const nf = ac.createBiquadFilter();
+    nf.type = 'bandpass'; nf.frequency.value = rnd(650, 1050); nf.Q.value = 1.1;
+    const ng = ac.createGain(); ng.gain.value = .3;
+    ns.connect(nf); nf.connect(ng); ng.connect(g);
+    ns.start(t0, rnd(0, 1.2)); ns.stop(t0 + dur + .02);
+    src.start(t0); src.stop(t0 + dur + .05);
+  }
+
+  function play(name, x, y, k) {
+    if (!ac || muted) return;
+    const a = at(x, y);
+    if (a.g < .02) return;                             // за краем слышимости не тратим узлы
+    const v = a.g, P = a.pan;
+    switch (name) {
+      // выстрел: щелчок + тело + короткое эхо по кварталу
+      case 'shot':  crack(.035, 4200, 1500, .9 * v, P, .4, 'highpass');
+                    crack(.11, 380, 80, 1.1 * v, P, .8, 'lowpass');
+                    crack(.28, 1200, 420, .13 * v, P, .5, 'bandpass', .015);
+                    tone(125, 44, .09, 'triangle', .5 * v, P, 0, .001); break;
+      case 'hit':   crack(.09, 800, 190, .5 * v, P, 1.4, 'bandpass'); break;
+      case 'wall':  crack(.05, 3800, 1700, .26 * v, P, 2.2, 'bandpass'); break;
+      case 'die':   crack(.26, 620, 100, .5 * v, P, .9, 'bandpass');
+                    moan(.5 * v, P, (k || .4) * .6); break;
+      case 'stepA': hiss(.05, 2400, 950, .15 * v, P, 3); break;                    // подошва по асфальту
+      case 'stepG': hiss(.1, 1200, 430, .12 * v, P, .7); break;                    // шорох травы
+      case 'moan':  moan(.95 * v, P, k); break;
+      case 'hurt':  tone(155, 48, .3, 'triangle', .5 * v, P); hiss(.26, 520, 110, .4 * v, P, .8); break;
+      case 'siren': siren(.21 * v, P); break;
+      case 'honk':  tone(372, 366, .19, 'square', .17 * v, P); tone(444, 436, .19, 'square', .13 * v, P); break;
+      case 'pick':  tone(660, 660, .09, 'triangle', .26 * v, P);
+                    tone(880, 880, .09, 'triangle', .26 * v, P, .07);
+                    tone(1320, 1320, .17, 'triangle', .22 * v, P, .14); break;
+      case 'click': hiss(.035, 2800, 1700, .3, 0, 4); break;
+      case 'empty': tone(120, 86, .13, 'square', .16, 0); break;
+      case 'crash': hiss(.42, 1400, 160, .6 * v, P, .6); tone(118, 42, .4, 'square', .3 * v, P);
+                    hiss(.55, 5400, 2800, .28 * v, P, 1.4, 'bandpass', .05); break;
+      case 'thunder': tone(56, 22, 2.8, 'sine', .5, 0); hiss(2.6, 230, 55, .5, 0, .5, 'lowpass');
+                      hiss(.6, 950, 190, .32, 0, .8, 'lowpass', .06); break;
+      case 'win':   [523, 659, 784, 1047].forEach((f, i) => tone(f, f, .3, 'triangle', .22, 0, i * .11)); break;
+      case 'over':  tone(220, 60, 1.1, 'sawtooth', .3, 0); hiss(1.2, 400, 70, .3, 0, .6, 'lowpass'); break;
+    }
+  }
+
+  // ровный шум дождя: один источник на всю игру, меняем только громкость
+  function rain(level) {
+    if (!ac) return;
+    if (!rainSrc) {
+      rainSrc = ac.createBufferSource(); rainSrc.buffer = buf; rainSrc.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = .5;
+      rainGain = ac.createGain(); rainGain.gain.value = 0;
+      rainSrc.connect(f); f.connect(rainGain); rainGain.connect(master);
+      rainSrc.start();
+    }
+    rainGain.gain.setTargetAtTime(muted ? 0 : level * .17, ac.currentTime, .5);
+  }
+
+  return {
+    init, play, rain,
+    listen: (x, y) => { ear.x = x; ear.y = y; },
+    get muted() { return muted; },
+    toggle() {
+      muted = !muted;
+      localStorage.setItem('townMute', muted ? '1' : '0');
+      if (master) master.gain.setTargetAtTime(muted ? 0 : .55, ac.currentTime, .05);
+      if (rainGain) rainGain.gain.setTargetAtTime(0, ac.currentTime, .05);
+      return muted;
+    }
+  };
+})();
+
+let state = 'menu', G = null, keys = {}, touch = null;
+let joyId = null, fireHeld = false;
+const mouse = { sx: W / 2, sy: H / 2, down: 0, active: false };
+let best = +(localStorage.getItem('townBest') || 1);
+$('best').textContent = best;
+
+// ---------- палитры ----------
+const WALLS  = ['#e9dcc3', '#dcc8ac', '#cdd8dd', '#e7cfc1', '#dae0c6', '#d8cbd8'];
+const ROOFS  = ['#a4503f', '#7d4c39', '#4e6b7c', '#6c7052', '#8a5a4a', '#5a5f6e'];
+const CARCOL = ['#d94f45', '#3f7fd0', '#e0b23c', '#5aa35c', '#e8e4dc', '#7a4fb0', '#3b3f46', '#d8752f'];
+
+// ---------- туман войны: сетка «что курьер уже видел» ----------
+const FCELL = 14;
+const FW = Math.ceil(WORLD / FCELL);
+const REMEMBER = .46;                             // яркость разведанного, но сейчас невидимого
+const fogCv = document.createElement('canvas');
+fogCv.width = fogCv.height = FW;
+const fctx = fogCv.getContext('2d');
+const fogImg = fctx.createImageData(FW, FW);
+
+function updateFog(g, dt) {
+  const p = g.p, lit = p.torch && p.batt > 0, w = g.weather;
+  const o = torchHand(p);                          // видно от фонаря в руке, а не от пупка
+  // в дождь луч бьёт короче, зато вспышка молнии на миг показывает весь квартал
+  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6), R2 = R * R;
+  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6)) ** 2;
+  const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
+  const fade = Math.min(1, dt * 6), rise = Math.min(1, dt * 9);
+
+  for (let i = 0; i < g.fog.length; i++) {        // то, что вышло из виду, тускнеет до памяти
+    const tgt = g.seen[i] ? REMEMBER : 0;
+    if (g.fog[i] > tgt) g.fog[i] += (tgt - g.fog[i]) * fade;
+  }
+  const gx0 = Math.max(0, ((o.x - R) / FCELL) | 0), gx1 = Math.min(FW - 1, ((o.x + R) / FCELL) | 0);
+  const gy0 = Math.max(0, ((o.y - R) / FCELL) | 0), gy1 = Math.min(FW - 1, ((o.y + R) / FCELL) | 0);
+  for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
+    const dx = gx * FCELL + FCELL / 2 - o.x, dy = gy * FCELL + FCELL / 2 - o.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > R2) continue;
+    // видно вблизи вокруг себя и в конусе фонарика
+    if (d2 > PER2 && dx * ca + dy * sa < Math.sqrt(d2) * LIM) continue;
+    const i = gy * FW + gx;
+    g.seen[i] = 1;
+    g.fog[i] += (1 - g.fog[i]) * rise;
+  }
+}
+
+function drawFog(g, camx, camy) {
+  const d = fogImg.data;
+  for (let i = 0, j = 0; i < g.fog.length; i++, j += 4) {
+    d[j] = 3; d[j + 1] = 5; d[j + 2] = 13;
+    d[j + 3] = (1 - g.fog[i]) * 255;
+  }
+  fctx.putImageData(fogImg, 0, 0);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;               // мягкая граница вместо клеток
+  ctx.drawImage(fogCv, camx / FCELL, camy / FCELL, W / FCELL, H / FCELL, 0, 0, W, H);
+  ctx.restore();
+}
+const fogAt = (g, x, y) =>
+  g.fog[clamp((y / FCELL) | 0, 0, FW - 1) * FW + clamp((x / FCELL) | 0, 0, FW - 1)];
+
+// ---------- погода: дождь приходит и уходит, гроза уводит зомби на гром ----------
+const RAIN_Z = [.15, .55, 1];                     // три слоя глубины — дальние капли мельче и медленнее
+const drops = [];
+for (let i = 0; i < 480; i++)
+  drops.push({ x: Math.random() * (W + 260) - 130, y: Math.random() * H, z: RAIN_Z[i % 3] });
+
+const newWeather = () => {
+  const r = Math.random() < .45 ? rnd(.3, .85) : 0;
+  return { rain: r, target: r, next: rnd(10, 26), wind: rnd(-.5, .5), wet: r,
+           flash: 0, reflash: 0, strike: rnd(4, 14), boom: 0, boomX: 0, boomY: 0, acc: 0 };
+};
+
+function updateWeather(g, dt) {
+  const w = g.weather;
+  w.next -= dt;
+  if (w.next <= 0) {                              // ливень то накатывает, то уходит
+    w.next = rnd(16, 42);
+    w.target = Math.random() < .42 ? 0 : rnd(.35, 1);
+    w.wind = rnd(-.5, .5);
+  }
+  w.rain += clamp(w.target - w.rain, -.12 * dt, .12 * dt);
+  // асфальт намокает быстро, а сохнет минуту
+  w.wet += w.rain > w.wet ? Math.min(w.rain - w.wet, .3 * dt) : Math.max(w.rain - w.wet, -.05 * dt);
+  SND.rain(w.rain);
+
+  // молния: вспышка сразу, раскат — через паузу, и вот он-то и есть подарок игроку
+  w.flash = Math.max(0, w.flash - dt * 3.2);
+  if (w.reflash > 0 && (w.reflash -= dt) <= 0) w.flash = Math.max(w.flash, .8);
+  if (w.rain > .55) {
+    w.strike -= dt;
+    if (w.strike <= 0) {
+      w.strike = rnd(7, 22);
+      w.flash = 1; w.reflash = .11;
+      const a = rnd(0, 6.283), d = rnd(300, 700);
+      w.boomX = clamp(g.p.x + Math.cos(a) * d, 40, WORLD - 40);
+      w.boomY = clamp(g.p.y + Math.sin(a) * d, 40, WORLD - 40);
+      w.boom = rnd(.4, 2.2);
+    }
+  }
+  if (w.boom > 0 && (w.boom -= dt) <= 0) {
+    w.boom = 0;
+    SND.play('thunder');
+    g.shake = Math.max(g.shake, .5);
+    makeNoise(g, w.boomX, w.boomY, 1300, 6, true);   // на раскат уходит вся округа
+  }
+
+  // капли на экране и брызги на земле
+  const n = (drops.length * w.rain) | 0;
+  for (let i = 0; i < n; i++) {
+    const d = drops[i];
+    d.y += (760 + d.z * 900) * dt;
+    d.x += w.wind * (380 + d.z * 420) * dt;
+    if (d.y > H + 20) { d.y = -20; d.x = Math.random() * (W + 260) - 130; }
+    if (d.x < -140) d.x += W + 260; else if (d.x > W + 130) d.x -= W + 260;
+  }
+  w.acc += w.rain * 52 * dt;
+  while (w.acc >= 1) {
+    w.acc--;
+    g.splash.push({ x: g.cam.x + rnd(-30, W + 30), y: g.cam.y + rnd(-30, H + 30), l: .3, r: rnd(1.5, 3) });
+  }
+  for (let i = g.splash.length - 1; i >= 0; i--) if ((g.splash[i].l -= dt) <= 0) g.splash.splice(i, 1);
+}
+
+function drawRain(g) {
+  const w = g.weather;
+  if (w.rain < .02) return;
+  const n = (drops.length * w.rain) | 0;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let layer = 0; layer < 3; layer++) {
+    ctx.beginPath();
+    for (let i = layer; i < n; i += 3) {
+      const d = drops[i], len = 9 + d.z * 17;
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + w.wind * len * 1.7, d.y + len);
+    }
+    ctx.strokeStyle = `rgba(190,215,255,${(.08 + layer * .055) * (.55 + w.rain * .45)})`;
+    ctx.lineWidth = .7 + layer * .55;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// фонари и фары ночью видно издалека — сам огонёк светит сквозь туман, но города не открывает
+function drawGlowThroughFog(g, camx, camy) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const l of g.lit) {
+    if (l.r < 60) continue;                       // мелкие блики так далеко не разглядеть
+    const a = (1 - fogAt(g, l.x, l.y)) * l.int * .12;
+    if (a < .012) continue;
+    const x = l.x - camx, y = l.y - camy, r = l.r * .8;
+    if (x < -r || y < -r || x > W + r || y > H + r) continue;
+    const col = `${Math.round(l.rgb[0] * 255)},${Math.round(l.rgb[1] * 255)},${Math.round(l.rgb[2] * 255)}`;
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(${col},${a})`);
+    gr.addColorStop(.5, `rgba(${col},${a * .45})`);
+    gr.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- граф улиц: узлы вразброс, рёбра-кривые ----------
+function makeRoads() {
+  const nodes = [], at = (i, j) => j * GN + i;
+  for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++)
+    nodes.push({ i: nodes.length, x: MRG + i * GS + rnd(-95, 95), y: MRG + j * GS + rnd(-95, 95), e: [] });
+
+  const cand = [], diag = [];
+  for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++) {
+    if (i < GN - 1) cand.push([at(i, j), at(i + 1, j)]);
+    if (j < GN - 1) cand.push([at(i, j), at(i, j + 1)]);
+    if (i < GN - 1 && j < GN - 1) diag.push([at(i, j), at(i + 1, j + 1)]);
+    if (i > 0 && j < GN - 1) diag.push([at(i, j), at(i - 1, j + 1)]);
+  }
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } };
+  shuffle(cand); shuffle(diag);
+
+  // улица как кривая по точкам
+  const curve = (a, b) => {
+    const A = nodes[a], B = nodes[b];
+    const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
+    const k = rnd(-.18, .18);                          // изгиб улицы
+    const cx = (A.x + B.x) / 2 - dy * k, cy = (A.y + B.y) / 2 + dx * k;
+    const n = Math.max(6, Math.round(len / 50)), pts = [], cum = [0];
+    for (let s = 0; s <= n; s++) {                     // квадратичная кривая по точкам
+      const t = s / n, u = 1 - t;
+      pts.push({ x: u * u * A.x + 2 * u * t * cx + t * t * B.x,
+                 y: u * u * A.y + 2 * u * t * cy + t * t * B.y });
+      if (s) cum.push(cum[s - 1] + Math.hypot(pts[s].x - pts[s - 1].x, pts[s].y - pts[s - 1].y));
+    }
+    return { a, b, pts, cum, len: cum[cum.length - 1] };
+  };
+
+  // две улицы не должны сходиться вне перекрёстка: там некому уступать
+  const MINSEP = ROAD + 12;
+  const segDist = (p, q, r) => {
+    const dx = q.x - p.x, dy = q.y - p.y, l2 = dx * dx + dy * dy || 1;
+    const t = clamp(((r.x - p.x) * dx + (r.y - p.y) * dy) / l2, 0, 1);
+    return Math.hypot(r.x - p.x - dx * t, r.y - p.y - dy * t);
+  };
+  const tooClose = (P, Q) => {
+    for (let i = 1; i < P.length; i++) for (let j = 1; j < Q.length; j++)
+      if (segDist(P[i - 1], P[i], Q[j - 1]) < MINSEP || segDist(Q[j - 1], Q[j], P[i - 1]) < MINSEP) return true;
+    return false;
+  };
+
+  // сначала остов по прямым улицам — связность гарантирована, потом петли, потом косые
+  const par = nodes.map((_, i) => i);
+  const find = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
+  const keep = [];
+  for (const [a, b] of cand) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) { par[ra] = rb; keep.push(curve(a, b)); }
+    else if (Math.random() < .3) keep.push(curve(a, b));
+  }
+  for (const [a, b] of diag) {                         // косая — только если ничего не режет
+    if (Math.random() > .4) continue;
+    const e = curve(a, b);
+    const shares = o => o.a === a || o.a === b || o.b === a || o.b === b;
+    if (keep.some(o => !shares(o) && tooClose(e.pts, o.pts))) continue;
+    keep.push(e);
+  }
+
+  const edges = keep.map((e, id) => {
+    nodes[e.a].e.push(id); nodes[e.b].e.push(id);
+    return { id, a: e.a, b: e.b, pts: e.pts, cum: e.cum, len: e.len };
+  });
+  return { nodes, edges };
+}
+
+// точка и касательная на расстоянии s от начала улицы
+function onEdge(e, s) {
+  s = clamp(s, 0, e.len);
+  let i = 1;
+  while (i < e.cum.length - 1 && e.cum[i] < s) i++;
+  const t = (s - e.cum[i - 1]) / ((e.cum[i] - e.cum[i - 1]) || 1);
+  const p = e.pts[i - 1], q = e.pts[i];
+  const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy) || 1;
+  return { x: p.x + dx * t, y: p.y + dy * t, tx: dx / d, ty: dy / d };
+}
+
+// точка правой полосы улицы и курс в ней
+function lanePoint(e, s, dir) {
+  const p = onEdge(e, s);
+  const hx = p.tx * dir, hy = p.ty * dir;
+  return { x: p.x - hy * LANE, y: p.y + hx * LANE, hx, hy };
+}
+function setCar(c, x, y, hx, hy) {
+  c.x = x + (c.jx || 0); c.y = y + (c.jy || 0);      // jx/jy — толчок от удара, рельсы под ним остаются
+  c.hx = hx; c.hy = hy;
+  setOBB(c.box, c.x, c.y, Math.atan2(hy, hx), CAR_L / 2, CAR_W / 2);
+}
+function placeCar(c) {                            // на прямом участке
+  const l = lanePoint(c.edge, c.s, c.dir);
+  setCar(c, l.x, l.y, l.hx, l.hy);
+}
+// руль не крутится мгновенно: курс догоняет нужный с ограничением скорости
+function steerCar(c, x, y, hx, hy, dt, rate) {
+  const cur = Math.atan2(c.hy, c.hx);
+  let d = Math.atan2(hy, hx) - cur;
+  while (d > Math.PI) d -= 6.283185;
+  while (d < -Math.PI) d += 6.283185;
+  const a = cur + clamp(d, -rate * dt, rate * dt);
+  setCar(c, x, y, Math.cos(a), Math.sin(a));
+}
+
+// ---------- поворот: дуга от своей полосы к полосе следующей улицы ----------
+const TURN_IN = ROAD * .62;                       // за сколько до перекрёстка начинаем доворот
+const bezAt = (T, t) => {
+  const u = 1 - t, a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t;
+  return { x: a * T.x0 + b * T.x1 + d * T.x2 + e * T.x3, y: a * T.y0 + b * T.y1 + d * T.y2 + e * T.y3 };
+};
+const bezDir = (T, t) => {
+  const u = 1 - t;
+  const dx = 3 * u * u * (T.x1 - T.x0) + 6 * u * t * (T.x2 - T.x1) + 3 * t * t * (T.x3 - T.x2);
+  const dy = 3 * u * u * (T.y1 - T.y0) + 6 * u * t * (T.y2 - T.y1) + 3 * t * t * (T.y3 - T.y2);
+  const d = Math.hypot(dx, dy) || 1;
+  return { x: dx / d, y: dy / d };
+};
+function startTurn(g, c) {
+  const at = c.dir > 0 ? c.edge.b : c.edge.a;     // узел, к которому подъехали
+  const opts = g.roads.nodes[at].e.filter(i => i !== c.edge.id);
+  const next = g.roads.edges[opts.length ? pick(opts) : c.edge.id];
+  const ndir = next.a === at ? 1 : -1;            // в тупике разворачиваемся по той же улице
+  const uturn = next === c.edge;
+  const back = uturn ? TURN_IN * 2.4 : TURN_IN;   // разворот выполняем с запасом, иначе выйдет петля
+  const sIn = ndir > 0 ? Math.min(back, next.len) : Math.max(next.len - back, 0);
+  const end = lanePoint(next, sIn, ndir);
+  const d = Math.max(uturn ? 78 : 34, Math.hypot(end.x - c.x, end.y - c.y) * (uturn ? .95 : .55));
+  const T = {
+    x0: c.x, y0: c.y, x1: c.x + c.hx * d, y1: c.y + c.hy * d,
+    x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
+    next, ndir, sIn, t: 0, len: 0
+  };
+  let px = c.x, py = c.y, L = 0;                  // длина дуги по восьми отрезкам
+  for (let i = 1; i <= 8; i++) { const q = bezAt(T, i / 8); L += Math.hypot(q.x - px, q.y - py); px = q.x; py = q.y; }
+  T.len = Math.max(24, L);
+  c.turn = T; c.mode = 'turn'; c.node = at;         // узел занят, пока машина в нём
+}
+
+// где машина окажется через dist пикселей — по своей полосе или по дуге поворота
+const probeBox = obb(0, 0, 0, CAR_L / 2, CAR_W / 2);
+function ahead(c, dist) {
+  if (c.mode === 'turn' && c.turn) {
+    const T = c.turn, t = Math.min(1, T.t + dist / T.len);
+    const q = bezAt(T, t), d = bezDir(T, t);
+    return setOBB(probeBox, q.x, q.y, Math.atan2(d.y, d.x), CAR_L / 2 + 4, CAR_W / 2 + 2);
+  }
+  const l = lanePoint(c.edge, c.s + c.dir * dist, c.dir);
+  return setOBB(probeBox, l.x, l.y, Math.atan2(l.hy, l.hx), CAR_L / 2 + 4, CAR_W / 2 + 2);
+}
+
+// удар: обе встают, мнутся и шумят на весь квартал
+function crash(g, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+  const nx = dx / d, ny = dy / d;
+  const close = (a.hx * a.v - b.hx * b.v) * nx + (a.hy * a.v - b.hy * b.v) * ny;
+  const hard = close > 45;
+  const k = hard ? 8 : 2.5;
+  a.jx -= nx * k; a.jy -= ny * k;
+  b.jx += nx * k; b.jy += ny * k;
+  // пауза на пару: иначе застрявшие в друг друге будут «биться» каждый кадр и встанут навсегда
+  a.cd = b.cd = hard ? 3 : 1.4;
+  for (const c of [a, b]) {
+    c.honk = 1;
+    if (!hard) { c.v *= .35; continue; }               // задели бортами — просто сбросили ход
+    c.v = 0; c.stall = Math.max(c.stall, rnd(1.1, 1.8)); c.dent = 1;
+  }
+  if (!hard) return;
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  SND.play('crash', cx, cy);
+  makeNoise(g, cx, cy, 380, 5, true);                 // авария стягивает зомби — этим можно пользоваться
+  g.shake = Math.max(g.shake, clamp(1 - Math.hypot(g.p.x - cx, g.p.y - cy) / 500, 0, 1) * .9);
+  for (let i = 0; i < 22; i++)
+    g.parts.push({ x: cx, y: cy, vx: rnd(-230, 230), vy: rnd(-230, 230), l: rnd(.3, .9),
+                   c: pick(['#ffe08a', '#ffffff', '#9fb4c8', '#ff9a5a']), s: rnd(2, 4) });
+}
+
+// ближайшая точка улицы: расстояние и её направление
+function nearRoad(R, x, y) {
+  let bd = 1e9, ba = 0, bx = 0, by = 0;
+  for (const e of R.edges) for (let i = 1; i < e.pts.length; i++) {
+    const p = e.pts[i - 1], q = e.pts[i];
+    const dx = q.x - p.x, dy = q.y - p.y, l2 = dx * dx + dy * dy || 1;
+    const t = clamp(((x - p.x) * dx + (y - p.y) * dy) / l2, 0, 1);
+    const cx = p.x + dx * t, cy = p.y + dy * t, d = Math.hypot(x - cx, y - cy);
+    if (d < bd) { bd = d; ba = Math.atan2(dy, dx); bx = cx; by = cy; }
+  }
+  return { d: bd, ang: ba, x: bx, y: by };
+}
+
+// ---------- генерация района ----------
+function buildTown(level) {
+  const R = makeRoads();
+  const solids = [];   // повёрнутые коробки: дома, изгороди, припаркованные машины
+  const trees  = [];   // {x,y,r}
+  const soft   = [];   // кусты (замедляют)
+  const houses = [];
+  const props  = [];   // фонари, лавки, площадки — только для отрисовки
+  const CELL = 20, gw = Math.ceil(WORLD / CELL);
+
+  // ---------- поле расстояний до асфальта ----------
+  const rdist = new Float32Array(gw * gw).fill(1e9);
+  for (const e of R.edges) for (let s = 0; s <= e.len; s += 8) {
+    const p = onEdge(e, s);
+    const gx = (p.x / CELL) | 0, gy = (p.y / CELL) | 0;
+    for (let j = Math.max(0, gy - 9); j <= Math.min(gw - 1, gy + 9); j++)
+      for (let i = Math.max(0, gx - 9); i <= Math.min(gw - 1, gx + 9); i++) {
+        const d = Math.hypot(i * CELL + 10 - p.x, j * CELL + 10 - p.y);
+        if (d < rdist[j * gw + i]) rdist[j * gw + i] = d;
+      }
+  }
+  const roadDist = (x, y) =>
+    rdist[clamp((y / CELL) | 0, 0, gw - 1) * gw + clamp((x / CELL) | 0, 0, gw - 1)];
+  const farFrom = (x, y, pad, skip) => !solids.some(q => q !== skip && Math.hypot(q.cx - x, q.cy - y) < q.rad + pad);
+
+  // ---------- дома вдоль улиц, фасадом к дороге ----------
+  const CURB = ROAD / 2 + 30;
+  for (let tries = 0; tries < 1800 && houses.length < 32; tries++) {
+    const x = rnd(70, WORLD - 70), y = rnd(70, WORLD - 70);
+    const d = roadDist(x, y);
+    if (d < CURB + 34 || d > CURB + 215) continue;
+    const near = nearRoad(R, x, y);
+    const ang = near.ang + rnd(-.1, .1);
+    const hw = rnd(50, 78), hh = rnd(42, 62);
+    const c = Math.cos(ang), s = Math.sin(ang);
+    const face = ((near.y - y) * c - (near.x - x) * s) > 0 ? 1 : -1;   // с какой стороны улица
+    const h = obb(x, y, ang, hw, hh, { wall: pick(WALLS), roof: pick(ROOFS), seed: Math.random(), face });
+    if (!farFrom(x, y, h.rad + 22)) continue;
+    houses.push(h); solids.push(h);
+
+    // площадка с машиной сбоку от дома
+    if (Math.random() < .5) {
+      const lx = (Math.random() < .5 ? 1 : -1) * (hw + 36), ly = face * hh * .3;
+      const px = x + lx * c - ly * s, py = y + lx * s + ly * c;
+      if (roadDist(px, py) > CURB - 4 && farFrom(px, py, 40, h)) {   // сам дом площадке не мешает
+        props.push(obb(px, py, ang, CAR_L / 2 + 11, CAR_W / 2 + 11, { t: 'lot' }));
+        const car = obb(px, py, ang + rnd(-.05, .05), CAR_L / 2, CAR_W / 2, { t: 'parked', col: pick(CARCOL) });
+        props.push(car); solids.push(car);
+      }
+    }
+  }
+
+  // ---------- живые изгороди ----------
+  for (let tries = 0, k = 0; tries < 600 && k < 16; tries++) {
+    const x = rnd(60, WORLD - 60), y = rnd(60, WORLD - 60);
+    if (roadDist(x, y) < CURB + 24) continue;
+    const o = obb(x, y, rnd(0, 6.283), rnd(38, 78), 9, { t: 'hedge' });
+    if (!farFrom(x, y, o.rad + 18)) continue;
+    solids.push(o); props.push(o); k++;
+  }
+
+  // ---------- деревья и кусты ----------
+  for (let tries = 0; tries < 2200 && trees.length < 62; tries++) {
+    const x = rnd(34, WORLD - 34), y = rnd(34, WORLD - 34), r = rnd(15, 22);
+    if (roadDist(x, y) < ROAD / 2 + 19) continue;
+    if (!farFrom(x, y, r + 16)) continue;
+    if (trees.some(t => Math.hypot(t.x - x, t.y - y) < t.r + r + 20)) continue;
+    trees.push({ x, y, r, seed: Math.random() });
+  }
+  for (let tries = 0; tries < 1400 && soft.length < 46; tries++) {
+    const x = rnd(30, WORLD - 30), y = rnd(30, WORLD - 30), r = rnd(16, 26);
+    if (roadDist(x, y) < ROAD / 2 + 14) continue;
+    if (!farFrom(x, y, r + 8)) continue;
+    if (trees.some(t => Math.hypot(t.x - x, t.y - y) < t.r + r + 6)) continue;
+    soft.push({ x, y, r, seed: Math.random() });
+  }
+
+  // ---------- фонари и лавки вдоль тротуаров ----------
+  for (const e of R.edges) {
+    let side = Math.random() < .5 ? 1 : -1;
+    for (let s = rnd(60, 120); s < e.len - 50; s += rnd(150, 210)) {
+      const p = onEdge(e, s), off = (ROAD / 2 + 17) * side;
+      props.push({ t: 'lamp', x: p.x - p.ty * off, y: p.y + p.tx * off });
+      if (Math.random() < .3) {
+        const b = off + 21 * side;
+        props.push({ t: 'bench', x: p.x - p.ty * b, y: p.y + p.tx * b, a: Math.atan2(p.ty, p.tx) });
+      }
+      side = -side;
+    }
+  }
+
+  // ---------- сетка проходимости (для расстановки и проверки достижимости) ----------
+  const free = new Uint8Array(gw * gw);
+  for (let gy = 0; gy < gw; gy++) for (let gx = 0; gx < gw; gx++) {
+    const x = gx * CELL + CELL / 2, y = gy * CELL + CELL / 2;
+    let ok = x > 6 && y > 6 && x < WORLD - 6 && y < WORLD - 6;
+    if (ok) for (const s of solids) {
+      if (Math.hypot(s.cx - x, s.cy - y) > s.rad + 16) continue;
+      if (distOBB(x, y, s) < 14) { ok = false; break; }
+    }
+    if (ok) for (const t of trees)
+      if (Math.hypot(t.x - x, t.y - y) < t.r + 14) { ok = false; break; }
+    free[gy * gw + gx] = ok ? 1 : 0;
+  }
+
+  // старт — ближайший к центру двор, а не середина перекрёстка
+  let start = null;
+  for (let pass = 0; pass < 2 && !start; pass++)
+    for (let rad = 0; rad < 60 && !start; rad++) for (let a = 0; a < 32; a++) {
+      const x = WORLD / 2 + Math.cos(a / 32 * 6.283) * rad * 14, y = WORLD / 2 + Math.sin(a / 32 * 6.283) * rad * 14;
+      const gx = (x / CELL) | 0, gy = (y / CELL) | 0;
+      if (gx < 0 || gy < 0 || gx >= gw || gy >= gw || !free[gy * gw + gx]) continue;
+      if (!pass && rdist[gy * gw + gx] < ROAD / 2 + 30) continue;      // первый проход — только дворы
+      start = { x: gx * CELL + 10, y: gy * CELL + 10 }; break;
+    }
+
+  // волна от старта — что вообще достижимо
+  const reach = new Uint8Array(gw * gw);
+  const sq = [((start.y / CELL) | 0) * gw + ((start.x / CELL) | 0)];
+  reach[sq[0]] = 1;
+  for (let h = 0; h < sq.length; h++) {
+    const i = sq[h], gx = i % gw, gy = (i / gw) | 0;
+    const nb = [[gx + 1, gy], [gx - 1, gy], [gx, gy + 1], [gx, gy - 1]];
+    for (const [nx, ny] of nb) {
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gw) continue;
+      const j = ny * gw + nx;
+      if (free[j] && !reach[j]) { reach[j] = 1; sq.push(j); }
+    }
+  }
+  const spots = [], onFoot = [];                  // во дворах и вообще где угодно
+  for (let i = 0; i < reach.length; i++) if (reach[i]) {
+    const x = (i % gw) * CELL + CELL / 2, y = ((i / gw) | 0) * CELL + CELL / 2;
+    onFoot.push({ x, y });
+    if (rdist[i] > ROAD / 2 + 26) spots.push({ x, y });
+  }
+  if (spots.length < 20) spots.push(...onFoot);   // район вышел сплошь асфальтовым
+  // посылки прячем во дворах у домов, а не в пустых углах карты
+  const yards = spots.filter(s => houses.some(h => Math.hypot(h.cx - s.x, h.cy - s.y) < 165));
+  const drop = yards.length > 30 ? yards : spots;
+
+  // ---------- посылки ----------
+  const need = Math.min(3 + (level - 1), 8);
+  const parcels = [];
+  for (let k = 0; k < need; k++) {
+    let bestSpot = null, bestD = -1;
+    for (let t = 0; t < 180; t++) {
+      const s = pick(drop);
+      let d = Math.hypot(s.x - start.x, s.y - start.y) * .35;
+      for (const p of parcels) d = Math.min(d, Math.hypot(s.x - p.x, s.y - p.y));
+      if (d > bestD) { bestD = d; bestSpot = s; }
+    }
+    parcels.push({ x: bestSpot.x, y: bestSpot.y, got: false, ph: Math.random() * 6.283 });
+  }
+
+  // ---------- дом-адресат: дверь смотрит на улицу, подход должен быть достижим ----------
+  const doorOf = h => {
+    const L = h.face * (h.hh + 17);
+    return { x: h.cx - L * Math.sin(h.ang), y: h.cy + L * Math.cos(h.ang) };
+  };
+  let goal = null;
+  const cand = houses.slice().sort((a, b) =>
+    Math.hypot(b.cx - start.x, b.cy - start.y) - Math.hypot(a.cx - start.x, a.cy - start.y));
+  for (const h of cand) {
+    const d = doorOf(h);
+    const gx = (d.x / CELL) | 0, gy = (d.y / CELL) | 0;
+    if (gx >= 0 && gy >= 0 && gx < gw && gy < gw && reach[gy * gw + gx]) { h.target = true; goal = { house: h, ...d }; break; }
+  }
+  if (!goal) { const h = houses[0]; h.target = true; goal = { house: h, ...doorOf(h) }; }
+
+  // ---------- едущие машины: катятся по улицам и сворачивают на перекрёстках ----------
+  const cars = [];
+  const nCars = Math.min(7 + level, 14);       // больше улицы не держат: начинается сплошная толчея
+  const spd = Math.min(1.34, 1 + (level - 1) * .08);   // быстрее улицы просто не успевают разъезжаться
+  for (let k = 0; k < nCars; k++) {
+    for (let t = 0; t < 50; t++) {
+      const e = pick(R.edges);
+      if (e.len < 120) continue;
+      const c = { id: k, edge: e, dir: Math.random() < .5 ? 1 : -1, s: rnd(40, e.len - 40),
+                  mode: 'edge', turn: null,
+                  v: 0, max: rnd(115, 175) * spd, col: pick(CARCOL), honk: 0, honked: false,
+                  stall: 0, dent: 0, stuck: 0, cd: 0, dead: 0, creep: 0, hold: false, node: -1, jx: 0, jy: 0,
+                  x: 0, y: 0, hx: 1, hy: 0, box: obb(0, 0, 0, CAR_L / 2, CAR_W / 2) };
+      placeCar(c);
+      if (cars.some(o => Math.hypot(o.x - c.x, o.y - c.y) < 100)) continue;
+      cars.push(c); break;
+    }
+  }
+  // патруль: белая с мигалкой, идёт заметно быстрее потока
+  for (let k = 0, want = level >= 4 ? 2 : 1; k < want && k < cars.length; k++) {
+    const c = cars[k];
+    c.police = true; c.col = '#eef2f7'; c.max *= 1.35; c.beacon = rnd(0, 6.283);
+  }
+
+  // ---------- зомби ----------
+  const zombies = [];
+  const nz = Math.min(3 + level * 2, 18);
+  const zspd = 1 + (level - 1) * .06;
+  for (let k = 0; k < nz; k++) {
+    let s = null;
+    for (let t = 0; t < 80 && !s; t++) {
+      const c = pick(spots);
+      if (Math.hypot(c.x - start.x, c.y - start.y) > 300) s = c;
+    }
+    if (!s) s = pick(spots);
+    zombies.push({
+      x: s.x, y: s.y, hp: 2, ang: rnd(0, 6.283), wdir: rnd(0, 6.283), wander: rnd(0, 2.5),
+      spd: rnd(104, 132) * zspd, walk: rnd(0, 6), hit: 0, kx: 0, ky: 0, seed: Math.random(),
+      alert: 0, tx: 0, ty: 0, hunt: 0, moan: rnd(0, 3)      // слух: куда идти на шум и сколько ещё интересно
+    });
+  }
+
+  // ---------- ящики: патроны и батарейки ----------
+  const ammoBoxes = [];
+  for (let k = 0; k < 6; k++) {
+    let s = null;
+    for (let t = 0; t < 60 && !s; t++) {
+      const c = pick(drop);
+      if (Math.hypot(c.x - start.x, c.y - start.y) > 170 &&
+          !ammoBoxes.some(a => Math.hypot(a.x - c.x, a.y - c.y) < 230)) s = c;
+    }
+    if (s) ammoBoxes.push({ x: s.x, y: s.y, batt: k % 2 === 1, n: 6, ph: Math.random() * 6.283 });
+  }
+
+  return {
+    level, solids, trees, soft, houses, props, parcels, cars, goal, need, zombies, ammoBoxes,
+    roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
+    stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
+    p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
+         tx: start.x, ty: start.y - 300,
+         walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
+         torch: true, batt: 1, stam: 1, running: false, rest: 0, step: 0, flick: 1 },
+    bullets: [], stains: [], rings: [], splash: [], weather: newWeather(), ammo: 12, killed: 0,
+    fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // туман войны
+    got: 0, lives: 3, time: 0, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 }
+  };
+}
+
+// ---------- статичный слой города ----------
+function renderStatic(g) {
+  const s = document.createElement('canvas');
+  s.width = s.height = WORLD;
+  const c = s.getContext('2d');
+
+  // трава по всему миру
+  c.fillStyle = '#78b859'; c.fillRect(0, 0, WORLD, WORLD);
+  for (let i = 0; i < 9000; i++) {
+    c.fillStyle = Math.random() < .5 ? 'rgba(102,166,72,.6)' : 'rgba(150,210,114,.55)';
+    c.fillRect(Math.random() * WORLD, Math.random() * WORLD, 3 + Math.random() * 5, 2);
+  }
+  for (let i = 0; i < 620; i++) {                    // цветочки
+    c.fillStyle = pick(['#f6e05e', '#f6a5c0', '#ffffff', '#c3a2f0']);
+    c.beginPath(); c.arc(Math.random() * WORLD, Math.random() * WORLD, 2, 0, 6.283); c.fill();
+  }
+
+  // ---------- улицы: широкой линией по кривой ----------
+  const stroke = (w, style, dash) => {
+    c.lineWidth = w; c.strokeStyle = style; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.setLineDash(dash || []);
+    for (const e of g.roads.edges) {
+      c.beginPath(); c.moveTo(e.pts[0].x, e.pts[0].y);
+      for (let i = 1; i < e.pts.length; i++) c.lineTo(e.pts[i].x, e.pts[i].y);
+      c.stroke();
+    }
+    c.setLineDash([]);
+  };
+  stroke(ROAD + 42, '#cfc9ba');                      // тротуар
+  stroke(ROAD + 10, '#b3ac9c');                      // бордюр
+  stroke(ROAD, '#4d525b');                           // асфальт
+  for (let i = 0; i < 9000; i++) {                   // шум асфальта
+    const x = Math.random() * WORLD, y = Math.random() * WORLD;
+    if (g.roadDist(x, y) > ROAD / 2 - 7) continue;
+    c.fillStyle = Math.random() < .5 ? 'rgba(255,255,255,.035)' : 'rgba(0,0,0,.07)';
+    c.fillRect(x, y, 3, 3);
+  }
+  stroke(3, 'rgba(240,225,150,.75)', [22, 20]);      // осевая
+
+  // зебры на подходах к перекрёсткам
+  for (const n of g.roads.nodes) {
+    if (n.e.length < 3) continue;
+    for (const ei of n.e) {
+      const e = g.roads.edges[ei];
+      const at = e.a === n.i ? ROAD * .85 : e.len - ROAD * .85;
+      if (at < 20 || at > e.len - 20) continue;
+      const p = onEdge(e, at);
+      c.save(); c.translate(p.x, p.y); c.rotate(Math.atan2(p.ty, p.tx));
+      c.fillStyle = 'rgba(235,235,228,.8)';
+      for (let k = -3; k <= 3; k++) c.fillRect(-6, k * 11 - 3, 12, 6);
+      c.restore();
+    }
+  }
+
+  // площадки и изгороди
+  for (const p of g.props) {
+    if (p.t !== 'lot' && p.t !== 'hedge') continue;
+    c.save(); c.translate(p.cx, p.cy); c.rotate(p.ang);
+    const w = p.hw * 2, h = p.hh * 2;
+    if (p.t === 'lot') {
+      c.fillStyle = '#6d6f72'; roundRect(c, -p.hw, -p.hh, w, h, 6); c.fill();
+      c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2;
+      c.strokeRect(-p.hw + 5, -p.hh + 5, w - 10, h - 10);
+    } else {
+      c.fillStyle = 'rgba(0,0,0,.16)'; roundRect(c, -p.hw + 3, -p.hh + 5, w, h, 8); c.fill();
+      c.fillStyle = '#3f7f3c'; roundRect(c, -p.hw, -p.hh, w, h, 8); c.fill();
+      const n = Math.max(2, Math.round(w / 16));
+      for (let k = 0; k < n; k++) {
+        c.fillStyle = k % 2 ? '#4e9646' : '#59a850';
+        c.beginPath(); c.arc(-p.hw + w * (k + .5) / n, 0, 9, 0, 6.283); c.fill();
+      }
+    }
+    c.restore();
+  }
+
+  // кусты
+  for (const b of g.soft) {
+    c.fillStyle = 'rgba(0,0,0,.15)';
+    c.beginPath(); c.ellipse(b.x + 3, b.y + 6, b.r, b.r * .6, 0, 0, 6.283); c.fill();
+    for (let k = 0; k < 4; k++) {
+      const a = b.seed * 6.283 + k * 1.57;
+      c.fillStyle = ['#67b25c', '#74c268', '#5aa551', '#7ecd70'][k];
+      c.beginPath(); c.arc(b.x + Math.cos(a) * b.r * .38, b.y + Math.sin(a) * b.r * .32, b.r * .62, 0, 6.283); c.fill();
+    }
+  }
+
+  // дома
+  for (const h of g.houses) drawHouse(c, h);
+
+  // припаркованные машины
+  for (const p of g.props) if (p.t === 'parked') {
+    c.save(); c.translate(p.cx, p.cy); c.rotate(p.ang);
+    drawCarShape(c, p.col, 0);
+    c.restore();
+  }
+
+  // деревья — поверх всего, кроме динамики
+  for (const t of g.trees) {
+    c.fillStyle = 'rgba(0,0,0,.22)';
+    c.beginPath(); c.ellipse(t.x + 7, t.y + 10, t.r * 1.05, t.r * .7, 0, 0, 6.283); c.fill();
+    c.fillStyle = '#6b4a2f';
+    c.beginPath(); c.arc(t.x, t.y, t.r * .28, 0, 6.283); c.fill();
+    const greens = ['#2f7a35', '#3c8c3c', '#49a247', '#57b354'];
+    for (let k = 0; k < 6; k++) {
+      const a = t.seed * 6.283 + k * 1.047, d = t.r * .5;
+      c.fillStyle = greens[k % 4];
+      c.beginPath(); c.arc(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d, t.r * .62, 0, 6.283); c.fill();
+    }
+    c.fillStyle = 'rgba(160,225,140,.55)';
+    c.beginPath(); c.arc(t.x - t.r * .3, t.y - t.r * .35, t.r * .34, 0, 6.283); c.fill();
+  }
+
+  // фонари и лавки
+  for (const p of g.props) {
+    if (p.t === 'lamp') {
+      c.fillStyle = 'rgba(0,0,0,.2)';
+      c.beginPath(); c.ellipse(p.x + 5, p.y + 6, 7, 4.5, 0, 0, 6.283); c.fill();
+      c.fillStyle = '#3c4450'; c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 6.283); c.fill();
+      c.fillStyle = '#ffe9a8'; c.beginPath(); c.arc(p.x, p.y, 2.4, 0, 6.283); c.fill();
+    }
+    if (p.t === 'bench') {
+      c.save(); c.translate(p.x, p.y); c.rotate(p.a);
+      c.fillStyle = 'rgba(0,0,0,.2)'; roundRect(c, -13, -4, 28, 13, 3); c.fill();
+      c.fillStyle = '#a9773f'; roundRect(c, -15, -7, 30, 12, 3); c.fill();
+      c.fillStyle = '#8a5f31'; c.fillRect(-15, -7, 30, 3);
+      c.restore();
+    }
+  }
+  return s;
+}
+
+function roundRect(c, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
+function drawHouse(c, h) {
+  const hw = h.hw, hh = h.hh, w = hw * 2, hg = hh * 2;
+  c.save(); c.translate(h.cx + 7, h.cy + 11); c.rotate(h.ang);      // тень падает вниз-вправо
+  c.fillStyle = 'rgba(0,0,0,.25)'; roundRect(c, -hw, -hh, w, hg, 4); c.fill();
+  c.restore();
+
+  c.save(); c.translate(h.cx, h.cy); c.rotate(h.ang);
+  // стены
+  c.fillStyle = h.wall; roundRect(c, -hw, -hh, w, hg, 3); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 2; c.stroke();
+  // крыша: скаты от краёв к коньку
+  const in1 = Math.min(w, hg) * .2;
+  const rx = -hw + in1, ry = -hh + in1, rw = w - in1 * 2, rh = hg - in1 * 2;
+  c.fillStyle = h.roof;
+  roundRect(c, -hw + 3, -hh + 3, w - 6, hg - 6, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.13)';
+  c.beginPath(); c.moveTo(-hw + 3, -hh + 3); c.lineTo(hw - 3, -hh + 3); c.lineTo(rx + rw, ry); c.lineTo(rx, ry); c.fill();
+  c.fillStyle = 'rgba(0,0,0,.22)';
+  c.beginPath(); c.moveTo(-hw + 3, hh - 3); c.lineTo(hw - 3, hh - 3); c.lineTo(rx + rw, ry + rh); c.lineTo(rx, ry + rh); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5;
+  c.beginPath();
+  c.moveTo(-hw + 3, -hh + 3); c.lineTo(rx, ry); c.moveTo(hw - 3, -hh + 3); c.lineTo(rx + rw, ry);
+  c.moveTo(-hw + 3, hh - 3); c.lineTo(rx, ry + rh); c.moveTo(hw - 3, hh - 3); c.lineTo(rx + rw, ry + rh);
+  c.stroke();
+  // конёк
+  c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 3;
+  c.beginPath();
+  if (rw > rh) { c.moveTo(rx, ry + rh / 2); c.lineTo(rx + rw, ry + rh / 2); }
+  else { c.moveTo(rx + rw / 2, ry); c.lineTo(rx + rw / 2, ry + rh); }
+  c.stroke();
+  // труба
+  c.fillStyle = '#8b6b57'; c.fillRect(-hw + w * (.22 + h.seed * .5), -hh + hg * .18, 13, 13);
+  c.fillStyle = 'rgba(0,0,0,.3)'; c.fillRect(-hw + w * (.22 + h.seed * .5), -hh + hg * .18, 13, 4);
+  // крыльцо с дверью — со стороны улицы
+  c.save(); c.scale(1, h.face);
+  c.fillStyle = '#bdb3a1'; c.fillRect(-18, hh - 4, 36, 9);
+  c.fillStyle = h.target ? '#57c057' : '#6d4b32';
+  roundRect(c, -13, hh - 12, 26, 14, 3); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
+  c.restore();
+  if (h.target) {
+    c.fillStyle = 'rgba(120,240,120,.35)';
+    c.beginPath(); c.arc(0, h.face * (hh + 4), 30, 0, 6.283); c.fill();
+  }
+  c.restore();
+}
+
+function drawCarShape(c, col, honk, police, beacon, dent, hazard) {
+  // машина «носом» вправо, центр в (0,0)
+  c.fillStyle = 'rgba(0,0,0,.28)';
+  roundRect(c, -CAR_L / 2 + 4, -CAR_W / 2 + 6, CAR_L, CAR_W, 7); c.fill();
+  c.fillStyle = '#2b2f36';
+  c.fillRect(-CAR_L / 2 + 7, -CAR_W / 2 - 2, 9, CAR_W + 4);
+  c.fillRect(CAR_L / 2 - 16, -CAR_W / 2 - 2, 9, CAR_W + 4);
+  c.fillStyle = col; roundRect(c, -CAR_L / 2, -CAR_W / 2, CAR_L, CAR_W, 7); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.22)'; roundRect(c, -CAR_L / 2 + 3, -CAR_W / 2 + 3, CAR_L - 6, 5, 3); c.fill();
+  c.fillStyle = '#2e3b4a';                                     // стёкла
+  roundRect(c, CAR_L / 2 - 15, -CAR_W / 2 + 4, 8, CAR_W - 8, 3); c.fill();
+  roundRect(c, -CAR_L / 2 + 8, -CAR_W / 2 + 4, 7, CAR_W - 8, 3); c.fill();
+  c.fillStyle = 'rgba(255,255,255,.5)'; roundRect(c, -3, -CAR_W / 2 + 4, 5, CAR_W - 8, 2); c.fill();
+  if (police) {                                                // ливрея и мигалка на крыше
+    c.fillStyle = '#1f3f7a';
+    c.fillRect(-CAR_L / 2 + 4, -CAR_W / 2 + 1, CAR_L - 8, 3);
+    c.fillRect(-CAR_L / 2 + 4, CAR_W / 2 - 4, CAR_L - 8, 3);
+    const rp = .5 + .5 * Math.sin(beacon * 3.1), bp = 1 - rp;
+    c.fillStyle = '#20242c'; roundRect(c, -5, -CAR_W / 2 - 1, 10, CAR_W + 2, 2); c.fill();
+    c.fillStyle = `rgba(255,70,70,${.3 + .7 * rp})`;
+    roundRect(c, -4, -CAR_W / 2, 8, CAR_W / 2 - 1, 2); c.fill();
+    c.fillStyle = `rgba(90,140,255,${.3 + .7 * bp})`;
+    roundRect(c, -4, 1, 8, CAR_W / 2 - 1, 2); c.fill();
+  }
+  if (dent > 0) {                                              // смятый нос после удара
+    c.fillStyle = `rgba(20,18,16,${.2 + .35 * Math.min(1, dent)})`;
+    c.beginPath();
+    c.moveTo(CAR_L / 2, -CAR_W / 2 + 1);
+    c.lineTo(CAR_L / 2 - 10, -CAR_W / 2 + 5);
+    c.lineTo(CAR_L / 2 - 4, 0);
+    c.lineTo(CAR_L / 2 - 11, CAR_W / 2 - 4);
+    c.lineTo(CAR_L / 2, CAR_W / 2 - 1);
+    c.closePath(); c.fill();
+  }
+  c.fillStyle = '#ffe9a0';                                     // фары
+  c.fillRect(CAR_L / 2 - 3, -CAR_W / 2 + 3, 3, 5);
+  c.fillRect(CAR_L / 2 - 3, CAR_W / 2 - 8, 3, 5);
+  c.fillStyle = '#d24b3c';
+  c.fillRect(-CAR_L / 2, -CAR_W / 2 + 3, 3, 5);
+  c.fillRect(-CAR_L / 2, CAR_W / 2 - 8, 3, 5);
+  if (hazard > 0 && ((hazard * 5) | 0) % 2 === 0) {            // аварийка, пока стоит после удара
+    c.fillStyle = '#ffb03a';
+    c.fillRect(CAR_L / 2 - 3, -CAR_W / 2 + 3, 3, 5); c.fillRect(CAR_L / 2 - 3, CAR_W / 2 - 8, 3, 5);
+    c.fillRect(-CAR_L / 2, -CAR_W / 2 + 3, 3, 5);   c.fillRect(-CAR_L / 2, CAR_W / 2 - 8, 3, 5);
+  }
+  if (honk > 0) {
+    c.strokeStyle = `rgba(255,240,140,${honk})`; c.lineWidth = 2;
+    for (let k = 1; k <= 2; k++) {
+      c.beginPath(); c.arc(CAR_L / 2 + 4, 0, 6 + k * 6, -.7, .7); c.stroke();
+    }
+  }
+}
+
+// ---------- столкновения ----------
+// круг против повёрнутой коробки: считаем в системе коробки, толкаем обратно в мир
+function hitOBB(p, r, o) {
+  if (Math.hypot(p.x - o.cx, p.y - o.cy) > r + o.rad) return false;
+  const ca = Math.cos(o.ang), sa = Math.sin(o.ang);
+  const dx = p.x - o.cx, dy = p.y - o.cy;
+  const lx = dx * ca + dy * sa, ly = dy * ca - dx * sa;
+  let ox = lx - clamp(lx, -o.hw, o.hw), oy = ly - clamp(ly, -o.hh, o.hh);
+  const d = Math.hypot(ox, oy);
+  if (d >= r) return false;
+  if (d > .0001) { const k = (r - d) / d; ox *= k; oy *= k; }
+  else {                                                   // центр внутри — наружу через ближайшую грань
+    const dl = lx + o.hw, dr = o.hw - lx, dt = ly + o.hh, db = o.hh - ly;
+    const m = Math.min(dl, dr, dt, db);
+    if (m === dl) { ox = -(dl + r); oy = 0; }
+    else if (m === dr) { ox = dr + r; oy = 0; }
+    else if (m === dt) { ox = 0; oy = -(dt + r); }
+    else { ox = 0; oy = db + r; }
+  }
+  p.x += ox * ca - oy * sa; p.y += ox * sa + oy * ca;
+  return true;
+}
+// две повёрнутые коробки: разделяющая ось ищется по нормалям граней обеих
+function obbHit(A, B) {
+  if (Math.hypot(A.cx - B.cx, A.cy - B.cy) > A.rad + B.rad) return false;
+  for (let o = 0; o < 2; o++) {
+    const O = o ? B : A, c = Math.cos(O.ang), s = Math.sin(O.ang);
+    for (let k = 0; k < 2; k++) {
+      const ax = k ? -s : c, ay = k ? c : s;
+      let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+      for (let i = 0; i < 4; i++) {
+        const pa = A.pts[i][0] * ax + A.pts[i][1] * ay, pb = B.pts[i][0] * ax + B.pts[i][1] * ay;
+        if (pa < a0) a0 = pa; if (pa > a1) a1 = pa;
+        if (pb < b0) b0 = pb; if (pb > b1) b1 = pb;
+      }
+      if (a1 < b0 || b1 < a0) return false;
+    }
+  }
+  return true;
+}
+
+function hitCircle(p, r, C) {
+  const dx = p.x - C.x, dy = p.y - C.y, d = Math.hypot(dx, dy);
+  if (d >= r + C.r) return false;
+  if (d < .0001) { p.x += r + C.r; return true; }
+  const k = (r + C.r - d) / d; p.x += dx * k; p.y += dy * k; return true;
+}
+
+// ---------- ввод ----------
+addEventListener('keydown', e => {
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  const k = e.key.toLowerCase();
+  if (!keys[k] && state === 'play' && G && (k === 'f' || k === 'а')) {
+    G.p.torch = !G.p.torch;
+    SND.play(G.p.torch && G.p.batt > 0 ? 'click' : 'empty');
+  }
+  if (!keys[k] && (k === 'm' || k === 'ь')) SND.toggle();
+  keys[k] = 1;
+  if (state !== 'play' && (e.key === ' ' || e.key === 'Enter')) startBtn.click();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = 0; });
+
+const tpos = t => {
+  const r = cv.getBoundingClientRect();
+  return [(t.clientX - r.left) * cv.width / r.width, (t.clientY - r.top) * cv.height / r.height];
+};
+// первый палец — джойстик, любой следующий — огонь; угол сверху слева — фонарь
+const TORCH_BTN = { x: 58, y: 52, r: 34 };
+cv.addEventListener('touchstart', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const p = tpos(t);
+    if (state === 'play' && G && Math.hypot(p[0] - TORCH_BTN.x, p[1] - TORCH_BTN.y) < TORCH_BTN.r) {
+      G.p.torch = !G.p.torch;
+      SND.play(G.p.torch && G.p.batt > 0 ? 'click' : 'empty');
+      continue;
+    }
+    if (joyId === null) { joyId = t.identifier; touch = { ox: p[0], oy: p[1], x: p[0], y: p[1] }; }
+    else fireHeld = true;
+  }
+}, { passive: false });
+cv.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyId && touch) { const p = tpos(t); touch.x = p[0]; touch.y = p[1]; }
+}, { passive: false });
+const touchOff = e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) if (t.identifier === joyId) { joyId = null; touch = null; }
+  fireHeld = [...e.touches].some(t => t.identifier !== joyId);
+  if (joyId === null && e.touches.length) {                 // джойстик уехал — назначаем оставшийся палец
+    const t = e.touches[0], p = tpos(t);
+    joyId = t.identifier; touch = { ox: p[0], oy: p[1], x: p[0], y: p[1] };
+    fireHeld = e.touches.length > 1;
+  }
+};
+cv.addEventListener('touchend', touchOff, { passive: false });
+cv.addEventListener('touchcancel', touchOff, { passive: false });
+
+// мышь — прицел и огонь
+cv.addEventListener('mousemove', e => { const p = tpos(e); mouse.sx = p[0]; mouse.sy = p[1]; mouse.active = true; });
+cv.addEventListener('mousedown', e => { e.preventDefault(); const p = tpos(e); mouse.sx = p[0]; mouse.sy = p[1]; mouse.active = true; mouse.down = 1; });
+addEventListener('mouseup', () => { mouse.down = 0; });
+cv.addEventListener('mouseleave', () => { mouse.down = 0; });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+function inputDir() {
+  let dx = 0, dy = 0, run = !!keys['shift'];
+  if (keys['arrowleft'] || keys['a'] || keys['ф']) dx -= 1;
+  if (keys['arrowright'] || keys['d'] || keys['в']) dx += 1;
+  if (keys['arrowup'] || keys['w'] || keys['ц']) dy -= 1;
+  if (keys['arrowdown'] || keys['s'] || keys['ы']) dy += 1;
+  if (touch) {
+    const tx = touch.x - touch.ox, ty = touch.y - touch.oy, d = Math.hypot(tx, ty);
+    if (d > 10) { const k = Math.min(d, 55) / 55 / d; dx = tx * k; dy = ty * k; }
+    if (d > 50) run = true;                       // палец до упора — бежим
+  }
+  const m = Math.hypot(dx, dy);
+  const v = m > 1 ? { x: dx / m, y: dy / m, m: 1 } : { x: dx, y: dy, m };
+  v.run = run;
+  return v;
+}
+
+// насколько точка «асфальтовая»: 1 — середина улицы, 0 — газон. Плавно на бордюре
+const surfaceAt = (g, x, y) => clamp((ROAD / 2 + 8 - g.roadDist(x, y)) / 22, 0, 1);
+
+// шум: зомби запоминают точку и идут проверять. Дождь глушит всё разом
+function makeNoise(g, x, y, r, strength, ring, skip) {
+  r *= 1 - .3 * g.weather.rain;
+  for (const z of g.zombies) {
+    if (z === skip || z.gone || Math.hypot(z.x - x, z.y - y) > r) continue;
+    z.tx = x; z.ty = y; z.alert = Math.max(z.alert, strength);
+  }
+  if (ring) g.rings.push({ x, y, r: 10, max: r, l: .55 });
+}
+
+const camOf = g => ({ x: clamp(g.p.x - W / 2, 0, WORLD - W), y: clamp(g.p.y - H / 2, 0, WORLD - H) });
+
+// руки курьера в системе прицела: фонарь в левой, пистолет в правой
+const HAND_T = { f: 13, s: -10 }, HAND_G = { f: 14, s: 8 };
+const handAt = (p, h) => {
+  const c = Math.cos(p.aim), s = Math.sin(p.aim);
+  return { x: p.x + c * h.f - s * h.s, y: p.y + s * h.f + c * h.s };
+};
+const torchHand = p => handAt(p, HAND_T);
+const gunHand   = p => handAt(p, HAND_G);
+
+// выстрел: пуля, вспышка, отдача и шум на весь квартал
+function fire(g) {
+  // ствол смотрит в точку прицела, а не параллельно взгляду — иначе он бьёт мимо на пол-шага вбок
+  const p = g.p, h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x) + rnd(-.045, .045);
+  g.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
+  g.shake = Math.max(g.shake, .3);
+  g.bullets.push({ x: h.x + Math.cos(a) * 10, y: h.y + Math.sin(a) * 10, px: h.x, py: h.y,
+                   vx: Math.cos(a) * BV, vy: Math.sin(a) * BV, l: .5 });
+  p.kx -= Math.cos(a) * 55; p.ky -= Math.sin(a) * 55;
+  for (let k = 0; k < 5; k++)
+    g.parts.push({ x: h.x + Math.cos(a) * 11, y: h.y + Math.sin(a) * 11,
+                   vx: Math.cos(a) * rnd(40, 150) + rnd(-60, 60), vy: Math.sin(a) * rnd(40, 150) + rnd(-60, 60),
+                   l: rnd(.1, .25), c: '#ffe08a', s: rnd(2, 3) });
+  makeNoise(g, p.x, p.y, 430, 7, true);           // выстрел слышно на весь квартал
+  SND.play('shot', p.x, p.y);
+}
+
+function killZombie(g, z) {
+  if (z.gone) return;
+  z.gone = true; z.hp = 0; g.killed++;
+  g.stains.push({ x: z.x, y: z.y, seed: Math.random() });
+  for (let k = 0; k < 18; k++)
+    g.parts.push({ x: z.x, y: z.y, vx: rnd(-170, 170), vy: rnd(-170, 170), l: rnd(.3, .8), c: pick(['#7fae3a', '#5c8a2a', '#9ec457']), s: rnd(2, 5) });
+  const drop = Math.random();
+  if (drop < .34) g.ammoBoxes.push({ x: z.x, y: z.y, batt: drop < .12, n: 4, ph: Math.random() * 6.283 });
+  SND.play('die', z.x, z.y, z.seed);
+}
+
+// один урон игроку — от машины или от зомби
+function hurt(g, dx, dy, power) {
+  const p = g.p;
+  g.lives--; p.inv = 1.9; p.stagger = .5; g.shake = 1;
+  p.kx = dx * power; p.ky = dy * power;
+  for (let k = 0; k < 16; k++)
+    g.parts.push({ x: p.x, y: p.y, vx: rnd(-160, 160), vy: rnd(-160, 160), l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
+  SND.play('hurt', p.x, p.y);
+  if (g.lives <= 0) gameOver(g);
+}
+
+// ---------- обновление ----------
+function update(g, dt) {
+  g.time += dt;
+  g.shake = Math.max(0, g.shake - dt * 3);
+  const p = g.p;
+  SND.listen(p.x, p.y);
+  p.inv = Math.max(0, p.inv - dt);
+
+  // в кустах — медленнее
+  let inBush = false;
+  for (const b of g.soft) if (Math.hypot(b.x - p.x, b.y - p.y) < b.r * .9) { inBush = true; break; }
+  const dir = inputDir();
+
+  // фонарь: садится, на последних процентах мигает
+  if (p.torch && p.batt > 0) {
+    p.batt = Math.max(0, p.batt - BATT_DRAIN * dt);
+    p.flick = p.batt < .16 ? (Math.random() < .12 ? rnd(.15, .5) : rnd(.75, 1)) : 1;
+    if (p.batt === 0) p.torch = false;
+  } else p.flick = 1;
+
+  // рывок: жрёт выносливость и шумит
+  p.running = dir.run && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
+  if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
+  else {
+    p.rest = Math.max(0, p.rest - dt);
+    if (p.rest <= 0) p.stam = Math.min(1, p.stam + STAM_REGEN * dt);
+  }
+  // по асфальту курьер идёт заметно быстрее, чем по газонам и дворам
+  const road = surfaceAt(g, p.x, p.y);
+  const speed = (inBush ? .62 : 1) * (p.running ? RUN : WALK) * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
+  p.stagger = Math.max(0, (p.stagger || 0) - dt);
+
+  // шаги: бег слышно далеко, обычный шаг — почти нет; подошва по асфальту звонче
+  if (dir.m > .2) {
+    p.step -= dt;
+    if (p.step <= 0) {
+      p.step = (p.running ? .34 : .8) * (1 - .12 * road);
+      makeNoise(g, p.x, p.y, (p.running ? 210 : 78) * (1 + .3 * road), p.running ? 3.5 : 1.2, p.running);
+      SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
+    }
+  } else p.step = .1;
+
+  const tvx = dir.x * speed, tvy = dir.y * speed;
+  const acc = (14 - 5 * road * g.weather.wet) * dt;      // мокрый асфальт: разгон и торможение вязнут
+  p.vx += (tvx - p.vx) * Math.min(1, acc);
+  p.vy += (tvy - p.vy) * Math.min(1, acc);
+  if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
+  p.x += p.vx * dt; p.y += p.vy * dt;
+  if (dir.m > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (inBush ? 7 : 11); }
+  else p.walk += dt * 1.5;
+
+  p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
+  for (const s of g.solids) hitOBB(p, PR, s);
+  for (const t of g.trees) hitCircle(p, PR, t);
+  g.cam = camOf(g);
+
+  // прицел: мышь, иначе — куда идём
+  if (mouse.active) { p.tx = mouse.sx + g.cam.x; p.ty = mouse.sy + g.cam.y; }
+  else { p.tx = p.x + Math.cos(p.ang) * 300; p.ty = p.y + Math.sin(p.ang) * 300; }
+  p.aim = Math.atan2(p.ty - p.y, p.tx - p.x);
+  updateWeather(g, dt);
+  updateFog(g, dt);
+
+  // выстрел
+  p.cool = Math.max(0, p.cool - dt);
+  p.muzzle = Math.max(0, p.muzzle - dt);
+  const wantFire = mouse.down || fireHeld || keys[' '] || keys['k'] || keys['л'];
+  if (wantFire && p.cool <= 0 && g.ammo > 0 && !g.done) fire(g);
+
+  // пули
+  for (let i = g.bullets.length - 1; i >= 0; i--) {
+    const b = g.bullets[i];
+    b.l -= dt; b.px = b.x; b.py = b.y;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    let gone = b.l <= 0 || b.x < 0 || b.y < 0 || b.x > WORLD || b.y > WORLD;
+    if (!gone) for (const s of g.solids)
+      if (inOBB(b.x, b.y, s)) { gone = 'w'; break; }
+    if (!gone) for (const t of g.trees)
+      if (Math.hypot(t.x - b.x, t.y - b.y) < t.r) { gone = 'w'; break; }
+    if (!gone) for (const z of g.zombies) {
+      if (z.gone || Math.hypot(z.x - b.x, z.y - b.y) > ZR + 3) continue;
+      z.hp--; z.hit = .2; z.alert = 6;
+      z.kx += b.vx * .12; z.ky += b.vy * .12;
+      for (let k = 0; k < 8; k++)
+        g.parts.push({ x: b.x, y: b.y, vx: rnd(-110, 110), vy: rnd(-110, 110), l: rnd(.2, .5), c: '#7fae3a', s: rnd(2, 4) });
+      if (z.hp <= 0) killZombie(g, z); else SND.play('hit', b.x, b.y);
+      gone = 'z'; break;
+    }
+    if (gone) {
+      if (gone === 'w') SND.play('wall', b.x, b.y);
+      for (let k = 0; k < 3; k++)
+        g.parts.push({ x: b.x, y: b.y, vx: rnd(-70, 70), vy: rnd(-70, 70), l: rnd(.1, .25), c: '#ffe08a', s: 2 });
+      g.bullets.splice(i, 1);
+    }
+  }
+
+  // зомби
+  for (const z of g.zombies) {
+    if (z.gone) continue;
+    z.hit = Math.max(0, z.hit - dt);
+    z.alert = Math.max(0, z.alert - dt);
+    z.hunt = Math.max(0, z.hunt - dt);
+    const dx = p.x - z.x, dy = p.y - z.y, d = Math.hypot(dx, dy) || 1;
+
+    // видит: вплотную — всегда, издалека — только если курьер светит фонарём в его сторону
+    let sees = !g.done && d < 120;
+    if (!sees && !g.done && p.torch && p.batt > 0 && d < 400 - 64 * g.weather.rain) {
+      const h = torchHand(p), hx = z.x - h.x, hy = z.y - h.y, hd = Math.hypot(hx, hy) || 1;
+      const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
+      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) sees = true;   // зомби внутри конуса света из руки
+    }
+    if (sees) { z.hunt = 3.2; z.tx = p.x; z.ty = p.y; }
+
+    let ax, ay, chase = false;
+    if (z.hunt > 0) { ax = dx / d; ay = dy / d; chase = true; }     // гонится за курьером
+    else if (z.alert > 0) {                                        // идёт на запомненный шум
+      const nx = z.tx - z.x, ny = z.ty - z.y, nd = Math.hypot(nx, ny) || 1;
+      if (nd < 26) { z.alert = Math.min(z.alert, .6); ax = Math.cos(z.wdir); ay = Math.sin(z.wdir); }
+      else { ax = nx / nd; ay = ny / nd; chase = true; }
+    } else {
+      z.wander -= dt;
+      if (z.wander <= 0) { z.wander = rnd(1.2, 3.4); z.wdir = rnd(0, 6.283); }
+      ax = Math.cos(z.wdir); ay = Math.sin(z.wdir);
+    }
+    z.ang = Math.atan2(ay, ax);
+
+    // рычит и созывает соседей
+    z.moan -= dt;
+    if (z.moan <= 0) {
+      z.moan = chase ? rnd(1.6, 2.8) : rnd(5, 9);
+      if (chase) makeNoise(g, z.x, z.y, 190, 3, false, z);
+      SND.play('moan', z.x, z.y, z.seed);
+    }
+
+    // на асфальте они тоже прибавляют, но втрое меньше курьера — по улице можно оторваться
+    const sp = z.spd * (chase ? 1 : .34) * (1 + .07 * surfaceAt(g, z.x, z.y));
+    z.x += ax * sp * dt; z.y += ay * sp * dt;
+    z.walk += dt * (chase ? 7 : 3);
+    if (z.kx || z.ky) {
+      z.x += z.kx * dt; z.y += z.ky * dt; z.kx *= .86; z.ky *= .86;
+      if (Math.abs(z.kx) < 5 && Math.abs(z.ky) < 5) z.kx = z.ky = 0;
+    }
+    z.x = clamp(z.x, ZR, WORLD - ZR); z.y = clamp(z.y, ZR, WORLD - ZR);
+    for (const s of g.solids) hitOBB(z, ZR, s);
+    for (const t of g.trees) hitCircle(z, ZR, t);
+    for (const o of g.zombies) {                       // не слипаются в кучу
+      if (o === z) continue;
+      const ox = z.x - o.x, oy = z.y - o.y, od = Math.hypot(ox, oy);
+      if (od > 0 && od < ZR * 2) { const k = (ZR * 2 - od) / od * .5; z.x += ox * k; z.y += oy * k; }
+    }
+    // машина сбивает зомби
+    for (const c of g.cars) {
+      if (c.v > 40 && distOBB(z.x, z.y, c.box) < ZR - 4) {
+        z.kx = c.hx * 260; z.ky = c.hy * 260; c.honk = 1;
+        killZombie(g, z); break;
+      }
+    }
+    if (!z.gone && p.inv <= 0 && !g.done && d < PR + ZR - 5) hurt(g, dx / d, dy / d, 150);
+    if (g.lives <= 0) return;
+  }
+  for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
+
+  // патроны и батарейки
+  for (let i = g.ammoBoxes.length - 1; i >= 0; i--) {
+    const a = g.ammoBoxes[i];
+    a.ph += dt * 3;
+    if (Math.hypot(a.x - p.x, a.y - p.y) < 22) {
+      if (a.batt) p.batt = Math.min(1, p.batt + .5); else g.ammo += a.n;
+      g.ammoBoxes.splice(i, 1);
+      SND.play('pick', a.x, a.y);
+      for (let k = 0; k < 10; k++)
+        g.parts.push({ x: a.x, y: a.y, vx: rnd(-80, 80), vy: rnd(-130, -20), l: rnd(.3, .6),
+                       c: a.batt ? '#8ee6a0' : '#cfe0f2', s: rnd(2, 4) });
+    }
+  }
+
+  // кольца шума — чтобы игрок видел, насколько сам себя выдал
+  for (let i = g.rings.length - 1; i >= 0; i--) {
+    const r = g.rings[i];
+    r.l -= dt; r.r += (r.max - r.r) * Math.min(1, dt * 5);
+    if (r.l <= 0) g.rings.splice(i, 1);
+  }
+
+  // машины
+  for (const c of g.cars) {
+    if (c.jx) {                                      // отходняк после удара
+      c.jx *= .86; c.jy *= .86;
+      if (Math.abs(c.jx) < .3 && Math.abs(c.jy) < .3) c.jx = c.jy = 0;
+    }
+    c.dent = Math.max(0, c.dent - dt * .12);         // вмятина «выправляется» медленно, только для вида
+
+    // просматриваем весь коридор перед собой без разрывов: коробки идут внахлёст
+    const look = Math.max(52, c.v * 1.05), nb = Math.min(10, Math.ceil(look / 42));
+    const close = Math.max(46, c.v * .55);
+    let near = false, far = false;
+    for (let li = 1; li <= nb && !near; li++) {
+      const dist = look * li / nb, isNear = dist <= close;
+      const box = ahead(c, dist);
+      let hit = false;
+      for (const o of g.cars) {
+        if (o === c) continue;
+        // вплотную тормозим перед кем угодно, а на подъезде к перекрёстку уступает старший id
+        const same = o.edge === c.edge && o.dir === c.dir;
+        if (!isNear && !(same || o.id < c.id || o.stall > 0)) continue;
+        if (obbHit(box, o.box)) { hit = true; break; }
+      }
+      if (!hit && isNear) for (const q of g.parked) if (obbHit(box, q)) { hit = true; break; }
+      if (hit) { if (isNear) near = true; else far = true; }
+    }
+    // «поехали сами» снимает ожидание и дальний осмотр, но перед самым носом тормозим всегда
+    let brake = near || (c.creep <= 0 && (far || c.hold));
+    c.stuck = brake && c.v < 14 ? c.stuck + dt : 0;
+    if (c.stall > 0) { c.stall -= dt; brake = true; }
+    c.cd = Math.max(0, c.cd - dt);
+    c.dead = c.v < 8 ? c.dead + dt : 0;
+    // никто не уступил или встали лбами — трогаемся сами и едем, пока не выберемся с перекрёстка
+    if (c.creep > 0) { c.creep -= dt; brake = false; }
+    else if (c.stuck > 2.5 || c.dead > 4) { c.creep = 1.4; c.stall = c.stuck = c.dead = 0; brake = false; }
+
+    if (c.police) {
+      c.beacon += dt * 7;                                      // мигалка крутится
+      c.siren = (c.siren || 0) - dt;                           // сирену слышно — зомби идут на неё
+      if (c.siren <= 0) { c.siren = 1.1; makeNoise(g, c.x, c.y, 250, 3.2); SND.play('siren', c.x, c.y); }
+    }
+    const turning = c.mode === 'turn', wet = g.weather.wet;
+    const wish = brake ? 0 : c.max * (turning ? .58 - .1 * wet : 1);  // на повороте, тем более мокром, сбрасываем
+    c.v += (wish - c.v) * Math.min(1, (brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
+    if (turning) {
+      const T = c.turn;
+      T.t += c.v * dt / T.len;
+      if (T.t >= 1) {                                          // вышли на новую улицу
+        c.edge = T.next; c.dir = T.ndir; c.s = T.sIn; c.mode = 'edge'; c.turn = null; c.node = -1;
+        const l = lanePoint(c.edge, c.s, c.dir);
+        steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5);
+      } else {
+        const q = bezAt(T, T.t), tg = bezDir(T, T.t);
+        steerCar(c, q.x, q.y, tg.x, tg.y, dt, 2.9);            // не круче ~165°/с
+      }
+    } else {
+      c.s = clamp(c.s + c.dir * c.v * dt, -20, c.edge.len + 20);   // не даём отсчёту убежать за улицу
+      // на перекрёсток въезжает по одному, и ждущие стоят на стоп-линии ПЕРЕД узлом, а не в нём
+      const at = c.dir > 0 ? c.edge.b : c.edge.a;
+      let left = c.dir > 0 ? c.edge.len - c.s : c.s;
+      c.hold = left <= TURN_IN + 46 + c.v * .55 &&
+               g.cars.some(o => o !== c && o.mode === 'turn' && o.node === at);
+      if (c.hold) {
+        const stop = c.dir > 0 ? c.edge.len - TURN_IN - 10 : TURN_IN + 10;
+        c.s = c.dir > 0 ? Math.min(c.s, stop) : Math.max(c.s, stop);
+        left = c.dir > 0 ? c.edge.len - c.s : c.s;
+      }
+      const l = lanePoint(c.edge, c.s, c.dir);
+      steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5);
+      if (left <= TURN_IN && !c.hold) startTurn(g, c);
+    }
+
+    // сигналит, если игрок близко к траектории
+    const dx = p.x - c.x, dy = p.y - c.y;
+    const rel = dx * c.hx + dy * c.hy, side = Math.abs(dy * c.hx - dx * c.hy);
+    c.honk = rel > 0 && rel < 130 && side < 26 ? Math.min(1, c.honk + dt * 4) : Math.max(0, c.honk - dt * 3);
+    if (c.honk > .5 && !c.honked) { c.honked = true; SND.play('honk', c.x, c.y); }
+    else if (c.honk < .1) c.honked = false;
+
+    // наезд
+    if (p.inv <= 0 && !g.done && distOBB(p.x, p.y, c.box) < PR - 2) {
+      const sgn = (dy * c.hx - dx * c.hy) > 0 ? 1 : -1;      // в какую сторону откинуть
+      hurt(g, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
+      if (g.lives <= 0) return;
+    }
+  }
+
+  // кто не успел уступить — тот столкнулся
+  for (let i = 0; i < g.cars.length; i++) for (let j = i + 1; j < g.cars.length; j++) {
+    const a = g.cars[i], b = g.cars[j];
+    if (a.cd > 0 || b.cd > 0) continue;
+    if (Math.hypot(a.x - b.x, a.y - b.y) > CAR_L + 8) continue;
+    if (obbHit(a.box, b.box)) crash(g, a, b);
+  }
+
+  // посылки
+  for (const b of g.parcels) {
+    if (b.got) continue;
+    b.ph += dt * 3;
+    if (Math.hypot(b.x - p.x, b.y - p.y) < 22) {
+      b.got = true; g.got++;
+      SND.play('pick', b.x, b.y);
+      for (let k = 0; k < 14; k++)
+        g.parts.push({ x: b.x, y: b.y, vx: rnd(-90, 90), vy: rnd(-140, -20), l: rnd(.4, .8), c: '#ffd766', s: rnd(2, 4) });
+    }
+  }
+
+  // доставка
+  if (g.got >= g.need && !g.done && Math.hypot(g.goal.x - p.x, g.goal.y - p.y) < 26) {
+    g.done = true;
+    SND.play('win');
+    for (let k = 0; k < 40; k++)
+      g.parts.push({ x: g.goal.x, y: g.goal.y, vx: rnd(-200, 200), vy: rnd(-260, -40), l: rnd(.6, 1.3), c: pick(['#8fe388', '#ffd766', '#ffffff']), s: rnd(2, 5) });
+    if (g.level + 1 > best) { best = g.level + 1; localStorage.setItem('townBest', best); $('best').textContent = best; }
+    setTimeout(() => {
+      state = 'win';
+      cv.classList.remove('aim');
+      overlay.classList.remove('hidden');
+      overlay.querySelector('h1').textContent = 'ДОСТАВЛЕНО!';
+      overlay.querySelector('h2').textContent = `район ${g.level} закрыт за ${g.time.toFixed(1)} с`;
+      overlay.querySelector('p').innerHTML =
+        `Зомби упокоено: <b>${g.killed}</b>. Дальше район <b>${g.level + 1}</b>: посылок больше, машин и зомби тоже.<br>` +
+        `Жизни и патроны — по новой.`;
+      startBtn.textContent = 'ДАЛЬШЕ';
+    }, 900);
+  }
+
+  // частицы
+  for (let i = g.parts.length - 1; i >= 0; i--) {
+    const q = g.parts[i];
+    q.l -= dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 320 * dt; q.vx *= .98;
+    if (q.l <= 0) g.parts.splice(i, 1);
+  }
+
+  drawHud(g);
+}
+
+function drawHud(g) {
+  $('lvl').textContent = g.level;
+  $('box').textContent = `${g.got}/${g.need}`;
+  $('ammo').textContent = g.ammo;
+  $('lives').textContent = '♥'.repeat(Math.max(0, g.lives)) + '·'.repeat(clamp(3 - g.lives, 0, 3));
+  $('time').textContent = g.time.toFixed(1);
+}
+
+function gameOver(g) {
+  state = 'over';
+  SND.play('over'); SND.rain(0);
+  cv.classList.remove('aim');
+  drawHud(g);
+  overlay.classList.remove('hidden');
+  overlay.querySelector('h1').textContent = 'СМЕНА ОКОНЧЕНА';
+  overlay.querySelector('h2').textContent = `район ${g.level}, посылок ${g.got} из ${g.need}, зомби упокоено ${g.killed}`;
+  overlay.querySelector('p').innerHTML =
+    'Машины на этих улицах не тормозят — зато отлично сбивают зомби.<br>' +
+    'Не пали в белый свет: патроны кончаются, а на шум сбегается вся округа.';
+  startBtn.textContent = 'ЕЩЁ РАЗ';
+}
+
+// ---------- отрисовка ----------
+function draw(g) {
+  const p = g.p;
+  let camx = clamp(p.x - W / 2, 0, WORLD - W), camy = clamp(p.y - H / 2, 0, WORLD - H);
+  if (g.shake > 0) { camx += rnd(-1, 1) * g.shake * 7; camy += rnd(-1, 1) * g.shake * 7; }
+  camx = clamp(camx, 0, WORLD - W); camy = clamp(camy, 0, WORLD - H);
+
+  ctx.drawImage(g.stat, camx, camy, W, H, 0, 0, W, H);
+  if (g.weather.wet > .02) {                       // мокрый город темнее и холоднее
+    ctx.fillStyle = `rgba(28,46,74,${.2 * g.weather.wet})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  ctx.save();
+  ctx.translate(-camx, -camy);
+
+  // брызги: рисуем до света, чтобы фары и фонарь по ним били
+  if (g.splash.length) {
+    ctx.lineWidth = 1;
+    for (const s of g.splash) {
+      const k = 1 - s.l / .3;
+      ctx.strokeStyle = `rgba(200,225,255,${(1 - k) * .45})`;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.r + k * 7, (s.r + k * 7) * .45, 0, 0, 6.283);
+      ctx.stroke();
+    }
+  }
+
+  // следы от зомби
+  for (const s of g.stains) {
+    ctx.fillStyle = 'rgba(58,92,30,.5)';
+    for (let k = 0; k < 4; k++) {
+      const a = s.seed * 6.283 + k * 1.7;
+      ctx.beginPath();
+      ctx.ellipse(s.x + Math.cos(a) * 7, s.y + Math.sin(a) * 5, 8 - k, 5.5 - k * .7, a, 0, 6.283);
+      ctx.fill();
+    }
+  }
+
+  // ящики: патроны и батарейки
+  for (const a of g.ammoBoxes) {
+    const bob = Math.sin(a.ph) * 2.5;
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.ellipse(a.x, a.y + 9, 10, 4.5, 0, 0, 6.283); ctx.fill();
+    ctx.save(); ctx.translate(a.x, a.y + bob);
+    if (a.batt) {
+      ctx.fillStyle = '#2f6b3f'; roundRect(ctx, -7, -10, 14, 20, 3); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = '#8ee6a0'; ctx.fillRect(-4, -6, 8, 9);
+      ctx.fillStyle = '#d8e8c8'; ctx.fillRect(-3, -13, 6, 3);
+    } else {
+      ctx.fillStyle = '#4a5a3c'; roundRect(ctx, -10, -8, 20, 16, 3); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = '#d9c48a';
+      for (let k = -1; k <= 1; k++) ctx.fillRect(k * 5 - 1.5, -4, 3, 8);
+    }
+    ctx.restore();
+  }
+
+  // кольца шума
+  for (const r of g.rings) {
+    ctx.strokeStyle = `rgba(255,225,150,${clamp(r.l * .5, 0, .35)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283); ctx.stroke();
+  }
+
+  // посылки
+  for (const b of g.parcels) {
+    if (b.got) continue;
+    const bob = Math.sin(b.ph) * 3;
+    ctx.fillStyle = 'rgba(0,0,0,.25)';
+    ctx.beginPath(); ctx.ellipse(b.x, b.y + 10, 11, 5, 0, 0, 6.283); ctx.fill();
+    ctx.save(); ctx.translate(b.x, b.y + bob);
+    ctx.fillStyle = '#c9a26a'; roundRect(ctx, -11, -11, 22, 22, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#e8d3a8'; ctx.fillRect(-11, -3, 22, 6); ctx.fillRect(-3, -11, 6, 22);
+    ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-11, -11, 22, 4);
+    ctx.restore();
+  }
+
+  // цель — стрелка над дверью, когда всё собрано
+  if (g.got >= g.need && !g.done) {
+    const bob = Math.sin(g.time * 5) * 4;
+    ctx.fillStyle = '#8fe388';
+    ctx.beginPath();
+    ctx.moveTo(g.goal.x, g.goal.y - 16 + bob);
+    ctx.lineTo(g.goal.x - 11, g.goal.y - 34 + bob);
+    ctx.lineTo(g.goal.x + 11, g.goal.y - 34 + bob);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // зомби
+  for (const z of g.zombies) drawZombie(ctx, z);
+
+  // игрок
+  drawPlayer(ctx, p, g);
+
+  // пули
+  ctx.strokeStyle = '#ffe9a0'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  for (const b of g.bullets) {
+    ctx.beginPath(); ctx.moveTo(b.px, b.py); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  if (p.muzzle > 0) {                                  // вспышка у ствола
+    const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x);
+    const fx = h.x + Math.cos(a) * 9, fy = h.y + Math.sin(a) * 9;
+    ctx.fillStyle = 'rgba(255,231,150,.95)';
+    ctx.beginPath(); ctx.moveTo(fx + Math.cos(a) * 13, fy + Math.sin(a) * 13);
+    ctx.lineTo(fx + Math.cos(a + 2.2) * 8, fy + Math.sin(a + 2.2) * 8);
+    ctx.lineTo(fx + Math.cos(a - 2.2) * 8, fy + Math.sin(a - 2.2) * 8);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // машины
+  for (const c of g.cars) {
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(Math.atan2(c.hy, c.hx));
+    drawCarShape(ctx, c.col, c.honk, c.police, c.beacon, c.dent, c.stall);
+    ctx.restore();
+  }
+
+  // частицы
+  for (const q of g.parts) {
+    ctx.globalAlpha = clamp(q.l * 1.6, 0, 1);
+    ctx.fillStyle = q.c;
+    ctx.fillRect(q.x - q.s / 2, q.y - q.s / 2, q.s, q.s);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  drawLight(g, camx, camy);
+  drawFog(g, camx, camy);
+  drawGlowThroughFog(g, camx, camy);
+  if (g.weather.flash > 0) {                       // молния бьёт поверх тумана
+    ctx.fillStyle = `rgba(226,238,255,${Math.min(.55, g.weather.flash * g.weather.flash * .7)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  drawRain(g);
+
+  // виньетка при уроне
+  if (p.inv > 1.2) {
+    ctx.fillStyle = `rgba(220,60,50,${(p.inv - 1.2) * .45})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // указатель на ближайшую цель за краем экрана
+  const tgt = g.got >= g.need ? g.goal : nearestParcel(g);
+  if (tgt) {
+    const sx = tgt.x - camx, sy = tgt.y - camy;
+    if (sx < 20 || sy < 20 || sx > W - 20 || sy > H - 20) {
+      // упираем стрелку в рамку экрана, а не в окружность
+      const a = Math.atan2(sy - H / 2, sx - W / 2);
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const t = Math.min(Math.abs((W / 2 - 26) / (ca || 1e-6)), Math.abs((H / 2 - 26) / (sa || 1e-6)));
+      const ex = W / 2 + ca * t, ey = H / 2 + sa * t;
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(a);
+      ctx.fillStyle = g.got >= g.need ? 'rgba(143,227,136,.9)' : 'rgba(255,215,102,.9)';
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-9, -9); ctx.lineTo(-9, 9); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  drawGauges(g);
+  drawMinimap(g);
+
+  // подсказка про огонь на телефоне
+  if ('ontouchstart' in window) {
+    ctx.save();
+    ctx.globalAlpha = fireHeld ? .9 : .4;
+    ctx.strokeStyle = '#ffd766'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(W - 62, H - 62, 34, 0, 6.283); ctx.stroke();
+    ctx.fillStyle = '#ffd766'; ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('ОГОНЬ', W - 62, H - 57);
+    ctx.restore();
+  }
+
+  // джойстик на телефоне
+  if (touch) {
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(touch.ox, touch.oy, 42, 0, 6.283); ctx.stroke();
+    const dx = touch.x - touch.ox, dy = touch.y - touch.oy, d = Math.hypot(dx, dy) || 1;
+    const k = Math.min(d, 42) / d;
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.beginPath(); ctx.arc(touch.ox + dx * k, touch.oy + dy * k, 17, 0, 6.283); ctx.fill();
+  }
+}
+
+// ---------- освещение: у каждого источника свои тени ----------
+const lightCv = document.createElement('canvas');
+lightCv.width = W; lightCv.height = H;
+const lctx = lightCv.getContext('2d');
+const tmpCv = document.createElement('canvas');       // буфер одного источника
+tmpCv.width = tmpCv.height = 560;
+const tctx = tmpCv.getContext('2d');
+
+const WARM = 'rgba(255,214,140,%a)', HEAD = 'rgba(255,246,210,%a)', FLASH = 'rgba(255,244,200,%a)';
+const SHADOW_LEN = 2400;                              // теневые клинья тянем за край экрана
+
+// что может перекрыть свет вокруг точки: дома, изгороди, деревья, машины
+function occNear(g, x, y, r, skip) {
+  const out = [];
+  for (const s of g.solids)
+    if (Math.hypot(s.cx - x, s.cy - y) < r + s.rad) out.push(s);
+  for (const t of g.trees)
+    if (Math.abs(t.x - x) < r + t.r && Math.abs(t.y - y) < r + t.r) out.push(t);
+  for (const c of g.cars)
+    if (c !== skip && Math.hypot(c.x - x, c.y - y) < r + c.box.rad) out.push(c.box);
+  return out;
+}
+
+// вырезаем из пятна света тень каждого препятствия
+function castShadows(c, lx, ly, occ) {
+  c.globalCompositeOperation = 'destination-out';
+  c.fillStyle = '#000';
+  for (const o of occ) {
+    if (o.r !== undefined) {                          // дерево: клин между касательными
+      const dx = o.x - lx, dy = o.y - ly, d = Math.hypot(dx, dy);
+      if (d < o.r) continue;                          // источник внутри кроны — не морочимся
+      const px = -dy / d * o.r, py = dx / d * o.r;
+      const ax = o.x + px, ay = o.y + py, bx = o.x - px, by = o.y - py;
+      const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+      c.beginPath();                                  // сама крона освещена, тень уходит за неё
+      c.moveTo(ax, ay); c.lineTo(bx, by);
+      c.lineTo(bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN);
+      c.lineTo(ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+      c.closePath(); c.fill();
+    } else {                                          // дом, изгородь, машина: клинья от «дальних» граней
+      const pts = o.pts;
+      for (let i = 0; i < 4; i++) {
+        const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % 4];
+        const nx = y2 - y1, ny = x1 - x2;             // внешняя нормаль грани
+        if ((x1 - lx) * nx + (y1 - ly) * ny <= 0) continue;   // грань смотрит на свет — не отбрасывает
+        const d1 = Math.hypot(x1 - lx, y1 - ly) || 1, d2 = Math.hypot(x2 - lx, y2 - ly) || 1;
+        c.beginPath();
+        c.moveTo(x1, y1); c.lineTo(x2, y2);
+        c.lineTo(x2 + (x2 - lx) / d2 * SHADOW_LEN, y2 + (y2 - ly) / d2 * SHADOW_LEN);
+        c.lineTo(x1 + (x1 - lx) / d1 * SHADOW_LEN, y1 + (y1 - ly) / d1 * SHADOW_LEN);
+        c.closePath(); c.fill();
+      }
+    }
+  }
+  c.globalCompositeOperation = 'source-over';
+}
+
+// один источник: рисуем в буфер, вычитаем тени, кладём и в цвет, и в маску темноты
+function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip) {
+  const size = Math.min(tmpCv.width, Math.ceil(r * 2) + 8);
+  const sx = Math.round(x - camx - size / 2), sy = Math.round(y - camy - size / 2);
+  if (sx > W || sy > H || sx + size < 0 || sy + size < 0) return;
+
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, size, size);
+  tctx.setTransform(1, 0, 0, 1, size / 2 - x, size / 2 - y);   // работаем в мировых координатах
+  tctx.save();
+  if (spread) {
+    tctx.beginPath(); tctx.moveTo(x, y); tctx.arc(x, y, r, ang - spread, ang + spread);
+    tctx.closePath(); tctx.clip();
+  }
+  const gr = tctx.createRadialGradient(x, y, 0, x, y, r);
+  gr.addColorStop(0, col.replace('%a', 1));
+  gr.addColorStop(.5, col.replace('%a', .55));
+  gr.addColorStop(1, col.replace('%a', 0));
+  tctx.fillStyle = gr; tctx.fillRect(x - r, y - r, r * 2, r * 2);
+  tctx.restore();
+  if (r > 20) castShadows(tctx, x, y, occNear(g, x, y, r, skip));   // мелкие блики тени не считают
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  ctx.save();                                          // цвет поверх картинки
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = tint;
+  ctx.drawImage(tmpCv, 0, 0, size, size, sx, sy, size, size);
+  ctx.restore();
+  lctx.save();                                         // и дырка в ночи
+  lctx.globalCompositeOperation = 'destination-out'; lctx.globalAlpha = punch;
+  lctx.drawImage(tmpCv, 0, 0, size, size, sx, sy, size, size);
+  lctx.restore();
+}
+
+// единый список источников: оба пути (GL и 2D) светят одинаково
+function collectLights(g) {
+  const p = g.p, out = [];
+  const add = (x, y, r, rgb, int, tint, punch, ang, spread, soft, skip) =>
+    out.push({ x, y, r, rgb, int, tint, punch, ang: ang || 0, spread: spread || 0, soft: soft || 0, skip });
+
+  for (const l of g.lamps) add(l.x, l.y, 120, [1, .84, .55], 1.15, .24, .95, 0, 0, 14);
+  for (const c of g.cars) {
+    const a = Math.atan2(c.hy, c.hx);
+    // две фары: свои источники по бортам, поэтому и тени от них двойные
+    const fx = c.x + c.hx * 22, fy = c.y + c.hy * 22, rx = -c.hy * 8, ry = c.hx * 8;
+    add(fx + rx, fy + ry, 172, [1, .96, .82], .62, .1, .78, a + .05, .4, 5, c);
+    add(fx - rx, fy - ry, 172, [1, .96, .82], .62, .1, .78, a - .05, .4, 5, c);
+    add(c.x - c.hx * 26, c.y - c.hy * 26, 34, [1, .25, .2], .55, .22, .55, 0, 0, 0, c);
+    if (!c.police) continue;
+    // мигалка: два луча крутятся вокруг машины и вдобавок пульсируют
+    const b = c.beacon || 0, pulse = .55 + .45 * Math.sin(b * 3.1);
+    add(c.x, c.y, 235, [1, .16, .18], 1.5 * pulse, .3, .86, a + b, .5, 7, c);
+    add(c.x, c.y, 235, [.24, .38, 1], 1.5 * (1.55 - pulse), .3, .86, a + b + Math.PI, .5, 7, c);
+    add(c.x, c.y, 52, [1, .2, .24], .8 * pulse, .34, .5, 0, 0, 0, c);          // отсвет на крыше
+    add(c.x, c.y, 52, [.3, .42, 1], .8 * (1.55 - pulse), .34, .5, 0, 0, 0, c);
+  }
+  const lit = p.torch && p.batt > 0;
+  if (lit) {                                                                             // фонарик — из руки
+    const h = torchHand(p);
+    add(h.x, h.y, 250 - 40 * g.weather.rain, [1, .96, .78], 1.15 * p.flick, .18, .95, p.aim, .45, 6);
+  }
+  add(p.x, p.y, lit ? 74 : 52, [1, .96, .78], lit ? .5 : .3, .1, lit ? .8 : .6);         // круг под ногами
+  if (p.muzzle > 0) { const h = gunHand(p); add(h.x, h.y, 190, [1, .95, .75], 1.7, .5, 1, 0, 0, 16); }
+  for (const b of g.parcels) if (!b.got) add(b.x, b.y, 46, [1, .82, .35], .7, .24, .8);
+  for (const a of g.ammoBoxes) add(a.x, a.y, 42, [.63, .82, 1], .6, .22, .78);
+  const near = g.got >= g.need;
+  add(g.goal.x, g.goal.y, 76, [.47, .94, .47], near ? 1 : .5, near ? .32 : .15, near ? .95 : .6);
+  for (const z of g.zombies) add(z.x + Math.cos(z.ang) * 6, z.y + Math.sin(z.ang) * 6, 14, [1, .27, .2], .7, .32, .3);
+  return out;
+}
+
+function drawLight(g, camx, camy) {
+  g.lit = collectLights(g);                       // один список на кадр: и на свет, и на свечение сквозь туман
+  if (gl) drawLightGL(g, camx, camy);
+  else drawLight2D(g, camx, camy);
+}
+
+function drawLight2D(g, camx, camy) {
+  // ночь + лунный полусвет: силуэты видно всегда
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.globalCompositeOperation = 'source-over';
+  lctx.fillStyle = 'rgba(10,14,38,.92)';
+  lctx.fillRect(0, 0, W, H);
+  lctx.globalCompositeOperation = 'destination-out';
+  lctx.fillStyle = 'rgba(255,255,255,.12)';
+  lctx.fillRect(0, 0, W, H);
+  lctx.globalCompositeOperation = 'source-over';
+
+  for (const l of g.lit) {
+    const col = `rgba(${Math.round(l.rgb[0] * 255)},${Math.round(l.rgb[1] * 255)},${Math.round(l.rgb[2] * 255)},%a)`;
+    paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip);
+  }
+  ctx.drawImage(lightCv, 0, 0);
+}
+
+// ---------- WebGL: свет теневыми объёмами, полутень несколькими сэмплами ----------
+const glCv = document.createElement('canvas');
+glCv.width = W; glCv.height = H;
+const AMB = [.085, .105, .21];                        // ночь: на что множится неосвещённое
+let gl = (() => {
+  if (location.search.includes('2d')) return null;    // ?2d — принудительно запасной путь
+  const opt = { alpha: false, depth: false, stencil: true, antialias: false, preserveDrawingBuffer: false };
+  try {
+    const c = glCv.getContext('webgl2', opt) || glCv.getContext('webgl', opt);
+    return c && c.getContextAttributes().stencil ? c : null;   // без стенсиля тени не вырезать
+  } catch (e) { return null; }
+})();
+
+const GLR = gl && (() => { try {
+  const sh = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  const prog = (vs, fs) => {
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, 'a_pos'); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  };
+  // экранные пиксели -> клип-спейс (y вниз, как в 2D)
+  const TO_CLIP = 'vec4(p.x / u_res.x * 2.0 - 1.0, 1.0 - p.y / u_res.y * 2.0, 0.0, 1.0)';
+
+  // общих uniform-ов между стадиями нет: иначе GLSL ES ругается на разную precision
+  const litP = prog(`
+    attribute vec2 a_pos;                       // единичный квадрат 0..1
+    uniform vec2 u_res, u_light; uniform float u_radius;
+    varying mediump vec2 v_unit;                // -1..1 внутри пятна
+    void main() {
+      v_unit = a_pos * 2.0 - 1.0;
+      vec2 p = u_light + v_unit * u_radius;
+      gl_Position = ${TO_CLIP};
+    }`, `
+    precision mediump float;
+    uniform vec3 u_color; uniform float u_ang, u_spread, u_amount;
+    varying mediump vec2 v_unit;
+    void main() {
+      float f = max(0.0, 1.0 - length(v_unit));
+      f *= f;                                   // мягкое затухание к краю
+      if (u_spread > 0.0) {                     // конус фар и фонарика
+        float a = mod(atan(v_unit.y, v_unit.x) - u_ang + 9.42477796, 6.28318531) - 3.14159265;
+        f *= 1.0 - smoothstep(u_spread * 0.55, u_spread, abs(a));
+      }
+      gl_FragColor = vec4(u_color * f * u_amount, 1.0);
+    }`);
+
+  const shadP = prog(`
+    attribute vec2 a_pos; uniform vec2 u_res;
+    void main() { vec2 p = a_pos; gl_Position = ${TO_CLIP}; }`, `
+    precision mediump float;
+    void main() { gl_FragColor = vec4(0.0); }`);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+
+  const shadowBuf = gl.createBuffer();
+  const verts = new Float32Array(60000);              // хватает на ~5000 клиньев
+
+  const U = (p, n) => gl.getUniformLocation(p, n);
+  return {
+    litP, shadP, quad, shadowBuf, verts,
+    lit: { res: U(litP, 'u_res'), light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
+           color: U(litP, 'u_color'), ang: U(litP, 'u_ang'), spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount') },
+    shad: { res: U(shadP, 'u_res') }
+  };
+} catch (e) { console.warn('WebGL-свет не завёлся, работаем на canvas 2D:', e.message); gl = null; return null; } })();
+
+// теневые клинья от препятствий: экранные координаты, вершины в общий буфер
+function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
+  let n = 0;
+  const push = (x1, y1, x2, y2, x3, y3, x4, y4) => {          // четырёхугольник двумя треугольниками
+    arr[n++] = x1; arr[n++] = y1; arr[n++] = x2; arr[n++] = y2; arr[n++] = x3; arr[n++] = y3;
+    arr[n++] = x1; arr[n++] = y1; arr[n++] = x3; arr[n++] = y3; arr[n++] = x4; arr[n++] = y4;
+  };
+  for (const o of occ) {
+    if (o.r !== undefined) {                                   // дерево
+      const ox = o.x - camx, oy = o.y - camy;
+      const dx = ox - lx, dy = oy - ly, d = Math.hypot(dx, dy);
+      if (d < o.r) continue;
+      const px = -dy / d * o.r, py = dx / d * o.r;
+      const ax = ox + px, ay = oy + py, bx = ox - px, by = oy - py;
+      const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+      push(ax, ay, bx, by,
+           bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
+           ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+    } else {                                                   // дом, изгородь, машина
+      const pts = o.pts;
+      for (let i = 0; i < 4; i++) {
+        const ax = pts[i][0] - camx, ay = pts[i][1] - camy;
+        const bx = pts[(i + 1) % 4][0] - camx, by = pts[(i + 1) % 4][1] - camy;
+        if ((ax - lx) * (by - ay) + (ay - ly) * (ax - bx) <= 0) continue;   // грань смотрит на свет
+        const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+        push(ax, ay, bx, by,
+             bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
+             ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+      }
+    }
+    if (n > arr.length - 48) break;
+  }
+  return n;
+}
+
+function drawLightGL(g, camx, camy) {
+  const R = GLR;
+  gl.viewport(0, 0, W, H);
+  gl.disable(gl.SCISSOR_TEST);
+  gl.clearColor(AMB[0], AMB[1], AMB[2], 1);
+  gl.clearStencil(0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+  gl.enable(gl.STENCIL_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE);                        // свет складывается
+  gl.enableVertexAttribArray(0);
+
+  for (const L of g.lit) {
+    const lx = L.x - camx, ly = L.y - camy, r = L.r;
+    const bx = Math.max(0, Math.floor(lx - r)), by = Math.max(0, Math.floor(ly - r));
+    const bw = Math.min(W, Math.ceil(lx + r)) - bx, bh = Math.min(H, Math.ceil(ly + r)) - by;
+    if (bw <= 0 || bh <= 0) continue;                  // источник за экраном
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(bx, H - (by + bh), bw, bh);             // у GL начало координат снизу
+
+    const occ = r > 20 ? occNear(g, L.x, L.y, r, L.skip) : null;
+    const n = L.soft > 0 ? (L.soft < 6 ? 4 : 8) : 1;   // сэмплы по кругу дают полутень
+    for (let s = 0; s < n; s++) {
+      const a = s / n * 6.283, ox = Math.cos(a) * L.soft, oy = Math.sin(a) * L.soft;
+
+      if (occ && occ.length) {                         // 1) тени -> стенсиль
+        const cnt = buildShadowVerts(occ, lx + ox, ly + oy, camx, camy, R.verts);
+        if (cnt) {
+          gl.colorMask(false, false, false, false);
+          gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+          gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+          gl.useProgram(R.shadP);
+          gl.uniform2f(R.shad.res, W, H);
+          gl.bindBuffer(gl.ARRAY_BUFFER, R.shadowBuf);
+          gl.bufferData(gl.ARRAY_BUFFER, R.verts.subarray(0, cnt), gl.DYNAMIC_DRAW);
+          gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+          gl.drawArrays(gl.TRIANGLES, 0, cnt / 2);
+          gl.colorMask(true, true, true, true);
+        }
+      }
+
+      gl.stencilFunc(gl.EQUAL, 0, 0xff);               // 2) свет там, где тени нет
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+      gl.useProgram(R.litP);
+      gl.uniform2f(R.lit.res, W, H);
+      gl.uniform2f(R.lit.light, lx, ly);
+      gl.uniform1f(R.lit.radius, r);
+      gl.uniform3f(R.lit.color, L.rgb[0], L.rgb[1], L.rgb[2]);
+      gl.uniform1f(R.lit.ang, L.ang);
+      gl.uniform1f(R.lit.spread, L.spread);
+      gl.uniform1f(R.lit.amount, L.int / n);
+      gl.bindBuffer(gl.ARRAY_BUFFER, R.quad);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+      if (s < n - 1) gl.clear(gl.STENCIL_BUFFER_BIT);  // следующему сэмплу — чистый стенсиль
+    }
+    gl.clear(gl.STENCIL_BUFFER_BIT);
+  }
+  gl.disable(gl.SCISSOR_TEST);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'multiply';           // город умножается на свет
+  ctx.drawImage(glCv, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';            // и чуть подсвечивается ядрами пятен
+  ctx.globalAlpha = .22;
+  ctx.drawImage(glCv, 0, 0);
+  ctx.restore();
+}
+
+function drawZombie(c, z) {
+  const sw = Math.sin(z.walk) * 3.2;
+  c.fillStyle = 'rgba(0,0,0,.3)';
+  c.beginPath(); c.ellipse(z.x + 3, z.y + 8, 13, 7.5, 0, 0, 6.283); c.fill();
+  c.save(); c.translate(z.x, z.y); c.rotate(z.ang);
+  const skin = z.hit > 0 ? '#ffd2d2' : '#8fae63';
+  // вытянутые руки
+  c.fillStyle = skin;
+  roundRect(c, 4, -12 - sw * .5, 16, 5, 2.5); c.fill();
+  roundRect(c, 4, 7 + sw * .5, 16, 5, 2.5); c.fill();
+  // ноги
+  c.fillStyle = '#4a4436';
+  roundRect(c, -5, -8 + sw, 11, 6, 3); c.fill();
+  roundRect(c, -5, 2 - sw, 11, 6, 3); c.fill();
+  // рваная одежда
+  c.fillStyle = z.hit > 0 ? '#e9b6b6' : '#5d6b4a';
+  roundRect(c, -10, -9, 19, 18, 6); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = 'rgba(0,0,0,.18)';
+  c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
+  // голова и глаза
+  c.fillStyle = skin;
+  c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = '#7b3b2a';
+  c.beginPath(); c.arc(-1, 0, 7.2, 1.7, 4.6); c.fill();
+  c.fillStyle = '#ff5a45';
+  c.beginPath(); c.arc(6, -2.6, 1.7, 0, 6.283); c.fill();
+  c.beginPath(); c.arc(6, 2.6, 1.7, 0, 6.283); c.fill();
+  c.restore();
+}
+
+function nearestParcel(g) {
+  let bestP = null, bd = 1e9;
+  for (const b of g.parcels) {
+    if (b.got) continue;
+    const d = Math.hypot(b.x - g.p.x, b.y - g.p.y);
+    if (d < bd) { bd = d; bestP = b; }
+  }
+  return bestP;
+}
+
+function drawPlayer(c, p, g) {
+  if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // мигание после наезда
+  const sw = Math.sin(p.walk) * 3.4;
+  c.fillStyle = 'rgba(0,0,0,.28)';
+  c.beginPath(); c.ellipse(p.x + 3, p.y + 8, 14, 8, 0, 0, 6.283); c.fill();
+  // ноги идут туда, куда бежим — и торчат из-под корпуса, иначе шага не видно
+  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(1.22, 1.22);
+  for (const s of [-1, 1]) {
+    const oy = s * 8 + sw * s;
+    c.fillStyle = '#38507a'; roundRect(c, -9, oy - 3, 14, 6, 3); c.fill();
+    c.fillStyle = '#26314a';
+    roundRect(c, 1, oy - 2.5, 5, 5, 2); c.fill();                    // ботинок
+  }
+  c.restore();
+
+  // корпус развёрнут туда, куда светим и целимся
+  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(1.22, 1.22);
+  // руки: левая держит фонарь, правая — пистолет
+  c.fillStyle = '#e8b48a';
+  roundRect(c, 1, -11 - sw * .3, 9, 5, 2.5); c.fill();
+  roundRect(c, 1, 6 + sw * .3, 9, 5, 2.5); c.fill();
+  // корпус + сумка
+  c.fillStyle = '#e0603f'; roundRect(c, -10, -9, 20, 18, 6); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
+  c.fillStyle = '#b7452c'; roundRect(c, -11, -7, 8, 14, 3); c.fill();
+  if (g.got > 0) { c.fillStyle = '#c9a26a'; roundRect(c, -12, -5, 5, 10, 2); c.fill(); }
+  // голова
+  c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = '#3b3630'; c.beginPath(); c.arc(-.5, 0, 7.2, 1.6, 4.7); c.fill();  // затылок/волосы
+  c.fillStyle = '#ffd766'; roundRect(c, 3.5, -6, 4.5, 12, 2); c.fill();            // козырёк кепки
+  // фонарь в кулаке — отсюда и бьёт луч
+  c.fillStyle = '#2f3a46'; roundRect(c, 7, -10.5 - sw * .3, 8, 4.5, 1.5); c.fill();
+  if (p.torch && p.batt > 0) {
+    c.fillStyle = `rgba(255,242,200,${.5 + .5 * p.flick})`;
+    c.fillRect(14.5, -10 - sw * .3, 2.5, 3.5);
+  }
+  // пистолет
+  c.fillStyle = '#33383f'; roundRect(c, 7, 6 + sw * .3, 9, 3.5, 1); c.fill();
+  c.restore();
+}
+
+// шкалы фонаря и дыхания + кнопка фонаря на телефоне
+function drawGauges(g) {
+  const p = g.p, x = 16, y = H - 46;
+  const bar = (yy, v, col, label, on) => {
+    ctx.fillStyle = 'rgba(10,14,26,.6)'; roundRect(ctx, x, yy, 132, 12, 6); ctx.fill();
+    ctx.fillStyle = col; roundRect(ctx, x + 2, yy + 2, Math.max(0, 128 * v), 8, 4); ctx.fill();
+    ctx.fillStyle = on ? '#e8f0ff' : 'rgba(232,240,255,.45)';
+    ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(label, x + 138, yy + 10);
+  };
+  const low = p.batt < .2 && p.torch;
+  bar(y, p.batt, low && Math.sin(g.time * 12) > 0 ? '#ff8b5a' : '#ffd766',
+      p.torch ? 'ФОНАРЬ (F)' : 'ФОНАРЬ ВЫКЛ (F)', p.torch);
+  bar(y + 18, p.stam, p.stam < .2 ? '#ff8b7a' : '#8ee6a0', 'БЕГ (SHIFT)', p.running);
+  ctx.fillStyle = SND.muted ? 'rgba(232,240,255,.4)' : 'rgba(232,240,255,.8)';
+  ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(SND.muted ? '♪ ЗВУК ВЫКЛ (M)' : '♪ ЗВУК (M)', x, y - 7);
+
+  if ('ontouchstart' in window) {
+    ctx.save();
+    ctx.globalAlpha = p.torch ? .9 : .45;
+    ctx.strokeStyle = '#ffd766'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(TORCH_BTN.x, TORCH_BTN.y, TORCH_BTN.r, 0, 6.283); ctx.stroke();
+    ctx.fillStyle = '#ffd766'; ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('ФОНАРЬ', TORCH_BTN.x, TORCH_BTN.y + 4);
+    ctx.restore();
+  }
+}
+
+function drawMinimap(g) {
+  const S = 118, k = S / WORLD, mx = W - S - 12, my = 12;
+  ctx.save();
+  ctx.globalAlpha = .85;
+  ctx.fillStyle = '#2b3446'; roundRect(ctx, mx - 4, my - 4, S + 8, S + 8, 6); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#5b8f4d'; ctx.fillRect(mx, my, S, S);
+  ctx.strokeStyle = '#3d434c'; ctx.lineWidth = Math.max(2, ROAD * k);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const e of g.roads.edges) {
+    ctx.beginPath(); ctx.moveTo(mx + e.pts[0].x * k, my + e.pts[0].y * k);
+    for (let i = 1; i < e.pts.length; i++) ctx.lineTo(mx + e.pts[i].x * k, my + e.pts[i].y * k);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(230,220,200,.75)';
+  for (const h of g.houses) {
+    ctx.save(); ctx.translate(mx + h.cx * k, my + h.cy * k); ctx.rotate(h.ang);
+    ctx.fillRect(-h.hw * k, -h.hh * k, h.hw * 2 * k, h.hh * 2 * k);
+    ctx.restore();
+  }
+  // карта открыта лишь там, где курьер побывал
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalAlpha = .94;
+  ctx.drawImage(fogCv, 0, 0, FW, FW, mx, my, S, S);
+  ctx.globalAlpha = .85;
+
+  for (const c of g.cars) {                      // живое видно только в поле зрения
+    if (fogAt(g, c.x, c.y) < .8) continue;
+    ctx.fillStyle = c.police ? (Math.sin(c.beacon * 3.1) > 0 ? '#ff6a6a' : '#6a9cff') : '#ff8b7a';
+    ctx.fillRect(mx + c.x * k - (c.police ? 2 : 1.5), my + c.y * k - (c.police ? 2 : 1.5), c.police ? 4 : 3, c.police ? 4 : 3);
+  }
+  ctx.fillStyle = '#9fd36a';
+  for (const z of g.zombies) if (fogAt(g, z.x, z.y) >= .8) {
+    ctx.beginPath(); ctx.arc(mx + z.x * k, my + z.y * k, 2, 0, 6.283); ctx.fill();
+  }
+  ctx.fillStyle = '#a9d6ff';
+  for (const a of g.ammoBoxes) if (fogAt(g, a.x, a.y) > 0)
+    ctx.fillRect(mx + a.x * k - 1.5, my + a.y * k - 1.5, 3, 3);
+  ctx.fillStyle = '#ffd766';
+  for (const b of g.parcels) if (!b.got) { ctx.beginPath(); ctx.arc(mx + b.x * k, my + b.y * k, 2.6, 0, 6.283); ctx.fill(); }
+  if (g.got >= g.need) {
+    ctx.fillStyle = '#8fe388';
+    ctx.beginPath(); ctx.arc(mx + g.goal.x * k, my + g.goal.y * k, 3.4, 0, 6.283); ctx.fill();
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(mx + g.p.x * k, my + g.p.y * k, 3, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(mx + g.p.x * k, my + g.p.y * k, 5.5, 0, 6.283); ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- цикл ----------
+let last = performance.now();
+function loop(t) {
+  const dt = clamp((t - last) / 1000, 0, .05); last = t;   // метка кадра бывает раньше старта — не даём времени идти вспять
+  if (state === 'play' && G) { update(G, dt); draw(G); }
+  else if (G) draw(G);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+startBtn.addEventListener('click', () => {
+  SND.init();                                 // звук можно включать только из жеста пользователя
+  const next = state === 'win' ? G.level + 1 : 1;
+  G = buildTown(next);
+  overlay.classList.add('hidden');
+  cv.classList.add('aim');
+  mouse.down = 0; fireHeld = false;
+  state = 'play';
+  last = performance.now();
+});
+})();
+</script>
+</body>
+</html>

@@ -1,11 +1,11 @@
-// Изолированные проверки и разрешение столкновений.
+// Isolated collision tests and resolution.
 window.TownGame.physics = (() => {
 'use strict';
 
 const { clamp } = window.TownGame.core;
 
-// ---------- столкновения ----------
-// круг против повёрнутой коробки: считаем в системе коробки, толкаем обратно в мир
+// ---------- collisions ----------
+// Circle against an oriented box: calculate in box space, then push back into world space.
 function hitOBB(p, r, o) {
   if (Math.hypot(p.x - o.cx, p.y - o.cy) > r + o.rad) return false;
   const ca = Math.cos(o.ang), sa = Math.sin(o.ang);
@@ -15,7 +15,7 @@ function hitOBB(p, r, o) {
   const d = Math.hypot(ox, oy);
   if (d >= r) return false;
   if (d > .0001) { const k = (r - d) / d; ox *= k; oy *= k; }
-  else {                                                   // центр внутри — наружу через ближайшую грань
+  else {                                                   // Center is inside; move it out through the nearest face.
     const dl = lx + o.hw, dr = o.hw - lx, dt = ly + o.hh, db = o.hh - ly;
     const m = Math.min(dl, dr, dt, db);
     if (m === dl) { ox = -(dl + r); oy = 0; }
@@ -26,7 +26,7 @@ function hitOBB(p, r, o) {
   p.x += ox * ca - oy * sa; p.y += ox * sa + oy * ca;
   return true;
 }
-// две повёрнутые коробки: разделяющая ось ищется по нормалям граней обеих
+// Two oriented boxes: test separating axes from the face normals of both boxes.
 function obbHit(A, B) {
   if (Math.hypot(A.cx - B.cx, A.cy - B.cy) > A.rad + B.rad) return false;
   for (let o = 0; o < 2; o++) {

@@ -1,4 +1,4 @@
-// Точка входа: связывает подсистемы и запускает игровой цикл.
+// Entry point: connects the subsystems and starts the game loop.
 (() => {
 'use strict';
 
@@ -11,14 +11,14 @@ const { prepareCarImpactComparison } = window.TownGame.environment;
 const { update } = window.TownGame.gameplay;
 const { draw } = window.TownGame.render;
 
-// После загрузки всех подсистем набор публичных модулей больше не меняется.
+// Once every subsystem has loaded, the public module collection no longer changes.
 Object.freeze(window.TownGame);
 
-// ---------- цикл ----------
+// ---------- loop ----------
 const qaMode = new URLSearchParams(location.search).get('qa');
 const perfQa = qaMode === 'perf' || qaMode === 'perf-legacy';
 if (perfQa) {
-  // Повторяемые города и погода нужны только для честного A/B-профилирования.
+  // Repeatable towns and weather exist only for fair A/B profiling.
   let seed = 0x6d2b79f5;
   Math.random = () => {
     seed |= 0; seed = seed + 0x6d2b79f5 | 0;
@@ -31,7 +31,7 @@ let last = performance.now();
 let perfFrames = 0, perfUpdate = 0, perfDraw = 0, perfFrame = 0;
 function loop(t) {
   const rawFrame = t - last;
-  const dt = clamp(rawFrame / 1000, 0, .05); last = t;   // метка кадра бывает раньше старта — не даём времени идти вспять
+  const dt = clamp(rawFrame / 1000, 0, .05); last = t;   // The frame timestamp may predate startup; never move time backward.
   if (runtime.state === 'play' && runtime.game) {
     if (perfQa && runtime.game.time > 1 && cv.dataset.perfReady !== '1') {
       const updateStart = performance.now();
@@ -58,7 +58,7 @@ function loop(t) {
 requestAnimationFrame(loop);
 
 startBtn.addEventListener('click', () => {
-  SND.init();                                 // звук можно включать только из жеста пользователя
+  SND.init();                                 // Audio can only start from a user gesture.
   const next = runtime.state === 'win' ? runtime.game.level + 1 : 1;
   runtime.game = buildTown(next);
   const impactQa = qaMode === 'impact-compare';

@@ -1,4 +1,4 @@
-// Главный проход отрисовки кадра.
+// Main frame rendering pass.
 window.TownGame.render = (() => {
 'use strict';
 
@@ -14,8 +14,8 @@ const {
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
 
-// Пять маленьких спрайтов строятся один раз. Мягкий градиент выглядит естественнее
-// жёстких окружностей и заметно дешевле постоянного ctx.filter на старом GPU.
+// Five small sprites are built once. A soft gradient looks more natural than hard
+// circles and costs far less than applying ctx.filter continuously on an old GPU.
 const smokeSprites = Array.from({ length: 5 }, (_, i) => {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
   const c = canvas.getContext('2d'), darkness = .22 + i * .19;
@@ -29,8 +29,8 @@ const smokeSprites = Array.from({ length: 5 }, (_, i) => {
   return canvas;
 });
 
-// Дым рисуется после ночного света и тумана. Иначе финальное затемнение почти
-// полностью съедает тёмные клубы, хотя сами частицы продолжают существовать.
+// Smoke is drawn after night lighting and fog. Otherwise the final darkening pass
+// almost completely hides dark clouds even though their particles still exist.
 function drawCarSmoke(g, camx, camy) {
   for (const s of g.carSmoke) {
     const x = s.x - camx, y = s.y - camy;
@@ -42,7 +42,7 @@ function drawCarSmoke(g, camx, camy) {
     const size = s.r * 3.35;
     ctx.globalAlpha = alpha;
     ctx.drawImage(sprite, x - size * .5, y - size * .5, size, size);
-    // Второй маленький лепесток ломает правильную круглую форму облака.
+    // A second small lobe breaks up the cloud's perfectly circular shape.
     ctx.globalAlpha = alpha * .34;
     ctx.drawImage(sprite, x - size * .44, y - size * .47, size * .7, size * .7);
     if (s.hot && life > .58) {
@@ -53,14 +53,14 @@ function drawCarSmoke(g, camx, camy) {
   ctx.globalAlpha = 1;
 }
 
-// ---------- отрисовка ----------
+// ---------- rendering ----------
 function draw(g) {
   const p = g.p;
   let camx = clamp(p.x - W / 2, 0, WORLD - W), camy = clamp(p.y - H / 2, 0, WORLD - H);
   if (g.shake > 0) { camx += rnd(-1, 1) * g.shake * 7; camy += rnd(-1, 1) * g.shake * 7; }
   camx = clamp(camx, 0, WORLD - W); camy = clamp(camy, 0, WORLD - H);
-  // Статический город уже обрезается drawImage. Динамику тоже не отправляем в
-  // Canvas, если её ограничивающий круг целиком за кадром.
+  // drawImage already clips the static town. Skip dynamic objects whose bounding
+  // circle is completely outside the viewport as well.
   const visible = (x, y, r = 0) =>
     legacyPerf || (x + r >= camx && y + r >= camy && x - r <= camx + W && y - r <= camy + H);
   const segmentVisible = (x1, y1, x2, y2, r = 0) =>
@@ -68,14 +68,14 @@ function draw(g) {
     Math.min(x1, x2) - r <= camx + W && Math.min(y1, y2) - r <= camy + H);
 
   ctx.drawImage(g.stat, camx, camy, W, H, 0, 0, W, H);
-  if (g.weather.wet > .02) {                       // мокрый город темнее и холоднее
+  if (g.weather.wet > .02) {                       // A wet town looks darker and colder.
     ctx.fillStyle = `rgba(28,46,74,${.2 * g.weather.wet})`;
     ctx.fillRect(0, 0, W, H);
   }
   ctx.save();
   ctx.translate(-camx, -camy);
 
-  // брызги: рисуем до света, чтобы фары и фонарь по ним били
+  // Draw splashes before lighting so headlights and the flashlight illuminate them.
   if (g.splash.length) {
     ctx.lineWidth = 1;
     for (const s of g.splash) {
@@ -88,7 +88,7 @@ function draw(g) {
     }
   }
 
-  // следы от зомби
+  // Zombie stains.
   for (const s of g.stains) {
     const rgb = s.rgb || [58, 92, 30];
     const radius = s.r || 8, blobs = s.blobs || 4, stretch = s.stretch || 0;
@@ -114,7 +114,7 @@ function draw(g) {
     }
   }
 
-  // свежие шлепки от брошенной гнили постепенно высыхают
+  // Fresh filth splats gradually dry out.
   for (const s of g.splats) {
     if (!visible(s.x, s.y, 18)) continue;
     const alpha = clamp(s.l / 2.5, 0, .55);
@@ -127,7 +127,7 @@ function draw(g) {
     }
   }
 
-  // ящики: патроны и батарейки
+  // Ammo and battery boxes.
   for (const a of g.ammoBoxes) {
     if (!visible(a.x, a.y, 16)) continue;
     const bob = Math.sin(a.ph) * 2.5;
@@ -148,7 +148,7 @@ function draw(g) {
     ctx.restore();
   }
 
-  // кольца шума
+  // Noise rings.
   for (const r of g.rings) {
     if (!visible(r.x, r.y, r.r + 3)) continue;
     ctx.strokeStyle = `rgba(255,225,150,${clamp(r.l * .5, 0, .35)})`;
@@ -156,7 +156,7 @@ function draw(g) {
     ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283); ctx.stroke();
   }
 
-  // посылки
+  // Parcels.
   for (const b of g.parcels) {
     if (b.got || !visible(b.x, b.y, 18)) continue;
     const bob = Math.sin(b.ph) * 3;
@@ -170,7 +170,7 @@ function draw(g) {
     ctx.restore();
   }
 
-  // цель — стрелка над дверью, когда всё собрано
+  // Goal marker above the door once every parcel has been collected.
   if (g.got >= g.need && !g.done && visible(g.goal.x, g.goal.y, 40)) {
     const bob = Math.sin(g.time * 5) * 4;
     ctx.fillStyle = '#8fe388';
@@ -181,10 +181,10 @@ function draw(g) {
     ctx.closePath(); ctx.fill();
   }
 
-  // зомби
+  // Zombies.
   for (const z of g.zombies) if (visible(z.x, z.y, 48)) drawZombie(ctx, z);
 
-  // метательные сгустки: яркая кайма и след дают игроку время заметить угрозу
+  // Thrown filth: a bright outline and trail give the player time to spot the threat.
   for (const s of g.zombieShots) {
     if (!segmentVisible(s.px, s.py, s.x, s.y, s.r + 7)) continue;
     ctx.strokeStyle = s.trail; ctx.lineWidth = Math.max(3, s.r * .58); ctx.lineCap = 'round';
@@ -201,17 +201,17 @@ function draw(g) {
   }
   ctx.lineCap = 'butt';
 
-  // игрок
+  // Player.
   drawPlayer(ctx, p, g);
 
-  // пули
+  // Bullets.
   ctx.strokeStyle = '#ffe9a0'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
   for (const b of g.bullets) {
     if (!segmentVisible(b.px, b.py, b.x, b.y, 3)) continue;
     ctx.beginPath(); ctx.moveTo(b.px, b.py); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.lineCap = 'butt';
-  if (p.muzzle > 0) {                                  // вспышка у ствола
+  if (p.muzzle > 0) {                                  // Muzzle flash.
     const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x);
     const fx = h.x + Math.cos(a) * 9, fy = h.y + Math.sin(a) * 9;
     ctx.fillStyle = 'rgba(255,231,150,.95)';
@@ -221,7 +221,7 @@ function draw(g) {
     ctx.closePath(); ctx.fill();
   }
 
-  // машины
+  // Cars.
   for (const c of g.cars) {
     if (!visible(c.x, c.y, (c.box && c.box.rad || 32) + 10)) continue;
     ctx.save();
@@ -231,7 +231,7 @@ function draw(g) {
     ctx.restore();
   }
 
-  // Летящие капли имеют короткий яркий след и маленькую тень на земле.
+  // Airborne droplets have a short bright trail and a small ground shadow.
   ctx.lineCap = 'round';
   for (const d of (g.bloodDrops || [])) {
     if (!segmentVisible(d.px, d.py, d.x, d.y, d.r + 12)) continue;
@@ -247,7 +247,7 @@ function draw(g) {
   }
   ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
 
-  // частицы
+  // Particles.
   for (const q of g.parts) {
     if (!visible(q.x, q.y, q.s + 2)) continue;
     ctx.globalAlpha = clamp(q.l * 1.6, 0, 1);
@@ -261,24 +261,24 @@ function draw(g) {
   drawFog(g, camx, camy);
   drawGlowThroughFog(g, camx, camy);
   drawCarSmoke(g, camx, camy);
-  if (g.weather.flash > 0) {                       // молния бьёт поверх тумана
+  if (g.weather.flash > 0) {                       // Lightning flashes above the fog layer.
     ctx.fillStyle = `rgba(226,238,255,${Math.min(.55, g.weather.flash * g.weather.flash * .7)})`;
     ctx.fillRect(0, 0, W, H);
   }
   drawRain(g);
 
-  // виньетка при уроне
+  // Damage vignette.
   if (p.inv > 1.2) {
     ctx.fillStyle = `rgba(220,60,50,${(p.inv - 1.2) * .45})`;
     ctx.fillRect(0, 0, W, H);
   }
 
-  // указатель на ближайшую цель за краем экрана
+  // Off-screen pointer to the nearest objective.
   const tgt = g.got >= g.need ? g.goal : nearestParcel(g);
   if (tgt) {
     const sx = tgt.x - camx, sy = tgt.y - camy;
     if (sx < 20 || sy < 20 || sx > W - 20 || sy > H - 20) {
-      // упираем стрелку в рамку экрана, а не в окружность
+      // Clamp the arrow to the screen frame rather than to a circle.
       const a = Math.atan2(sy - H / 2, sx - W / 2);
       const ca = Math.cos(a), sa = Math.sin(a);
       const t = Math.min(Math.abs((W / 2 - 26) / (ca || 1e-6)), Math.abs((H / 2 - 26) / (sa || 1e-6)));
@@ -293,18 +293,18 @@ function draw(g) {
   drawGauges(g);
   drawMinimap(g);
 
-  // подсказка про огонь на телефоне
+  // Mobile fire hint.
   if ('ontouchstart' in window) {
     ctx.save();
     ctx.globalAlpha = runtime.fireHeld ? .9 : .4;
     ctx.strokeStyle = '#ffd766'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(W - 62, H - 62, 34, 0, 6.283); ctx.stroke();
     ctx.fillStyle = '#ffd766'; ctx.font = 'bold 13px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('ОГОНЬ', W - 62, H - 57);
+    ctx.fillText('FIRE', W - 62, H - 57);
     ctx.restore();
   }
 
-  // джойстик на телефоне
+  // Mobile joystick.
   if (runtime.touch) {
     const touch = runtime.touch;
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 3;

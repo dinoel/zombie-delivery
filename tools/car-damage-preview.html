@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>QA: повреждения машин</title>
+  <title>QA: vehicle damage</title>
   <style>
     html,body{margin:0;background:#171d2b;color:#e9edf3;font:14px system-ui,sans-serif}
     main{width:720px;margin:24px auto} h1{font-size:20px;margin:0 0 10px}
@@ -11,18 +11,18 @@
   </style>
 </head>
 <body>
-  <main><h1>Визуальная проверка постоянных повреждений</h1><canvas id="c" width="720" height="260"></canvas></main>
+  <main><h1>Persistent damage visual check</h1><canvas id="c" width="720" height="260"></canvas></main>
   <div id="hiddenUi"><div id="overlay"><h1></h1><h2></h2><p></p></div><button id="startBtn"></button>
     <span id="lvl"></span><span id="box"></span><span id="ammo"></span><span id="lives"></span>
     <span id="time"></span><span id="best"></span><select id="qualitySelect"><option value="low">low</option></select>
     <span id="qualityStatus"></span></div>
-  <script src="../src/namespace.js?v=20260726-16"></script>
-  <script src="../src/core.js?v=20260726-16"></script>
-  <script src="../src/quality.js?v=20260726-16"></script>
-  <script src="../src/audio.js?v=20260726-16"></script>
-  <script src="../src/car-physics.js?v=20260726-16"></script>
-  <script src="../src/environment.js?v=20260726-19"></script>
-  <script src="../src/world.js?v=20260726-16"></script>
+  <script src="../src/namespace.js?v=20260726-20"></script>
+  <script src="../src/core.js?v=20260726-20"></script>
+  <script src="../src/quality.js?v=20260726-20"></script>
+  <script src="../src/audio.js?v=20260726-20"></script>
+  <script src="../src/car-physics.js?v=20260726-20"></script>
+  <script src="../src/environment.js?v=20260726-20"></script>
+  <script src="../src/world.js?v=20260726-20"></script>
   <script>
     (() => {
       const { drawCarShape } = TownGame.world;
@@ -36,14 +36,14 @@
       TownGame.environment.damageCarWithBullet(game,cars[1],bulletContact,{vx:-680,vy:0});
       TownGame.environment.damageCarWithPlayer(game,cars[2],{x:30,y:-8});
       damageCar(game,cars[3],260,1,0); cars[3].hazard=17.8;
-      const labels=['ЦЕЛАЯ','ВЫСТРЕЛ','СБИЛА ИГРОКА','МАШИНА В МАШИНУ'];
+      const labels=['INTACT','SHOT','PLAYER IMPACT','CAR-TO-CAR'];
       ctx.textAlign='center'; ctx.font='600 13px system-ui';
       cars.forEach((car,i)=>{
         const x=92+i*178,y=128;
         ctx.fillStyle='#e6ebf2';ctx.fillText(labels[i],x,38);
         ctx.save();ctx.translate(x,y);ctx.scale(3.1,3.1);drawCarShape(ctx,car);ctx.restore();
         ctx.fillStyle='#aab4c2';ctx.font='12px system-ui';
-        const d=car.damage;ctx.fillText(`кузов ${Math.round(d.integrity)}% · мотор ${Math.round(d.engine)}%`,x,222);
+        const d=car.damage;ctx.fillText(`body ${Math.round(d.integrity)}% · engine ${Math.round(d.engine)}%`,x,222);
       });
     })();
   </script>

@@ -1,4 +1,4 @@
-// Деформируемая 2D-физика кузова: сетка, пластическая деформация и точные контакты.
+// Deformable 2D vehicle physics: mesh, plastic deformation, and exact contacts.
 window.TownGame.carPhysics = (() => {
 'use strict';
 
@@ -67,14 +67,14 @@ function localToWorld(car, p) {
   return { x: car.x + car.hx * p.x - car.hy * p.y, y: car.y + car.hy * p.x + car.hx * p.y };
 }
 
-// Точка детали проходит через ту же билинейную сетку, что и кузов.
+// Part positions pass through the same bilinear mesh as the body.
 function bodyPointLocal(car, x, y) {
   const body = car.body || (car.body = createCarBody());
   let cx = 0, cy = 0;
   while (cx < COLS - 2 && x > X[cx + 1]) cx++;
   while (cy < ROWS - 2 && y > Y[cy + 1]) cy++;
-  // Небольшая экстраполяция нужна выступающим деталям (зеркала, колёса):
-  // они продолжают движение крайней ячейки, а не приклеиваются к старому прямоугольнику.
+  // Slight extrapolation is required for protruding parts such as mirrors and wheels:
+  // they follow the outer cell instead of sticking to the old rectangle.
   const tx = clamp((x - X[cx]) / (X[cx + 1] - X[cx]), -.35, 1.35);
   const ty = clamp((y - Y[cy]) / (Y[cy + 1] - Y[cy]), -.35, 1.35);
   const a = body.nodes[indexOf(cx, cy)], b = body.nodes[indexOf(cx + 1, cy)];
@@ -89,7 +89,7 @@ function bodyPointWorld(car, x, y) {
 }
 
 function constrainMesh(body) {
-  // Не даём ячейкам выворачиваться наизнанку, но разрешаем им сильно сжиматься.
+  // Prevent cells from turning inside out while still allowing heavy compression.
   for (let pass = 0; pass < 3; pass++) {
     for (let y = 0; y < ROWS; y++) for (let x = 1; x < COLS; x++) {
       const left = body.nodes[indexOf(x - 1, y)], right = body.nodes[indexOf(x, y)];
@@ -114,8 +114,8 @@ function constrainMesh(body) {
     n.x = clamp(n.x, -CAR_L / 2 - 2, CAR_L / 2 + 2);
     n.y = clamp(n.y, -CAR_W / 2 - 2, CAR_W / 2 + 2);
   }
-  // Ограничение максимального смещения могло снова приблизить соседние узлы —
-  // последним проходом гарантируем положительную площадь каждой ячейки.
+  // Limiting maximum displacement can bring adjacent nodes close again;
+  // a final pass guarantees positive area for every cell.
   for (let y = 0; y < ROWS; y++) for (let x = 1; x < COLS; x++) {
     const left = body.nodes[indexOf(x - 1, y)], right = body.nodes[indexOf(x, y)];
     if (right.x < left.x + .45) right.x = left.x + .45;
@@ -126,7 +126,7 @@ function constrainMesh(body) {
   }
 }
 
-// Импульс оставляет пластическую, а не пружинящую обратно деформацию.
+// An impulse leaves plastic deformation instead of springing back.
 function deformCarBody(car, contactX, contactY, nx, ny, impactSpeed) {
   const body = car.body || (car.body = createCarBody());
   const contact = worldToLocal(car, contactX, contactY);
@@ -150,7 +150,7 @@ function deformCarBody(car, contactX, contactY, nx, ny, impactSpeed) {
     weights[i] = w;
   }
 
-  // Связи передают часть смятия соседним узлам: удар не может сдвинуть одну вершину независимо от металла вокруг.
+  // Constraints transfer part of the crush to adjacent nodes, so an impact cannot move one vertex independently of the surrounding metal.
   for (let pass = 0; pass < 3; pass++) {
     const nextX = dxs.slice(), nextY = dys.slice();
     for (let i = 0; i < body.nodes.length; i++) {
@@ -210,8 +210,8 @@ function segmentIntersection(a, b, c, d) {
   return { x: a.x + abx * t, y: a.y + aby * t, t, u };
 }
 
-// Непрерывная проверка пули: ищем первое пересечение всего отрезка кадра,
-// поэтому быстрый снаряд не перескакивает через 22-пиксельный кузов.
+// Continuous bullet test: find the first intersection along the entire frame segment,
+// preventing a fast projectile from skipping across the 22-pixel body.
 function segmentCarContact(car, x0, y0, x1, y1) {
   const poly = syncCarBody(car).worldOutline;
   const from = { x: x0, y: y0 }, to = { x: x1, y: y1 };
@@ -221,7 +221,7 @@ function segmentCarContact(car, x0, y0, x1, y1) {
     const hit = segmentIntersection(from, to, a, b);
     if (!hit || (best && hit.t >= best.t)) continue;
     const ex = b.x - a.x, ey = b.y - a.y, len = Math.hypot(ex, ey) || 1;
-    let nx = ey / len, ny = -ex / len;             // внешний нормаль clockwise-контура
+    let nx = ey / len, ny = -ex / len;             // Outward normal of the clockwise outline.
     if (nx * (x0 - hit.x) + ny * (y0 - hit.y) < 0) { nx = -nx; ny = -ny; }
     best = { x: hit.x, y: hit.y, nx, ny, t: hit.t, edge: i };
   }
@@ -257,7 +257,7 @@ function carCollisionManifold(a, b) {
   let nx, ny;
   if (bestEdge) {
     const ex = bestEdge[1].x - bestEdge[0].x, ey = bestEdge[1].y - bestEdge[0].y, len = Math.hypot(ex, ey) || 1;
-    nx = ey / len; ny = -ex / len;                        // внешний нормаль clockwise-контура
+    nx = ey / len; ny = -ex / len;                        // Outward normal of the clockwise outline.
   } else { nx = b.x - a.x; ny = b.y - a.y; const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len; }
   if (nx * (b.x - a.x) + ny * (b.y - a.y) < 0) { nx = -nx; ny = -ny; }
 

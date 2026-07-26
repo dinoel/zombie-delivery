@@ -1,4 +1,4 @@
-// Генерация района и отрисовка статических объектов.
+// District generation and static-object rendering.
 window.TownGame.world = (() => {
 'use strict';
 
@@ -12,8 +12,8 @@ const {
 } = window.TownGame.environment;
 const { createCarBody, syncCarBody, deformCarBody, bodyPointLocal } = window.TownGame.carPhysics;
 
-// Три конструкции кузова отличаются не только цветом: лёгкая сильнее мнётся и
-// быстрее разгоняется, тяжёлая передаёт больше импульса и лучше держит удар.
+// The three body constructions differ in more than color: light cars crumple more
+// and accelerate faster, while heavy cars transfer more impulse and survive impacts.
 const CAR_BUILDS = Object.freeze([
   Object.freeze({ name: 'light', mass: .78, stiffness: .76, durability: .82, speed: 1.08 }),
   Object.freeze({ name: 'standard', mass: 1, stiffness: 1, durability: 1, speed: 1 }),
@@ -26,7 +26,7 @@ function applyCarBuild(c) {
   return c;
 }
 
-// Базовые архетипы идут циклом, поэтому каждый район гарантированно содержит все виды.
+// Base archetypes cycle so every district is guaranteed to contain all types.
 const ZOMBIE_TYPES = Object.freeze([
   Object.freeze({
     id: 'walker', hp: 2, speed: [104, 132], skin: '#8fae63', clothes: '#5d6b4a', eye: '#ff5a45',
@@ -51,21 +51,21 @@ const ZOMBIE_TYPES = Object.freeze([
   })
 ]);
 
-// ---------- генерация района ----------
+// ---------- district generation ----------
 function buildTown(level) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
   const R = makeRoads();
-  const solids = [];   // повёрнутые коробки: дома, изгороди, припаркованные машины
+  const solids = [];   // Oriented boxes: houses, hedges, and parked cars.
   const trees  = [];   // {x,y,r}
-  const soft   = [];   // кусты (замедляют)
+  const soft   = [];   // Bushes that slow movement.
   const houses = [];
-  const props  = [];   // фонари, лавки, площадки — только для отрисовки
+  const props  = [];   // Lamps, benches, and driveways used only for rendering.
   const CELL = 20, gw = Math.ceil(WORLD / CELL);
-  const EDGE_LANE = 54; // свободный обход вдоль границы: здесь нельзя ставить твёрдые объекты
+  const EDGE_LANE = 54; // Clear route along the edge where no solid object may be placed.
   const insideEdge = (x, y, r = 0) =>
     x - r > EDGE_LANE && y - r > EDGE_LANE && x + r < WORLD - EDGE_LANE && y + r < WORLD - EDGE_LANE;
 
-  // ---------- поле расстояний до асфальта ----------
+  // ---------- distance field from asphalt ----------
   const rdist = new Float32Array(gw * gw).fill(1e9);
   for (const e of R.edges) for (let s = 0; s <= e.len; s += 8) {
     const p = onEdge(e, s);
@@ -80,7 +80,7 @@ function buildTown(level) {
     rdist[clamp((y / CELL) | 0, 0, gw - 1) * gw + clamp((x / CELL) | 0, 0, gw - 1)];
   const farFrom = (x, y, pad, skip) => !solids.some(q => q !== skip && Math.hypot(q.cx - x, q.cy - y) < q.rad + pad);
 
-  // ---------- дома вдоль улиц, фасадом к дороге ----------
+  // ---------- houses along roads, facing the street ----------
   const CURB = ROAD / 2 + 30;
   for (let tries = 0; tries < 1800 && houses.length < 32; tries++) {
     const x = rnd(70, WORLD - 70), y = rnd(70, WORLD - 70);
@@ -90,17 +90,17 @@ function buildTown(level) {
     const ang = near.ang + rnd(-.1, .1);
     const hw = rnd(50, 78), hh = rnd(42, 62);
     const c = Math.cos(ang), s = Math.sin(ang);
-    const face = ((near.y - y) * c - (near.x - x) * s) > 0 ? 1 : -1;   // с какой стороны улица
+    const face = ((near.y - y) * c - (near.x - x) * s) > 0 ? 1 : -1;   // Which side the street is on.
     const h = obb(x, y, ang, hw, hh, { wall: pick(WALLS), roof: pick(ROOFS), seed: Math.random(), face });
     if (!insideEdge(x, y, h.rad)) continue;
     if (!farFrom(x, y, h.rad + 22)) continue;
     houses.push(h); solids.push(h);
 
-    // площадка с машиной сбоку от дома
+    // Driveway with a car beside the house.
     if (Math.random() < .5) {
       const lx = (Math.random() < .5 ? 1 : -1) * (hw + 36), ly = face * hh * .3;
       const px = x + lx * c - ly * s, py = y + lx * s + ly * c;
-      if (insideEdge(px, py, 36) && roadDist(px, py) > CURB - 4 && farFrom(px, py, 40, h)) { // сам дом площадке не мешает
+      if (insideEdge(px, py, 36) && roadDist(px, py) > CURB - 4 && farFrom(px, py, 40, h)) { // The house itself does not block its driveway.
         props.push(obb(px, py, ang, CAR_L / 2 + 11, CAR_W / 2 + 11, { t: 'lot' }));
         const car = obb(px, py, ang + rnd(-.05, .05), CAR_L / 2, CAR_W / 2,
           { t: 'parked', col: pick(CARCOL), seed: Math.random(), model: (Math.random() * 3) | 0 });
@@ -114,7 +114,7 @@ function buildTown(level) {
     }
   }
 
-  // ---------- живые изгороди ----------
+  // ---------- hedges ----------
   for (let tries = 0, k = 0; tries < 600 && k < 16; tries++) {
     const x = rnd(60, WORLD - 60), y = rnd(60, WORLD - 60);
     if (roadDist(x, y) < CURB + 24) continue;
@@ -124,7 +124,7 @@ function buildTown(level) {
     solids.push(o); props.push(o); k++;
   }
 
-  // ---------- деревья и кусты ----------
+  // ---------- trees and bushes ----------
   for (let tries = 0; tries < 2200 && trees.length < 62; tries++) {
     const x = rnd(34, WORLD - 34), y = rnd(34, WORLD - 34), r = rnd(15, 22);
     if (!insideEdge(x, y, r)) continue;
@@ -141,7 +141,7 @@ function buildTown(level) {
     soft.push({ x, y, r, seed: Math.random() });
   }
 
-  // ---------- фонари и лавки вдоль тротуаров ----------
+  // ---------- lamps and benches along sidewalks ----------
   for (const e of R.edges) {
     let side = Math.random() < .5 ? 1 : -1;
     for (let s = rnd(60, 120); s < e.len - 50; s += rnd(150, 210)) {
@@ -155,7 +155,7 @@ function buildTown(level) {
     }
   }
 
-  // ---------- сетка проходимости (для расстановки и проверки достижимости) ----------
+  // ---------- walkability grid for placement and reachability ----------
   const free = new Uint8Array(gw * gw);
   for (let gy = 0; gy < gw; gy++) for (let gx = 0; gx < gw; gx++) {
     const x = gx * CELL + CELL / 2, y = gy * CELL + CELL / 2;
@@ -169,18 +169,18 @@ function buildTown(level) {
     free[gy * gw + gx] = ok ? 1 : 0;
   }
 
-  // старт — ближайший к центру двор, а не середина перекрёстка
+  // Spawn in the yard nearest the center instead of the middle of an intersection.
   let start = null;
   for (let pass = 0; pass < 2 && !start; pass++)
     for (let rad = 0; rad < 60 && !start; rad++) for (let a = 0; a < 32; a++) {
       const x = WORLD / 2 + Math.cos(a / 32 * 6.283) * rad * 14, y = WORLD / 2 + Math.sin(a / 32 * 6.283) * rad * 14;
       const gx = (x / CELL) | 0, gy = (y / CELL) | 0;
       if (gx < 0 || gy < 0 || gx >= gw || gy >= gw || !free[gy * gw + gx]) continue;
-      if (!pass && rdist[gy * gw + gx] < ROAD / 2 + 30) continue;      // первый проход — только дворы
+      if (!pass && rdist[gy * gw + gx] < ROAD / 2 + 30) continue;      // First pass searches yards only.
       start = { x: gx * CELL + 10, y: gy * CELL + 10 }; break;
     }
 
-  // волна от старта — что вообще достижимо
+  // Flood fill from the spawn point to find all reachable cells.
   const reach = new Uint8Array(gw * gw);
   const sq = [((start.y / CELL) | 0) * gw + ((start.x / CELL) | 0)];
   reach[sq[0]] = 1;
@@ -193,13 +193,13 @@ function buildTown(level) {
       if (free[j] && !reach[j]) { reach[j] = 1; sq.push(j); }
     }
   }
-  const spots = [], onFoot = [];                  // во дворах и вообще где угодно
+  const spots = [], onFoot = [];                  // Yard spots and general walkable spots.
   for (let i = 0; i < reach.length; i++) if (reach[i]) {
     const x = (i % gw) * CELL + CELL / 2, y = ((i / gw) | 0) * CELL + CELL / 2;
     onFoot.push({ x, y });
     if (rdist[i] > ROAD / 2 + 26) spots.push({ x, y });
   }
-  if (spots.length < 20) spots.push(...onFoot);   // район вышел сплошь асфальтовым
+  if (spots.length < 20) spots.push(...onFoot);   // Fall back when the district is mostly asphalt.
   const openReach = (x, y, radius = 1) => {
     const gx = (x / CELL) | 0, gy = (y / CELL) | 0;
     for (let oy = -radius; oy <= radius; oy++) for (let ox = -radius; ox <= radius; ox++) {
@@ -211,8 +211,8 @@ function buildTown(level) {
     return true;
   };
 
-  // Доступные дворовые площадки по всему району. 3×3 свободных клетки не дают
-  // положить посылку в щель между домом и краем или в узкий карман декораций.
+  // Reachable yard spots across the district. A clear 3x3 cell area prevents
+  // parcels from appearing between a house and the edge or inside a narrow pocket.
   const yardCells = [];
   for (const s of spots) {
     if (s.x < 105 || s.y < 105 || s.x > WORLD - 105 || s.y > WORLD - 105) continue;
@@ -227,7 +227,7 @@ function buildTown(level) {
   const fallbackDrop = spots.filter(s => s.x > 105 && s.y > 105 && s.x < WORLD - 105 && s.y < WORLD - 105 && openReach(s.x, s.y, 1));
   const drop = yardCells.length > 24 ? yardCells : fallbackDrop.length ? fallbackDrop : spots;
 
-  // ---------- посылки ----------
+  // ---------- parcels ----------
   const need = Math.min(3 + (level - 1), 8);
   const parcels = [];
   const parcelGuardPools = [];
@@ -247,7 +247,7 @@ function buildTown(level) {
     if (!choices.length) choices = safeDrop;
 
     let bestSpot = pick(choices), guards = [];
-    // Несколько попыток нужны не для поиска дальнего угла, а для площадки с местом охране.
+    // Multiple attempts find a spot with room for guards, not a distant corner.
     for (let t = 0; t < 36; t++) {
       const s = pick(choices);
       const ring = onFoot.filter(q => {
@@ -270,7 +270,7 @@ function buildTown(level) {
     if (bestSpot.house) usedParcelHouses.add(bestSpot.house);
   }
 
-  // ---------- дом-адресат: дверь смотрит на улицу, подход должен быть достижим ----------
+  // ---------- destination house: street-facing door with a reachable approach ----------
   const doorOf = h => {
     const L = h.face * (h.hh + 17);
     return { x: h.cx - L * Math.sin(h.ang), y: h.cy + L * Math.cos(h.ang) };
@@ -298,10 +298,10 @@ function buildTown(level) {
   }
   if (!goal) { const h = houses[0]; h.target = true; goal = { house: h, ...doorOf(h) }; }
 
-  // ---------- едущие машины: катятся по улицам и сворачивают на перекрёстках ----------
+  // ---------- moving cars: follow roads and turn at intersections ----------
   const cars = [];
-  const nCars = Math.min(7 + level, 14);       // больше улицы не держат: начинается сплошная толчея
-  const spd = Math.min(1.34, 1 + (level - 1) * .08);   // быстрее улицы просто не успевают разъезжаться
+  const nCars = Math.min(7 + level, 14);       // More traffic turns the roads into a permanent jam.
+  const spd = Math.min(1.34, 1 + (level - 1) * .08);   // Higher speeds prevent traffic from separating safely.
   for (let k = 0; k < nCars; k++) {
     for (let t = 0; t < 50; t++) {
       const e = pick(R.edges);
@@ -320,7 +320,7 @@ function buildTown(level) {
       cars.push(c); break;
     }
   }
-  // патруль: белая с мигалкой, идёт заметно быстрее потока
+  // Patrol car: white with a beacon and noticeably faster than traffic.
   for (let k = 0, want = level >= 4 ? 2 : 1; k < want && k < cars.length; k++) {
     const c = cars[k];
     c.police = true; c.col = '#eef2f7'; c.max *= 1.35; c.beacon = rnd(0, 6.283);
@@ -328,8 +328,8 @@ function buildTown(level) {
   }
   for (const c of cars) c.baseMax = c.max;
 
-  // Детерминированная QA-сцена: обычный запуск её никогда не включает.
-  // Она ставит готовый дымящий остов в стартовый луч и позволяет проверить Canvas без ожидания случайной аварии.
+  // Deterministic QA scene that normal startup never enables.
+  // It places a smoking wreck in the starting beam for immediate Canvas inspection.
   const carDamageQa = qaMode === 'car-damage';
   if (carDamageQa && cars.length) {
     const c = cars.find(car => !car.police) || cars[0];
@@ -354,10 +354,10 @@ function buildTown(level) {
     c.damage.plasticWork = c.body.plasticWork; c.damage.maxStrain = c.body.maxStrain;
   }
 
-  // ---------- зомби ----------
+  // ---------- zombies ----------
   const zombies = [];
-  // Первый район сразу даёт достаточно целей для стрельбы, затем толпа растёт,
-  // но верхний предел сохраняет приемлемую квадратичную проверку раздвигания тел.
+  // The first district provides enough targets immediately, then the horde grows;
+  // the upper limit keeps quadratic body-separation checks affordable.
   const nz = Math.min(11 + level * 3, 32);
   const zspd = 1 + (level - 1) * .06;
   const typeOffset = (Math.random() * ZOMBIE_TYPES.length) | 0;
@@ -380,8 +380,8 @@ function buildTown(level) {
     });
   };
 
-  // У каждой посылки всегда трое охранников. Получаются небольшие боевые группы,
-  // а не одиночные цели, при сохранении безопасной дистанции от старта.
+  // Every parcel has three guards, creating small combat groups rather than isolated
+  // targets while preserving a safe distance from the spawn point.
   for (let pi = 0; pi < parcels.length; pi++) {
     const pool = parcelGuardPools[pi].slice();
     for (let n = 0; n < 3; n++) {
@@ -395,7 +395,7 @@ function buildTown(level) {
     }
   }
 
-  // Остальная часть популяции свободно бродит. Охрана входит в общий лимит сложности.
+  // The remaining population wanders freely. Guards count toward the difficulty cap.
   const totalZombies = Math.max(nz, parcels.length * 3);
   while (zombies.length < totalZombies) {
     let s = null;
@@ -408,8 +408,8 @@ function buildTown(level) {
     addZombie(s);
   }
 
-  // Детерминированная мишень для визуальной проверки фонтанов и следов крови.
-  // Обычная игра эту ветку никогда не включает.
+  // Deterministic target for visual checks of blood sprays and stains.
+  // Normal gameplay never enables this branch.
   if (qaMode === 'zombie-blood' && zombies.length) {
     const z = zombies.find(o => o.kind === 'brute') || zombies[0];
     zombies.splice(0, zombies.length, z);
@@ -419,7 +419,7 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
-  // ---------- ящики: патроны и батарейки ----------
+  // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
     let s = null;
@@ -447,31 +447,31 @@ function buildTown(level) {
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], rings: [], splash: [], carSmoke: [],
     weather: newWeather(), ammo: 24, killed: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0,
-    fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // туман войны
+    fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, lives: 3, time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false
   };
 }
 
-// ---------- статичный слой города ----------
+// ---------- static town layer ----------
 function renderStatic(g) {
   const s = document.createElement('canvas');
   s.width = s.height = WORLD;
   const c = s.getContext('2d');
 
-  // трава по всему миру
+  // Grass across the entire world.
   c.fillStyle = '#78b859'; c.fillRect(0, 0, WORLD, WORLD);
   for (let i = 0; i < 9000; i++) {
     c.fillStyle = Math.random() < .5 ? 'rgba(102,166,72,.6)' : 'rgba(150,210,114,.55)';
     c.fillRect(Math.random() * WORLD, Math.random() * WORLD, 3 + Math.random() * 5, 2);
   }
-  for (let i = 0; i < 620; i++) {                    // цветочки
+  for (let i = 0; i < 620; i++) {                    // Flowers.
     c.fillStyle = pick(['#f6e05e', '#f6a5c0', '#ffffff', '#c3a2f0']);
     c.beginPath(); c.arc(Math.random() * WORLD, Math.random() * WORLD, 2, 0, 6.283); c.fill();
   }
 
-  // ---------- улицы: широкой линией по кривой ----------
+  // ---------- roads as wide strokes along curves ----------
   const stroke = (w, style, dash) => {
     c.lineWidth = w; c.strokeStyle = style; c.lineCap = 'round'; c.lineJoin = 'round';
     c.setLineDash(dash || []);
@@ -482,18 +482,18 @@ function renderStatic(g) {
     }
     c.setLineDash([]);
   };
-  stroke(ROAD + 42, '#cfc9ba');                      // тротуар
-  stroke(ROAD + 10, '#b3ac9c');                      // бордюр
-  stroke(ROAD, '#4d525b');                           // асфальт
-  for (let i = 0; i < 9000; i++) {                   // шум асфальта
+  stroke(ROAD + 42, '#cfc9ba');                      // Sidewalk.
+  stroke(ROAD + 10, '#b3ac9c');                      // Curb.
+  stroke(ROAD, '#4d525b');                           // Asphalt.
+  for (let i = 0; i < 9000; i++) {                   // Asphalt texture noise.
     const x = Math.random() * WORLD, y = Math.random() * WORLD;
     if (g.roadDist(x, y) > ROAD / 2 - 7) continue;
     c.fillStyle = Math.random() < .5 ? 'rgba(255,255,255,.035)' : 'rgba(0,0,0,.07)';
     c.fillRect(x, y, 3, 3);
   }
-  stroke(3, 'rgba(240,225,150,.75)', [22, 20]);      // осевая
+  stroke(3, 'rgba(240,225,150,.75)', [22, 20]);      // Centerline.
 
-  // зебры на подходах к перекрёсткам
+  // Crosswalks near intersections.
   for (const n of g.roads.nodes) {
     if (n.e.length < 3) continue;
     for (const ei of n.e) {
@@ -508,7 +508,7 @@ function renderStatic(g) {
     }
   }
 
-  // площадки и изгороди
+  // Driveways and hedges.
   for (const p of g.props) {
     if (p.t !== 'lot' && p.t !== 'hedge') continue;
     c.save(); c.translate(p.cx, p.cy); c.rotate(p.ang);
@@ -529,7 +529,7 @@ function renderStatic(g) {
     c.restore();
   }
 
-  // кусты
+  // Bushes.
   for (const b of g.soft) {
     c.fillStyle = 'rgba(0,0,0,.15)';
     c.beginPath(); c.ellipse(b.x + 3, b.y + 6, b.r, b.r * .6, 0, 0, 6.283); c.fill();
@@ -540,17 +540,17 @@ function renderStatic(g) {
     }
   }
 
-  // дома
+  // Houses.
   for (const h of g.houses) drawHouse(c, h);
 
-  // припаркованные машины
+  // Parked cars.
   for (const p of g.props) if (p.t === 'parked') {
     c.save(); c.translate(p.cx, p.cy); c.rotate(p.ang);
     drawCarShape(c, p);
     c.restore();
   }
 
-  // деревья — поверх всего, кроме динамики
+  // Trees above everything except dynamic objects.
   for (const t of g.trees) {
     c.fillStyle = 'rgba(0,0,0,.22)';
     c.beginPath(); c.ellipse(t.x + 7, t.y + 10, t.r * 1.05, t.r * .7, 0, 0, 6.283); c.fill();
@@ -566,7 +566,7 @@ function renderStatic(g) {
     c.beginPath(); c.arc(t.x - t.r * .3, t.y - t.r * .35, t.r * .34, 0, 6.283); c.fill();
   }
 
-  // фонари и лавки
+  // Lamps and benches.
   for (const p of g.props) {
     if (p.t === 'lamp') {
       c.fillStyle = 'rgba(0,0,0,.2)';
@@ -587,15 +587,15 @@ function renderStatic(g) {
 
 function drawHouse(c, h) {
   const hw = h.hw, hh = h.hh, w = hw * 2, hg = hh * 2;
-  c.save(); c.translate(h.cx + 7, h.cy + 11); c.rotate(h.ang);      // тень падает вниз-вправо
+  c.save(); c.translate(h.cx + 7, h.cy + 11); c.rotate(h.ang);      // Shadow falls down and right.
   c.fillStyle = 'rgba(0,0,0,.25)'; roundRect(c, -hw, -hh, w, hg, 4); c.fill();
   c.restore();
 
   c.save(); c.translate(h.cx, h.cy); c.rotate(h.ang);
-  // стены
+  // Walls.
   c.fillStyle = h.wall; roundRect(c, -hw, -hh, w, hg, 3); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.28)'; c.lineWidth = 2; c.stroke();
-  // крыша: скаты от краёв к коньку
+  // Roof planes rise from the edges to the ridge.
   const in1 = Math.min(w, hg) * .2;
   const rx = -hw + in1, ry = -hh + in1, rw = w - in1 * 2, rh = hg - in1 * 2;
   c.fillStyle = h.roof;
@@ -609,16 +609,16 @@ function drawHouse(c, h) {
   c.moveTo(-hw + 3, -hh + 3); c.lineTo(rx, ry); c.moveTo(hw - 3, -hh + 3); c.lineTo(rx + rw, ry);
   c.moveTo(-hw + 3, hh - 3); c.lineTo(rx, ry + rh); c.moveTo(hw - 3, hh - 3); c.lineTo(rx + rw, ry + rh);
   c.stroke();
-  // конёк
+  // Ridge.
   c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 3;
   c.beginPath();
   if (rw > rh) { c.moveTo(rx, ry + rh / 2); c.lineTo(rx + rw, ry + rh / 2); }
   else { c.moveTo(rx + rw / 2, ry); c.lineTo(rx + rw / 2, ry + rh); }
   c.stroke();
-  // труба
+  // Chimney.
   c.fillStyle = '#8b6b57'; c.fillRect(-hw + w * (.22 + h.seed * .5), -hh + hg * .18, 13, 13);
   c.fillStyle = 'rgba(0,0,0,.3)'; c.fillRect(-hw + w * (.22 + h.seed * .5), -hh + hg * .18, 13, 4);
-  // крыльцо с дверью — со стороны улицы
+  // Porch and door on the street-facing side.
   c.save(); c.scale(1, h.face);
   c.fillStyle = '#bdb3a1'; c.fillRect(-18, hh - 4, 36, 9);
   c.fillStyle = h.target ? '#57c057' : '#6d4b32';
@@ -633,7 +633,7 @@ function drawHouse(c, h) {
 }
 
 function drawCarShape(c, car) {
-  // Машина смотрит вправо. Все точки ниже проходят через физическую сетку кузова.
+  // The car faces right. Every point below passes through the physical body mesh.
   const d = car.damage || newCarDamage();
   const body = car.body || (car.body = createCarBody());
   const seed = car.seed || .37;
@@ -651,7 +651,7 @@ function drawCarShape(c, car) {
   };
   const outline = body.outline.map(i => body.nodes[i]);
 
-  // Тень и четыре отдельные шины; при повреждении ходовой колёса стоят чуть криво.
+  // Shadow and four independent tires; suspension damage tilts the wheels.
   c.fillStyle = 'rgba(0,0,0,.3)';
   c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p.x + 4, p.y + 6) : c.moveTo(p.x + 4, p.y + 6)); c.closePath(); c.fill();
   const wheelDamage = d.wheel || 0;
@@ -664,7 +664,7 @@ function drawCarShape(c, car) {
     c.restore();
   }
 
-  // Сам внешний контур — это граничные узлы физического тела, без отдельной художественной деформации.
+  // The outer outline uses physical boundary nodes with no separate artistic deformation.
   c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath();
   c.fillStyle = car.col || '#9a4f47'; c.fill();
   c.strokeStyle = 'rgba(8,10,13,.78)'; c.lineWidth = 1.45; c.stroke();
@@ -673,9 +673,9 @@ function drawCarShape(c, car) {
     c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.fill();
   }
 
-  // Сжатые ячейки дают постоянные тёмные плоскости на самом металле. Это не
-  // маска повреждения: четырёхугольники являются теми же физическими ячейками,
-  // а интенсивность определяется потерей площади и смещением их узлов.
+  // Compressed cells create permanent dark planes on the metal itself. This is not
+  // a damage mask: the quadrilaterals are the physical cells, and intensity follows
+  // area loss and node displacement.
   if (body.revision) for (let gy = 0; gy < body.rows - 1; gy++) for (let gx = 0; gx < body.cols - 1; gx++) {
     const i = gy * body.cols + gx;
     const a = body.nodes[i], b = body.nodes[i + 1], d0 = body.nodes[i + body.cols], e = body.nodes[i + body.cols + 1];
@@ -689,13 +689,13 @@ function drawCarShape(c, car) {
     c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.lineTo(e.x,e.y); c.lineTo(d0.x,d0.y); c.closePath(); c.fill();
   }
 
-  // Бамперы, капот, багажник и дверные щели делают автомобиль читаемым даже без повреждений.
+  // Bumpers, hood, trunk, and door seams keep an undamaged car readable.
   c.strokeStyle = 'rgba(20,22,25,.5)'; c.lineWidth = .8;
   line([[13,-10],[13,10]]); line([[-15,-10],[-15,10]]); line([[-1,-9],[-1,9]]);
   c.fillStyle = 'rgba(255,255,255,.18)';
   polygon([[-19,-10],[19,-10],[15,-8],[-18,-8]]); c.fill();
 
-  // Складки рисуются там, где реально растянулись или сжались связи сетки.
+  // Creases appear where mesh constraints actually stretch or compress.
   if (body.revision) for (const spring of body.springs) {
     const a = body.nodes[spring.a], b = body.nodes[spring.b];
     const strain = Math.abs(Math.hypot(b.x - a.x, b.y - a.y) / spring.rest - 1);
@@ -717,7 +717,7 @@ function drawCarShape(c, car) {
     }
   };
 
-  // Переднее и заднее стёкла плюс отдельные боковые окна.
+  // Front and rear glass plus separate side windows.
   c.fillStyle = glassFill(d.glass.front); polygon([[6,-7.6],[10,-6.7],[10,6.7],[6,7.6]]); c.fill();
   drawCracks(8, 0, d.glass.front, 3.5, 6.5);
   c.fillStyle = glassFill(d.glass.rear); polygon([[-10,-6.9],[-6.5,-7.8],[-6.5,7.8],[-10,6.9]]); c.fill();
@@ -729,7 +729,7 @@ function drawCarShape(c, car) {
   drawCracks(0, 8.2, d.glass.right, 5.5, 2.2);
   c.strokeStyle = 'rgba(205,225,238,.32)'; c.lineWidth = .65; line([[-4.8,-8.7],[3.7,-8.7]]); line([[-4.8,8.7],[3.7,8.7]]);
 
-  // Зеркала выступают за кузов и исчезают после бокового удара.
+  // Mirrors protrude from the body and disappear after a side impact.
   for (const sideName of ['left', 'right']) {
     const sy = sideName === 'left' ? -12.1 : 12.1, p = M(6, sy);
     if (d.mirrors[sideName] > .2) {
@@ -751,14 +751,14 @@ function drawCarShape(c, car) {
   lamp(-22, -7, d.lights.rearLeft, '#d94b42', hazardOn);
   lamp(-22, 7, d.lights.rearRight, '#d94b42', hazardOn);
 
-  if (car.broken) {                                             // заклинивший капот и обгоревшая решётка
+  if (car.broken) {                                             // Jammed hood and scorched grille.
     c.fillStyle = 'rgba(23,24,25,.55)'; polygon([[12,-9],[22,-7],[19,8],[11,9]]); c.fill();
     c.strokeStyle = '#0f1112'; c.lineWidth = 1.2;
     line([[14,-5],[20,0],[13,5]]);
   }
 
-  // Пулевые отметины хранятся в локальных координатах физического кузова,
-  // поэтому продолжают следовать за панелью, если следующий удар её сомнёт.
+  // Bullet marks are stored in local coordinates of the physical body, so they
+  // continue following a panel when a later impact crumples it.
   for (const dent of car.bulletDents || []) {
     const p = M(dent.x, dent.y), a = dent.seed * 6.283;
     c.fillStyle = '#111417'; c.beginPath(); c.arc(p.x, p.y, 1.25, 0, 6.283); c.fill();
@@ -766,7 +766,7 @@ function drawCarShape(c, car) {
     c.beginPath(); c.arc(p.x, p.y, 2.1, a, a + 4.7); c.stroke();
   }
 
-  if (car.police) {                                             // ливрея и мигалка на крыше
+  if (car.police) {                                             // Livery and roof beacon.
     c.strokeStyle = '#1f3f7a'; c.lineWidth = 2;
     line([[-19,-8.8],[18,-8.8]]); line([[-19,8.8],[18,8.8]]);
     const rp = .5 + .5 * Math.sin((car.beacon || 0) * 3.1), bp = 1 - rp;

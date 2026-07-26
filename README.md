@@ -1,88 +1,89 @@
-# КУРЬЕР — рефакторинг
+# COURIER — Refactored Edition
 
-Это отдельная рабочая версия игры из `town (1).html`. Исходный файл не изменён; его точная копия сохранена в `reference/town.original.html`.
+This is a standalone working version of the game originally stored in `town (1).html`. An English translation of the legacy monolith is preserved in `reference/town.original.html`.
 
-## Запуск
+## Running the game
 
-Откройте `index.html` в современном браузере. Проект не требует установки пакетов, сборки или подключения к интернету.
+Open `index.html` in a modern browser. The project does not require packages, a build step, or an internet connection.
 
-Для принудительного Canvas 2D-освещения вместо WebGL добавьте к адресу `?2d`.
+Add `?2d` to the URL to force Canvas 2D lighting instead of WebGL.
 
-Качество выбирается в стартовом окне. Режим `АВТО` использует средний профиль при доступном WebGL и низкий профиль при программном Canvas 2D. Выбор сохраняется между запусками.
+Quality is selected on the start screen. `AUTO` uses the medium profile when WebGL is available and the low profile with the software Canvas 2D renderer. The selection is saved between runs.
 
-## Проверка
+## Verification
 
-Из PowerShell в директории проекта выполните:
+Run this command from PowerShell in the project directory:
 
 ```powershell
 .\tools\verify.ps1
 ```
 
-Скрипт проверяет синтаксис JavaScript, наличие всех подключённых ресурсов и неизменность эталонного HTML. Для синтаксической проверки нужен Node.js; самой игре Node.js не требуется.
+The script checks JavaScript syntax, referenced resources, subsystem registration, the absence of Cyrillic text, and the translated reference HTML. Node.js is required for syntax checks, but not for the game itself.
 
-Модель повреждений транспорта имеет отдельный детерминированный прогон:
+The vehicle damage model has a separate deterministic test:
 
 ```powershell
 node .\tools\test-car-damage.js
 ```
 
-Он проверяет пластическое смещение узлов кузова, замену исходного контура столкновения деформированным, средний и катастрофический лобовой удар, боковое повреждение деталей, а также окончательную поломку после серии наездов на зомби. Визуальные состояния можно сравнить на `tools/car-damage-preview.html`. Для проверки дыма и смятого физического остова в самой игре запустите `index.html?2d&qa=car-damage`: тестовая машина появится в стартовом луче; обычный запуск этот режим не включает.
+It covers plastic body-node displacement, replacement of the original collision outline with the deformed outline, moderate and catastrophic frontal crashes, side-part damage, and final failure after repeated zombie impacts. Visual states can be compared in `tools/car-damage-preview.html`. To inspect smoke and the crumpled physical wreck in the game, open `index.html?2d&qa=car-damage`; a test vehicle will appear in the starting beam. Normal gameplay never enables this mode.
 
-## Структура
+## Project structure
 
-- `index.html` — разметка и порядок загрузки подсистем.
-- `styles/main.css` — все стили интерфейса.
-- `src/namespace.js` — создаёт единственный глобальный объект `TownGame`.
-- `src/core.js` — DOM-ссылки, конфигурация, геометрия и объект изменяемого состояния `runtime`.
-- `src/quality.js` — профили качества, автоматический выбор и сохранение настройки.
-- `src/audio.js` — синтез звуков, позиционирование источников и управление громкостью.
-- `src/car-physics.js` — деформируемая сетка кузова, пластические связи и контакты по изменённому контуру.
-- `src/environment.js` — туман войны, погода, дорожный граф и механические последствия аварий.
-- `src/world.js` — генерация района и статическая отрисовка окружения.
-- `src/physics.js` — столкновения.
-- `src/input.js` — клавиатура, мышь и сенсорное управление.
-- `src/gameplay.js` — стрельба, урон и обновление игрового состояния.
-- `src/render.js` — основной проход отрисовки.
-- `src/lighting.js` — Canvas 2D и WebGL-освещение.
-- `src/entities.js` — персонажи, шкалы и мини-карта.
-- `src/main.js` — игровой цикл и запуск нового района.
-- `docs/architecture.md` — границы подсистем и граф зависимостей.
+- `index.html` — markup and subsystem load order.
+- `styles/main.css` — interface styling.
+- `src/namespace.js` — creates the single global `TownGame` object.
+- `src/core.js` — DOM references, configuration, geometry helpers, and mutable `runtime` state.
+- `src/quality.js` — quality profiles, automatic selection, and persistence.
+- `src/audio.js` — synthesized sound, source positioning, and volume control.
+- `src/car-physics.js` — deformable body mesh, plastic constraints, and contacts against the changed outline.
+- `src/environment.js` — fog of war, weather, the road graph, and mechanical crash consequences.
+- `src/world.js` — district generation and static environment rendering.
+- `src/physics.js` — collision resolution.
+- `src/input.js` — keyboard, mouse, and touch controls.
+- `src/gameplay.js` — shooting, damage, AI, and game-state updates.
+- `src/render.js` — main rendering pass.
+- `src/lighting.js` — Canvas 2D and WebGL lighting.
+- `src/entities.js` — characters, gauges, and the minimap.
+- `src/main.js` — game loop and district startup.
+- `docs/architecture.md` — subsystem boundaries and dependency graph.
 
-## Текущий этап
+## Current state
 
-Выполнен структурный рефакторинг и начат следующий этап игровых улучшений:
+The structural refactor and the first major gameplay pass are complete:
 
-- исходный монолит разделён на HTML, CSS и подсистемы JavaScript;
-- встроенные стили заменены CSS-классами;
-- DOM-элементы интерфейса кешируются в одном объекте `UI`;
-- доступ к `localStorage` централизован и не ломает запуск, если хранилище браузера отключено;
-- наружу публикуется только один глобальный объект `TownGame`;
-- каждая подсистема изолирована замыканием и возвращает замороженный публичный API;
-- изменяемые данные запуска собраны в `TownGame.core.runtime`, а зависимости подсистем перечислены явно;
-- звуковой движок отделён от ядра и доступен через `TownGame.audio`;
-- добавлены сохраняемые профили качества; автоматический режим учитывает доступность WebGL;
-- низкий профиль ограничивает свет, отключает динамические тени и уменьшает нагрузку погоды и тумана;
-- во время охоты зомби заходят с двух флангов, иногда уклоняются с линии выстрела и делают короткий рывок вслед за отступающим игроком;
-- в каждом районе смешиваются обычные зелёные зомби (2 HP), быстрые рыжие бегуны (1 HP) и медленные фиолетовые громилы (4 HP);
-- первый район населён примерно 14 зомби, у каждой посылки дежурит трое охранников, а дальнейшие районы увеличивают толпу до 32 противников;
-- курьер начинает с 24 патронами; ящиков с припасами и боеприпасов, выпадающих из зомби, стало заметно больше;
-- каждый архетип бросает снаряд собственной палитры, размера и скорости;
-- попадания выбивают направленный фонтан зелёной крови; летящие капли падают на землю и оставляют постоянные брызги, а раненый зомби некоторое время кровит на ходу;
-- кузов каждой машины стал деформируемой сеткой из 35 узлов и связанных панелей: точка, нормаль и импульс столкновения пластически смещают металл и распространяют нагрузку по соседним связям;
-- новый смятый контур используется в следующих столкновениях, тенях и размещении деталей; окна, фонари, зеркала, колёса, дым и направление фар следуют за физической сеткой;
-- наезды на зомби и игрока прикладывают импульс в точной точке контакта и оставляют локальную накапливаемую вмятину;
-- пули пересекаются с деформированным кузовом непрерывно, оставляют отметины и небольшой урон; водитель после попадания либо преследует стрелка, либо пытается уехать, а припаркованная машина включает тревогу;
-- транспорт разделён на лёгкие, обычные и тяжёлые конструкции с разной массой, жёсткостью, прочностью и скоростью; при аварии импульс распределяется по массе, поэтому кузова больше не ломаются одинаково;
-- любая повреждённая машина начинает дымить; частота, размер, плотность и чернота дыма непрерывно растут вместе с повреждением двигателя, кузова и пластической деформацией;
-- механическая модель отдельно учитывает прочность кузова и двигателя, стёкла, фары, задние фонари, зеркала и ходовую; разбитый двигатель снижает тягу, повреждённая подвеска ухудшает поворот;
-- тяжёлый удар или серия наездов на зомби окончательно выводят машину из строя — она останавливается, включает аварийку, дымит и становится физическим укрытием;
-- внешний вид автомобилей перерисован: отдельные шины, бамперы, капот, багажник, двери, четыре стекла, зеркала и индивидуально ломающиеся фонари;
-- преследующие зомби на средней дистанции замахиваются и бросают сгустки гнили, от которых можно увернуться;
-- посылки случайно распределяются по доступным дворам у разных домов; каждую патрулируют двое зомби-охранников;
-- выход выбирается случайно среди доступных внутренних домов, а вдоль края карты сохраняется свободный обход;
-- вокруг старта действует гарантированная свободная зона, а первые пять секунд стартовый свет не поднимает тревогу;
-- порядок загрузки и регистрация API проверяются скриптом `tools/verify.ps1`;
-- сохранён запуск через `file://` без локального сервера;
-- внешние зависимости не добавлены.
+- the original monolith is split into HTML, CSS, and JavaScript subsystems;
+- inline styles are replaced with CSS classes;
+- interface DOM nodes are cached in a single `UI` object;
+- `localStorage` access is centralized and degrades safely when browser storage is unavailable;
+- only one global object, `TownGame`, is exposed;
+- every subsystem is isolated in a closure and returns a frozen public API;
+- mutable launch data lives in `TownGame.core.runtime`, and subsystem dependencies are explicit;
+- the sound engine is separate from the core and available through `TownGame.audio`;
+- persistent quality profiles include automatic WebGL-aware selection;
+- the low profile limits lights, disables dynamic shadows, and reduces weather and fog work;
+- Canvas 2D rendering avoids intermediate light buffers when shadows are disabled and culls off-screen dynamic objects;
+- zombies flank during a hunt, sometimes dodge the firing line, and perform short surges after a retreating player;
+- every district mixes standard green walkers (2 HP), fast orange runners (1 HP), and slow purple brutes (4 HP);
+- the first district contains about 14 zombies, three guards patrol every parcel, and later districts scale to 32 enemies;
+- the courier starts with 24 rounds, while supply boxes and zombie ammo drops are more plentiful;
+- each zombie archetype throws a projectile with its own palette, size, and speed;
+- hits produce directional sprays of green blood; airborne droplets stain the ground, and wounded zombies bleed while moving;
+- each car uses a deformable mesh of 35 nodes and linked panels; impact position, normal, and impulse plastically displace metal and spread load through adjacent constraints;
+- the deformed outline is used for later collisions, shadows, and part placement; windows, lights, mirrors, wheels, smoke, and headlight direction follow the physical mesh;
+- zombie and player impacts apply force at the exact contact point and leave localized cumulative dents;
+- bullets continuously intersect the deformed body, leave marks, and apply minor damage; a driver either chases the shooter or flees, while a parked car triggers its alarm;
+- light, standard, and heavy vehicle constructions have different mass, stiffness, durability, and speed, so crash impulses no longer damage every car identically;
+- any damaged vehicle starts smoking, with frequency, size, density, and darkness increasing continuously with engine, body, and plastic damage;
+- the mechanical model separately tracks body and engine integrity, windows, headlights, taillights, mirrors, and suspension;
+- a heavy crash or repeated zombie impacts can disable a vehicle, leaving a smoking physical obstacle with hazard lights;
+- vehicles have separate tires, bumpers, hood, trunk, doors, four windows, mirrors, and independently breakable lights;
+- zombies wind up and throw dodgeable clumps of filth at medium range;
+- parcels are distributed across reachable yards near different homes;
+- the exit is selected from reachable interior homes, while a clear path remains around the map edge;
+- a guaranteed clear zone surrounds the spawn point, and the starting light does not raise an alarm during the first five seconds;
+- `tools/verify.ps1` checks load order, API registration, JavaScript, resources, and English-only text;
+- direct `file://` startup is preserved;
+- no external dependencies are required.
 
-JavaScript подключается обычными `<script>` в порядке зависимостей. Это сохраняет запуск двойным щелчком через `file://`; при этом переменные подсистем больше не попадают в глобальную область видимости. Возможный следующий этап — отделить конфигурацию от `core`, а затем добавить воспроизводимые тестовые сценарии генерации района.
+JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

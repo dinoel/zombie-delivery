@@ -4,20 +4,20 @@ $project = Split-Path -Parent $PSScriptRoot
 $problems = [Collections.Generic.List[string]]::new()
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-  $problems.Add('Node.js не найден: проверка синтаксиса JavaScript недоступна.')
+  $problems.Add('Node.js was not found; JavaScript syntax checks are unavailable.')
 } else {
   Get-ChildItem -LiteralPath (Join-Path $project 'src') -Filter '*.js' |
     Sort-Object Name |
     ForEach-Object {
       $output = & node --check $_.FullName 2>&1
       if ($LASTEXITCODE -ne 0) {
-        $problems.Add("Ошибка синтаксиса в $($_.Name):`n$output")
+        $problems.Add("Syntax error in $($_.Name):`n$output")
       }
     }
 
   $carDamageTest = & node (Join-Path $PSScriptRoot 'test-car-damage.js') 2>&1
   if ($LASTEXITCODE -ne 0) {
-    $problems.Add("Ошибка модели повреждений машин:`n$carDamageTest")
+    $problems.Add("Vehicle damage model test failed:`n$carDamageTest")
   }
 }
 
@@ -27,33 +27,33 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260726-16',
-  'src/core.js?v=20260726-16',
-  'src/quality.js?v=20260726-16',
-  'src/audio.js?v=20260726-16',
-  'src/car-physics.js?v=20260726-16',
-  'src/environment.js?v=20260726-19',
-  'src/world.js?v=20260726-16',
-  'src/physics.js?v=20260726-16',
-  'src/input.js?v=20260726-16',
-  'src/gameplay.js?v=20260726-16',
-  'src/lighting.js?v=20260726-19',
-  'src/entities.js?v=20260726-17',
-  'src/render.js?v=20260726-19',
-  'src/main.js?v=20260726-17'
+  'src/namespace.js?v=20260726-20',
+  'src/core.js?v=20260726-20',
+  'src/quality.js?v=20260726-20',
+  'src/audio.js?v=20260726-20',
+  'src/car-physics.js?v=20260726-20',
+  'src/environment.js?v=20260726-20',
+  'src/world.js?v=20260726-20',
+  'src/physics.js?v=20260726-20',
+  'src/input.js?v=20260726-20',
+  'src/gameplay.js?v=20260726-20',
+  'src/lighting.js?v=20260726-20',
+  'src/entities.js?v=20260726-20',
+  'src/render.js?v=20260726-20',
+  'src/main.js?v=20260726-20'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 if (($actualScripts -join "`n") -ne ($expectedScripts -join "`n")) {
-  $problems.Add("Нарушен порядок загрузки подсистем:`n$($actualScripts -join "`n")")
+  $problems.Add("Subsystem load order is incorrect:`n$($actualScripts -join "`n")")
 }
 
 foreach ($reference in $references) {
   $referenceFile = ($reference -split '[?#]')[0]
   $localPath = Join-Path $project ($referenceFile -replace '/', '\')
   if (-not (Test-Path -LiteralPath $localPath)) {
-    $problems.Add("Не найден ресурс из index.html: $reference")
+    $problems.Add("Resource referenced by index.html was not found: $reference")
   }
 }
 
@@ -63,28 +63,35 @@ foreach ($moduleName in $moduleNames) {
   $modulePath = Join-Path $project "src\$moduleFile"
   $moduleSource = Get-Content -Raw -LiteralPath $modulePath
   if (-not $moduleSource.Contains("window.TownGame.$moduleName = (() => {")) {
-    $problems.Add("Подсистема $moduleName не зарегистрирована в TownGame.")
+    $problems.Add("Subsystem $moduleName is not registered on TownGame.")
   }
   if (-not $moduleSource.Contains('return Object.freeze(')) {
-    $problems.Add("Публичный API подсистемы $moduleName не заморожен.")
+    $problems.Add("The public API of subsystem $moduleName is not frozen.")
   }
 }
 
 $namespaceSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\namespace.js')
 if (-not $namespaceSource.Contains("Object.defineProperty(global, 'TownGame'")) {
-  $problems.Add('Глобальное пространство TownGame не защищено от замены.')
+  $problems.Add('The global TownGame namespace is not protected against replacement.')
 }
 
 $mainSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\main.js')
 if (-not $mainSource.Contains('Object.freeze(window.TownGame)')) {
-  $problems.Add('Набор подсистем TownGame не зафиксирован в точке входа.')
+  $problems.Add('The TownGame subsystem collection is not frozen at the entry point.')
 }
 
 $referencePath = Join-Path $project 'reference\town.original.html'
-$expectedHash = 'C0EE2255D89478A7E6DC505E26AE2A8F4D0E6C377DC8872FC128A04CE1A78E26'
+$expectedHash = 'E75FA8AC0ECB9CC3C06F796A9B7B4883EABEA4D9A17CA80AFA4FD684F0D9C6BE'
 $actualHash = (Get-FileHash -LiteralPath $referencePath -Algorithm SHA256).Hash
 if ($actualHash -ne $expectedHash) {
-  $problems.Add('Эталонный HTML отличается от исходного файла.')
+  $problems.Add('The translated reference HTML has changed unexpectedly.')
+}
+
+$cyrillicFiles = Get-ChildItem -LiteralPath $project -Recurse -File -Force |
+  Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+  Select-String -Pattern '[\u0400-\u052F]' -List
+if ($cyrillicFiles) {
+  $problems.Add("Cyrillic text remains in:`n$($cyrillicFiles.Path -join "`n")")
 }
 
 if ($problems.Count -gt 0) {
@@ -92,4 +99,4 @@ if ($problems.Count -gt 0) {
   exit 1
 }
 
-Write-Host "Проверка пройдена: $($references.Count) ресурсов, 12 изолированных подсистем, порядок загрузки и JavaScript корректны, эталонный файл не изменён."
+Write-Host "Verification passed: $($references.Count) resources, 12 isolated subsystems, valid load order and JavaScript, English-only project text, stable translated reference."

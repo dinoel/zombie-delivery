@@ -1,4 +1,4 @@
-// Профили качества и выбор подходящего режима для текущего рендерера.
+// Quality profiles and renderer-aware mode selection.
 window.TownGame.quality = (() => {
 'use strict';
 
@@ -6,17 +6,17 @@ const { UI, STORAGE_KEYS, gameStorage } = window.TownGame.core;
 
 const profiles = Object.freeze({
   low: Object.freeze({
-    key: 'low', label: 'низкое', maxLights: 8,
+    key: 'low', label: 'low', maxLights: 8,
     shadowLights: 0, shadowSamples: 1,
     rainDensity: .35, fogEvery: 4
   }),
   medium: Object.freeze({
-    key: 'medium', label: 'среднее', maxLights: 18,
+    key: 'medium', label: 'medium', maxLights: 18,
     shadowLights: 6, shadowSamples: 2,
     rainDensity: .65, fogEvery: 2
   }),
   high: Object.freeze({
-    key: 'high', label: 'высокое', maxLights: Infinity,
+    key: 'high', label: 'high', maxLights: Infinity,
     shadowLights: Infinity, shadowSamples: 8,
     rainDensity: 1, fogEvery: 1
   })
@@ -34,9 +34,9 @@ const resolvedKey = () => choice === 'auto'
 function syncUI() {
   UI.quality.value = choice;
   const profile = profiles[resolvedKey()];
-  const rendererLabel = renderer === 'webgl' ? 'WebGL' : renderer === 'canvas2d' ? 'Canvas 2D' : 'определение…';
+  const rendererLabel = renderer === 'webgl' ? 'WebGL' : renderer === 'canvas2d' ? 'Canvas 2D' : 'detecting…';
   UI.qualityStatus.textContent = choice === 'auto'
-    ? `авто: ${profile.label} · ${rendererLabel}`
+    ? `auto: ${profile.label} · ${rendererLabel}`
     : `${profile.label} · ${rendererLabel}`;
 }
 

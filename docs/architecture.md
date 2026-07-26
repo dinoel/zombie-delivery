@@ -1,8 +1,8 @@
-# Архитектура игры
+# Game architecture
 
-Браузеру доступен один глобальный объект — `window.TownGame`. Каждый файл регистрирует в нём одну подсистему, скрывает реализацию в замыкании и публикует замороженный объект API. После загрузки `main.js` замораживается и сам набор подсистем.
+The browser sees one global object: `window.TownGame`. Each file registers exactly one subsystem on that object, hides its implementation inside a closure, and publishes a frozen API object. After `main.js` loads, the subsystem collection itself is frozen as well.
 
-Изменяемое состояние запуска хранится в `TownGame.core.runtime`: текущий экран, активный район, клавиши, указатель, сенсорное управление и рекорд. Состояние конкретного района создаёт `world.buildTown()` и передаёт в `gameplay.update()` и `render.draw()` точка входа.
+Mutable launch state lives in `TownGame.core.runtime`: the current screen, active district, keyboard state, pointer state, touch controls, and best score. `world.buildTown()` creates district-specific state, and the entry point passes it to `gameplay.update()` and `render.draw()`.
 
 ```mermaid
 flowchart TD
@@ -44,9 +44,9 @@ flowchart TD
   R --> M
 ```
 
-## Правила изменений
+## Change rules
 
-1. Функция, нужная другой подсистеме, добавляется в `Object.freeze({...})` владельца и явно извлекается потребителем.
-2. Новая подсистема получает собственный файл и одно свойство в `TownGame`; её файл добавляется в `index.html` после зависимостей.
-3. Общие изменяемые данные не объявляются глобальными переменными — они принадлежат `runtime` либо объекту текущего района.
-4. После изменения запускается `tools/verify.ps1` и выполняется короткий игровой прогон в браузере.
+1. A function needed by another subsystem is added to the owner's `Object.freeze({...})` result and explicitly destructured by the consumer.
+2. A new subsystem gets its own file and one property on `TownGame`; its script is added to `index.html` after its dependencies.
+3. Shared mutable data must not be declared as global variables. It belongs either to `runtime` or to the active district object.
+4. After every change, run `tools/verify.ps1` and perform a short browser playthrough.

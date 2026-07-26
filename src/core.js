@@ -1,4 +1,4 @@
-// Базовые зависимости, конфигурация и изменяемое состояние приложения.
+// Base dependencies, configuration, and mutable application state.
 window.TownGame.core = (() => {
 'use strict';
 
@@ -31,32 +31,32 @@ const gameStorage = Object.freeze({
   },
   set(key, value) {
     try { localStorage.setItem(key, value); }
-    catch { /* Игра остаётся доступной, даже если хранилище браузера отключено. */ }
+    catch { /* The game remains available even when browser storage is disabled. */ }
   }
 });
 
-// ---------- размеры города ----------
-const ROAD  = 116;                   // ширина асфальта
-const GN    = 4;                     // узлов улиц по стороне
-const GS    = 400;                   // шаг узлов
-const MRG   = 165;                   // отступ сетки от края мира
+// ---------- town dimensions ----------
+const ROAD  = 116;                   // Asphalt width.
+const GN    = 4;                     // Road nodes per side.
+const GS    = 400;                   // Node spacing.
+const MRG   = 165;                   // Grid margin from the world edge.
 const WORLD = MRG * 2 + (GN - 1) * GS;
-const LANE  = 29;                    // смещение полосы от осевой
-const PR    = 12;                    // радиус игрока
-const ZR    = 12;                    // радиус зомби
+const LANE  = 29;                    // Lane offset from the centerline.
+const PR    = 12;                    // Player radius.
+const ZR    = 12;                    // Zombie radius.
 const CAR_L = 46, CAR_W = 22;
-const BV    = 660;                   // скорость пули
-const FIRE_CD = .26;                 // задержка между выстрелами
-const WALK  = 166, RUN = 252;        // шаг и рывок
-const BATT_DRAIN = 1 / 52;           // фонарь съедает заряд за ~52 секунды
+const BV    = 660;                   // Bullet speed.
+const FIRE_CD = .26;                 // Delay between shots.
+const WALK  = 166, RUN = 252;        // Walk and sprint speeds.
+const BATT_DRAIN = 1 / 52;           // The flashlight drains in about 52 seconds.
 const STAM_DRAIN = .42, STAM_REGEN = .3;
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rnd  = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[(Math.random() * a.length) | 0];
 
-// ---------- повёрнутые коробки: дома, изгороди, машины ----------
-const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];   // по часовой — так же читают тени
+// ---------- oriented boxes: houses, hedges, cars ----------
+const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];   // Clockwise, matching the shadow code.
 function setOBB(o, cx, cy, ang, hw, hh) {
   o.cx = cx; o.cy = cy; o.ang = ang; o.hw = hw; o.hh = hh; o.rad = Math.hypot(hw, hh);
   const c = Math.cos(ang), s = Math.sin(ang);
@@ -73,7 +73,7 @@ function inOBB(x, y, o) {
   const c = Math.cos(o.ang), s = Math.sin(o.ang), dx = x - o.cx, dy = y - o.cy;
   return Math.abs(dx * c + dy * s) < o.hw && Math.abs(dy * c - dx * s) < o.hh;
 }
-// насколько точка близка к коробке (0 — внутри)
+// Distance from a point to a box; zero means inside.
 function distOBB(x, y, o) {
   const c = Math.cos(o.ang), s = Math.sin(o.ang), dx = x - o.cx, dy = y - o.cy;
   const lx = Math.abs(dx * c + dy * s) - o.hw, ly = Math.abs(dy * c - dx * s) - o.hh;
@@ -97,7 +97,7 @@ const camOf = g => ({
   y: clamp(g.p.y - H / 2, 0, WORLD - H)
 });
 
-// Руки курьера в системе прицела: фонарь в левой, пистолет в правой.
+// Courier hands in aim space: flashlight on the left, pistol on the right.
 const HAND_T = { f: 13, s: -10 }, HAND_G = { f: 14, s: 8 };
 const handAt = (p, h) => {
   const c = Math.cos(p.aim), s = Math.sin(p.aim);
@@ -113,7 +113,7 @@ function roundRect(c, x, y, w, h, r) {
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
 
-// ---------- палитры ----------
+// ---------- palettes ----------
 const WALLS  = ['#e9dcc3', '#dcc8ac', '#cdd8dd', '#e7cfc1', '#dae0c6', '#d8cbd8'];
 const ROOFS  = ['#a4503f', '#7d4c39', '#4e6b7c', '#6c7052', '#8a5a4a', '#5a5f6e'];
 const CARCOL = ['#d94f45', '#3f7fd0', '#e0b23c', '#5aa35c', '#e8e4dc', '#7a4fb0', '#3b3f46', '#d8752f'];

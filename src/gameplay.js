@@ -1,4 +1,4 @@
-// Правила игры и обновление динамического состояния.
+// Game rules and dynamic-state updates.
 window.TownGame.gameplay = (() => {
 'use strict';
 
@@ -29,8 +29,8 @@ const FILTH_MAX_RANGE = 360;
 const DODGE_TIME = .34;
 const DODGE_RANGE = 430;
 
-// Уже настороженный зомби может заметить вспышку и уйти с линии огня.
-// Реакция намеренно не гарантирована и имеет перезарядку: хороший выстрел всё ещё награждается.
+// An alerted zombie can notice a muzzle flash and leave the firing line.
+// The reaction is deliberately unreliable and has a cooldown, so a good shot is still rewarded.
 function warnZombiesOfShot(g, x, y, hx, hy) {
   let reacted = 0;
   for (const z of g.zombies) {
@@ -44,20 +44,20 @@ function warnZombiesOfShot(g, x, y, hx, hy) {
     z.dodgeDir = Math.abs(lateral) > 4 ? Math.sign(lateral) : (Math.random() < .5 ? -1 : 1);
     z.dodgeTime = DODGE_TIME;
     z.dodgeCd = rnd(1.55, 2.55);
-    z.throwWind = 0;                         // ради спасения приходится сорвать бросок
+    z.throwWind = 0;                         // Dodging for safety interrupts the throw.
     z.throwCd = Math.max(z.throwCd, .7);
     z.hunt = Math.max(z.hunt, 2.4);
     g.dodges++;
-    if (++reacted >= 2) break;               // вся толпа не читает один выстрел одновременно
+    if (++reacted >= 2) break;               // The entire horde cannot read one shot at once.
   }
 }
 
-// выстрел: пуля, вспышка, отдача и шум на весь квартал
+// A shot creates a bullet, flash, recoil, and neighborhood-wide noise.
 function fire(g) {
-  // ствол смотрит в точку прицела, а не параллельно взгляду — иначе он бьёт мимо на пол-шага вбок
+  // The barrel points at the aim target instead of running parallel to the view direction.
   const p = g.p, h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x) + rnd(-.045, .045);
   const hx = Math.cos(a), hy = Math.sin(a);
-  g.spawnGrace = 0;                           // выстрел добровольно заканчивает тихий старт
+  g.spawnGrace = 0;                           // Firing voluntarily ends the quiet start.
   g.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
   g.shake = Math.max(g.shake, .3);
   warnZombiesOfShot(g, h.x, h.y, hx, hy);
@@ -68,7 +68,7 @@ function fire(g) {
     g.parts.push({ x: h.x + Math.cos(a) * 11, y: h.y + Math.sin(a) * 11,
                    vx: Math.cos(a) * rnd(40, 150) + rnd(-60, 60), vy: Math.sin(a) * rnd(40, 150) + rnd(-60, 60),
                    l: rnd(.1, .25), c: '#ffe08a', s: rnd(2, 3) });
-  makeNoise(g, p.x, p.y, 430, 7, true);           // выстрел слышно на весь квартал
+  makeNoise(g, p.x, p.y, 430, 7, true);           // A shot is audible across the block.
   SND.play('shot', p.x, p.y);
 }
 
@@ -109,7 +109,7 @@ function addGroundBlood(g, x, y, rgb, radius, vx = 0, vy = 0) {
     r: radius, blobs: radius < 3 ? 2 : radius < 6 ? 3 : 5,
     stretch, ang: speed > 2 ? Math.atan2(vy, vx) : rnd(0, 6.283), alpha: rnd(.58, .76), blood: true
   });
-  // Кровь остаётся до конца района, но число отдельных пятен ограничено для старого GPU.
+  // Blood lasts for the district, but stain count is capped for old GPUs.
   if (g.stains.length > 240) g.stains.splice(0, g.stains.length - 240);
 }
 
@@ -122,7 +122,7 @@ function addBloodDrop(g, z, x, y, vx, vy, vz, radius, height = 4) {
   });
 }
 
-// Струя летит преимущественно по ходу пули, но распадается на капли разной массы.
+// The spray follows the bullet direction while splitting into droplets of different mass.
 function sprayZombieBlood(g, z, x, y, dx, dy, count = 14, power = 1) {
   const len = Math.hypot(dx, dy) || 1, nx = dx / len, ny = dy / len;
   const px = -ny, py = nx;
@@ -137,8 +137,8 @@ function sprayZombieBlood(g, z, x, y, dx, dy, count = 14, power = 1) {
       vy: ny * rnd(30, 145) + py * rnd(-75, 75), l: rnd(.22, .58), c: pick(z.blood), s: rnd(2, 5) });
 }
 
-// Непрерывное пересечение пули с кругом: при низком FPS один шаг пули длиннее
-// тела зомби, поэтому проверка только конечной точки давала прострелы насквозь.
+// Continuous bullet-to-circle intersection: at low FPS one bullet step is longer
+// than a zombie body, so endpoint-only tests allowed shots to pass through.
 function segmentCircleT(x1, y1, x2, y2, cx, cy, radius) {
   const dx = x2 - x1, dy = y2 - y1, len2 = dx * dx + dy * dy || 1;
   const t = clamp(((cx - x1) * dx + (cy - y1) * dy) / len2, 0, 1);
@@ -159,7 +159,7 @@ function killZombie(g, z) {
   SND.play('die', z.x, z.y, z.seed);
 }
 
-// один урон игроку — от машины или от зомби
+// Apply one player hit from a car or zombie.
 function hurt(g, dx, dy, power, stagger = .5) {
   const p = g.p;
   g.lives--; p.inv = 1.9; p.stagger = stagger; g.shake = 1;
@@ -170,8 +170,8 @@ function hurt(g, dx, dy, power, stagger = .5) {
   if (g.lives <= 0) gameOver(g);
 }
 
-// После укуса тела должны разойтись физически. Иначе преследователь остаётся внутри
-// игрока, снова сокращает дистанцию во время неуязвимости и гарантированно кусает ещё раз.
+// Bodies must separate physically after a bite. Otherwise the pursuer remains inside
+// the player, closes the gap during invulnerability, and guarantees another bite.
 function settleCircleBody(g, body, radius) {
   body.x = clamp(body.x, radius, WORLD - radius);
   body.y = clamp(body.y, radius, WORLD - radius);
@@ -188,7 +188,7 @@ function resolveZombieContact(g, z) {
   const contactDistance = PR + ZR + 2;
   if (d >= contactDistance) return;
 
-  // Совпавшие центры разводим по направлению взгляда зомби, чтобы не получить NaN.
+  // Separate coincident centers along the zombie view direction to avoid NaN.
   const nx = d > .001 ? dx / d : -Math.cos(z.ang);
   const ny = d > .001 ? dy / d : -Math.sin(z.ang);
   d = Math.max(d, .001);
@@ -203,8 +203,8 @@ function resolveZombieContact(g, z) {
   settleCircleBody(g, p, PR);
   settleCircleBody(g, z, ZR);
 
-  // Во время мигания игрок свободно выскальзывает из толпы: враг всё равно оттесняется,
-  // но повторного укуса и новой остановки движения нет.
+  // While flashing, the player can slip out of the horde. The enemy is still pushed
+  // away, but no repeat bite or additional movement lock occurs.
   if (protectedPlayer) return;
 
   z.recoil = .48;
@@ -221,7 +221,7 @@ function resolveZombieContact(g, z) {
 function emitCarSmoke(g, c, dt) {
   const smoke = carSmokeProfile(c);
   if (!smoke.active) return;
-  // Дальние остовы не должны занимать весь лимит частиц вне экрана.
+  // Distant wrecks must not consume the off-screen particle budget.
   if (Math.abs(c.x - g.p.x) > 520 || Math.abs(c.y - g.p.y) > 440) {
     c.smokeCd = Math.min(c.smokeCd || 0, .12);
     return;
@@ -242,7 +242,7 @@ function emitCarSmoke(g, c, dt) {
   });
 }
 
-// ---------- обновление ----------
+// ---------- update ----------
 function update(g, dt) {
   g.time += dt;
   if (g.bloodQa && !g.bloodQaDone && g.time >= .35 && g.zombies[0]) {
@@ -257,7 +257,7 @@ function update(g, dt) {
   SND.listen(p.x, p.y);
   p.inv = Math.max(0, p.inv - dt);
 
-  // в кустах — медленнее
+  // Bushes slow movement.
   let inBush = false;
   for (const b of g.soft) {
     const dx = b.x - p.x, dy = b.y - p.y, r = b.r * .9;
@@ -265,26 +265,26 @@ function update(g, dt) {
   }
   const dir = inputDir();
 
-  // фонарь: садится, на последних процентах мигает
+  // The flashlight drains and flickers at low charge.
   if (p.torch && p.batt > 0) {
     p.batt = Math.max(0, p.batt - BATT_DRAIN * dt);
     p.flick = p.batt < .16 ? (Math.random() < .12 ? rnd(.15, .5) : rnd(.75, 1)) : 1;
     if (p.batt === 0) p.torch = false;
   } else p.flick = 1;
 
-  // рывок: жрёт выносливость и шумит
+  // Sprinting consumes stamina and creates noise.
   p.running = dir.run && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
   if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
   else {
     p.rest = Math.max(0, p.rest - dt);
     if (p.rest <= 0) p.stam = Math.min(1, p.stam + STAM_REGEN * dt);
   }
-  // по асфальту курьер идёт заметно быстрее, чем по газонам и дворам
+  // The courier moves noticeably faster on asphalt than through grass and yards.
   const road = surfaceAt(g, p.x, p.y);
   const speed = (inBush ? .62 : 1) * (p.running ? RUN : WALK) * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
   p.stagger = Math.max(0, (p.stagger || 0) - dt);
 
-  // шаги: бег слышно далеко, обычный шаг — почти нет; подошва по асфальту звонче
+  // Sprinting carries far, walking is quiet, and soles sound sharper on asphalt.
   if (dir.m > .2) {
     p.step -= dt;
     if (p.step <= 0) {
@@ -295,7 +295,7 @@ function update(g, dt) {
   } else p.step = .1;
 
   const tvx = dir.x * speed, tvy = dir.y * speed;
-  const acc = (14 - 5 * road * g.weather.wet) * dt;      // мокрый асфальт: разгон и торможение вязнут
+  const acc = (14 - 5 * road * g.weather.wet) * dt;      // Wet asphalt makes acceleration and braking sluggish.
   p.vx += (tvx - p.vx) * Math.min(1, acc);
   p.vy += (tvy - p.vy) * Math.min(1, acc);
   if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
@@ -308,7 +308,7 @@ function update(g, dt) {
   for (const t of g.trees) hitCircle(p, PR, t);
   g.cam = camOf(g);
 
-  // прицел: мышь, иначе — куда идём
+  // Aim with the mouse, or fall back to the movement direction.
   if (runtime.mouse.active) {
     p.tx = runtime.mouse.sx + g.cam.x; p.ty = runtime.mouse.sy + g.cam.y;
   }
@@ -317,14 +317,14 @@ function update(g, dt) {
   updateWeather(g, dt);
   updateFog(g, dt);
 
-  // выстрел
+  // Fire.
   p.cool = Math.max(0, p.cool - dt);
   p.muzzle = Math.max(0, p.muzzle - dt);
   const wantFire = runtime.mouse.down || runtime.fireHeld ||
-    runtime.keys[' '] || runtime.keys['k'] || runtime.keys['л'];
+    runtime.keys[' '] || runtime.keys['k'];
   if (wantFire && p.cool <= 0 && g.ammo > 0 && !g.done) fire(g);
 
-  // пули
+  // Bullets.
   for (let i = g.bullets.length - 1; i >= 0; i--) {
     const b = g.bullets[i];
     b.l -= dt; b.px = b.x; b.py = b.y;
@@ -381,7 +381,7 @@ function update(g, dt) {
     }
   }
 
-  // зомби
+  // Zombies.
   let activeSurges = 0;
   for (const z of g.zombies) if (!z.gone && z.surge > 0) activeSurges++;
   for (const z of g.zombies) {
@@ -405,21 +405,21 @@ function update(g, dt) {
     }
     const dx = p.x - z.x, dy = p.y - z.y, d = Math.hypot(dx, dy) || 1;
 
-    // Первые секунды район не реагирует на сам факт появления и стартовый луч.
-    // Затем видит вплотную всегда, а издалека — если курьер светит в его сторону.
+    // During the opening seconds, the district ignores the spawn and starting beam.
+    // Afterward, zombies always notice at close range and at distance when illuminated.
     const canNotice = !g.done && g.spawnGrace <= 0;
     const lightRange = z.guardParcel >= 0 ? 275 : 400;
     let sees = canNotice && d < 120;
     if (!sees && canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
       const h = torchHand(p), hx = z.x - h.x, hy = z.y - h.y, hd = Math.hypot(hx, hy) || 1;
       const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
-      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) sees = true;   // зомби внутри конуса света из руки
+      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) sees = true;   // Zombie is inside the hand-held light cone.
     }
     if (sees) { z.hunt = 3.2; z.tx = p.x; z.ty = p.y; }
 
     let ax, ay, chase = false;
     if (z.hunt > 0) {
-      // Вместо прямой погони часть толпы забегает слева, часть справа, учитывая движение курьера.
+      // Instead of chasing directly, the horde flanks from both sides and leads the courier's movement.
       z.flankTimer -= dt;
       if (z.flankTimer <= 0) {
         z.flankTimer = rnd(1.8, 3.3);
@@ -432,8 +432,8 @@ function update(g, dt) {
       const nx = gx - z.x, ny = gy - z.y, nd = Math.hypot(nx, ny) || 1;
       ax = nx / nd; ay = ny / nd; chase = true;
 
-      // Долгое отступление заряжает короткий рывок. Бег всё ещё позволяет оторваться,
-      // но пятиться обычным шагом и безнаказанно стрелять больше не получится.
+      // A long retreat charges a short surge. Sprinting can still create distance,
+      // but walking backward while shooting is no longer free.
       const retreat = (p.vx * dx + p.vy * dy) / d;
       z.pressure = clamp(z.pressure + dt * (retreat > 58 && d > 72 && d < 330 ? 1.35 : -2.1), 0, 1);
       if (z.pressure >= 1 && z.surgeCd <= 0 && activeSurges < 2) {
@@ -444,7 +444,7 @@ function update(g, dt) {
         g.surges++;
       }
     }
-    else if (z.alert > 0) {                                        // идёт на запомненный шум
+    else if (z.alert > 0) {                                        // Move toward a remembered noise.
       const nx = z.tx - z.x, ny = z.ty - z.y, nd = Math.hypot(nx, ny) || 1;
       if (nd < 26) { z.alert = Math.min(z.alert, .6); ax = Math.cos(z.wdir); ay = Math.sin(z.wdir); }
       else { ax = nx / nd; ay = ny / nd; chase = true; }
@@ -468,12 +468,12 @@ function update(g, dt) {
     let moveScale = 1;
     z.ang = Math.atan2(ay, ax);
     if (z.recoil > 0) {
-      // Короткая отдача после укуса: преследователь не может тут же шагнуть обратно.
+      // Brief recoil after a bite prevents the pursuer from stepping back immediately.
       ax = ay = 0;
       moveScale = 0;
       z.throwWind = 0;
     } else if (z.dodgeTime > 0) {
-      // Боковой скачок уводит тело с текущей линии пули, но чуть сохраняет напор вперёд.
+      // A lateral dodge leaves the firing line while preserving slight forward pressure.
       ax = -dy / d * z.dodgeDir + dx / d * .14;
       ay =  dx / d * z.dodgeDir + dy / d * .14;
       const ad = Math.hypot(ax, ay) || 1;
@@ -497,7 +497,7 @@ function update(g, dt) {
       moveScale = .16;
     }
 
-    // рычит и созывает соседей
+    // Growl and alert nearby zombies.
     z.moan -= dt;
     if (z.moan <= 0) {
       z.moan = chase ? rnd(1.6, 2.8) : rnd(5, 9);
@@ -505,7 +505,7 @@ function update(g, dt) {
       SND.play('moan', z.x, z.y, z.seed);
     }
 
-    // на асфальте они тоже прибавляют, но втрое меньше курьера — по улице можно оторваться
+    // Zombies also gain speed on asphalt, but far less than the courier.
     const sp = z.spd * (chase ? 1 : .34) * (1 + .07 * surfaceAt(g, z.x, z.y)) * moveScale;
     z.x += ax * sp * dt; z.y += ay * sp * dt;
     z.walk += dt * (chase ? 7 : 3);
@@ -516,7 +516,7 @@ function update(g, dt) {
     z.x = clamp(z.x, ZR, WORLD - ZR); z.y = clamp(z.y, ZR, WORLD - ZR);
     for (const s of g.solids) hitOBB(z, ZR, s);
     for (const t of g.trees) hitCircle(z, ZR, t);
-    for (const o of g.zombies) {                       // не слипаются в кучу
+    for (const o of g.zombies) {                       // Keep bodies from merging into one clump.
       if (o === z) continue;
       const ox = z.x - o.x, oy = z.y - o.y, od2 = ox * ox + oy * oy;
       if (od2 > 0 && od2 < ZR * ZR * 4) {
@@ -524,7 +524,7 @@ function update(g, dt) {
         z.x += ox * k; z.y += oy * k;
       }
     }
-    // Едущая машина сбивает зомби, но туши постепенно разбивают радиатор и ходовую.
+    // Moving cars run zombies down, while repeated bodies damage the radiator and suspension.
     for (const c of g.cars) {
       const carContact = circleCarContact(c, z.x, z.y, ZR - 4);
       if (c.broken) { if (carContact) resolveCircleCar(c, z, ZR); continue; }
@@ -540,7 +540,7 @@ function update(g, dt) {
   }
   for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
 
-  // сгустки гнили: летят медленно, разбиваются о окружение и позволяют увернуться
+  // Filth projectiles move slowly, break on the environment, and remain dodgeable.
   for (let i = g.zombieShots.length - 1; i >= 0; i--) {
     const s = g.zombieShots[i];
     s.l -= dt; s.px = s.x; s.py = s.y; s.spin += dt * 8;
@@ -572,7 +572,7 @@ function update(g, dt) {
     }
   }
 
-  // патроны и батарейки
+  // Ammo and batteries.
   for (let i = g.ammoBoxes.length - 1; i >= 0; i--) {
     const a = g.ammoBoxes[i];
     a.ph += dt * 3;
@@ -586,14 +586,14 @@ function update(g, dt) {
     }
   }
 
-  // кольца шума — чтобы игрок видел, насколько сам себя выдал
+  // Noise rings show how far the player has revealed their position.
   for (let i = g.rings.length - 1; i >= 0; i--) {
     const r = g.rings[i];
     r.l -= dt; r.r += (r.max - r.r) * Math.min(1, dt * 5);
     if (r.l <= 0) g.rings.splice(i, 1);
   }
 
-  // Припаркованная машина не уезжает без водителя, но тревога мигает и сигналит.
+  // A parked car cannot drive without a driver, but its alarm flashes and honks.
   for (const c of g.parked) {
     c.hitFlash = Math.max(0, (c.hitFlash || 0) - dt);
     c.hazard = Math.max(0, (c.hazard || 0) - dt);
@@ -602,7 +602,7 @@ function update(g, dt) {
     emitCarSmoke(g, c, dt);
   }
 
-  // машины
+  // Cars.
   for (const c of g.cars) {
     c.hazard = Math.max(0, (c.hazard || 0) - dt);
     c.cd = Math.max(0, c.cd - dt);
@@ -611,12 +611,12 @@ function update(g, dt) {
     c.driverTimer = Math.max(0, (c.driverTimer || 0) - dt);
     if (c.driverTimer <= 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) c.driverMode = 'traffic';
     emitCarSmoke(g, c, dt);
-    if (c.jx) {                                      // отходняк после удара
+    if (c.jx) {                                      // Residual displacement after impact.
       c.jx *= .86; c.jy *= .86;
       if (Math.abs(c.jx) < .3 && Math.abs(c.jy) < .3) c.jx = c.jy = 0;
     }
 
-    // Полностью сломанная машина больше никогда не «оживает»: она становится укрытием и препятствием.
+    // A disabled car never revives; it becomes cover and a physical obstacle.
     if (c.broken) {
       c.v = 0;
       c.hold = true;
@@ -626,7 +626,7 @@ function update(g, dt) {
       continue;
     }
 
-    // просматриваем весь коридор перед собой без разрывов: коробки идут внахлёст
+    // Scan the full corridor ahead with overlapping boxes and no gaps.
     const look = Math.max(52, c.v * 1.05), nb = Math.min(10, Math.ceil(look / 42));
     const close = Math.max(46, c.v * .55);
     let near = false, far = false;
@@ -636,7 +636,7 @@ function update(g, dt) {
       let hit = false;
       for (const o of g.cars) {
         if (o === c) continue;
-        // вплотную тормозим перед кем угодно, а на подъезде к перекрёстку уступает старший id
+        // Brake for anyone nearby; the higher id yields when approaching an intersection.
         const same = o.edge === c.edge && o.dir === c.dir;
         if (!isNear && !(same || o.id < c.id || o.stall > 0)) continue;
         if (obbHit(box, o.box)) { hit = true; break; }
@@ -644,49 +644,49 @@ function update(g, dt) {
       if (!hit && isNear) for (const q of g.parked) if (obbHit(box, q)) { hit = true; break; }
       if (hit) { if (isNear) near = true; else far = true; }
     }
-    // «поехали сами» снимает ожидание и дальний осмотр, но перед самым носом тормозим всегда
+    // Forced movement ignores waiting and distant scans, but still brakes for immediate obstacles.
     const reacting = c.driverTimer > 0 && (c.driverMode === 'chase' || c.driverMode === 'flee');
     let brake = near || (!reacting && c.creep <= 0 && (far || c.hold));
     if (reacting) c.hold = false;
     c.stuck = brake && c.v < 14 ? c.stuck + dt : 0;
     if (c.stall > 0) c.stall -= dt;
     c.dead = c.v < 8 ? c.dead + dt : 0;
-    // никто не уступил или встали лбами — трогаемся сами и едем, пока не выберемся с перекрёстка
+    // If nobody yields or cars face off, force movement until the intersection is clear.
     const forcedCreep = c.creep > 0;
     if (forcedCreep) { c.creep -= dt; brake = false; }
     else if (c.stuck > 2.5 || c.dead > 4) { c.creep = 1.4; c.stall = c.stuck = c.dead = 0; brake = false; }
-    if (c.stall > 0) brake = true;                    // повреждённый двигатель нельзя растолкать логикой пробки
+    if (c.stall > 0) brake = true;                    // Traffic logic cannot push a stalled engine forward.
 
-    // Сильно повреждённый мотор теряет тягу и иногда захлёбывается, а кривая ходовая замедляет повороты.
+    // A badly damaged engine loses power and stalls; damaged suspension slows steering.
     const engine = c.damage ? c.damage.engine : 100;
     const wheelDamage = c.damage ? c.damage.wheel : 0;
     if (engine < 38 && c.stall <= 0 && Math.random() < dt * .085) { c.stall = rnd(.28, .72); brake = true; }
 
     if (c.police) {
-      c.beacon += dt * 7;                                      // мигалка крутится
-      c.siren = (c.siren || 0) - dt;                           // сирену слышно — зомби идут на неё
+      c.beacon += dt * 7;                                      // Rotate the beacon.
+      c.siren = (c.siren || 0) - dt;                           // Zombies follow the audible siren.
       if (c.siren <= 0) { c.siren = 1.1; makeNoise(g, c.x, c.y, 250, 3.2); SND.play('siren', c.x, c.y); }
     }
     const turning = c.mode === 'turn', wet = g.weather.wet;
     const condition = (.42 + .58 * engine / 100) * (1 - .28 * wheelDamage);
     const driverBoost = c.driverMode === 'chase' ? 1.32 : c.driverMode === 'flee' ? 1.2 : 1;
     const wish = brake ? 0 : forcedCreep && near ? 18 :
-      c.baseMax * condition * driverBoost * (turning ? .58 - .1 * wet : 1);  // на повороте, тем более мокром, сбрасываем
+      c.baseMax * condition * driverBoost * (turning ? .58 - .1 * wet : 1);  // Slow down for turns, especially when wet.
     c.v += (wish - c.v) * Math.min(1, (brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
     if (turning) {
       const T = c.turn;
       T.t += c.v * dt / T.len;
-      if (T.t >= 1) {                                          // вышли на новую улицу
+      if (T.t >= 1) {                                          // Entered a new road.
         c.edge = T.next; c.dir = T.ndir; c.s = T.sIn; c.mode = 'edge'; c.turn = null; c.node = -1;
         const l = lanePoint(c.edge, c.s, c.dir);
         steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
       } else {
         const q = bezAt(T, T.t), tg = bezDir(T, T.t);
-        steerCar(c, q.x, q.y, tg.x, tg.y, dt, 2.9 * (1 - .42 * wheelDamage)); // разбитая подвеска хуже держит дугу
+        steerCar(c, q.x, q.y, tg.x, tg.y, dt, 2.9 * (1 - .42 * wheelDamage)); // Damaged suspension holds the arc poorly.
       }
     } else {
-      c.s = clamp(c.s + c.dir * c.v * dt, -20, c.edge.len + 20);   // не даём отсчёту убежать за улицу
-      // на перекрёсток въезжает по одному, и ждущие стоят на стоп-линии ПЕРЕД узлом, а не в нём
+      c.s = clamp(c.s + c.dir * c.v * dt, -20, c.edge.len + 20);   // Keep the distance value near the road.
+      // Cars enter an intersection one at a time; waiting cars stop before the node.
       const at = c.dir > 0 ? c.edge.b : c.edge.a;
       let left = c.dir > 0 ? c.edge.len - c.s : c.s;
       c.hold = !reacting && left <= TURN_IN + 46 + c.v * .55 &&
@@ -701,7 +701,7 @@ function update(g, dt) {
       if (left <= TURN_IN && !c.hold) startTurn(g, c);
     }
 
-    // сигналит, если игрок близко к траектории
+    // Honk when the player is near the path.
     const dx = p.x - c.x, dy = p.y - c.y;
     const rel = dx * c.hx + dy * c.hy, side = Math.abs(dy * c.hx - dx * c.hy);
     const angryHonk = c.driverMode === 'chase' && Math.hypot(dx, dy) < 260;
@@ -709,12 +709,12 @@ function update(g, dt) {
     if (c.honk > .5 && !c.honked) { c.honked = true; SND.play('honk', c.x, c.y); }
     else if (c.honk < .1) c.honked = false;
 
-    // наезд
+    // Player impact.
     const playerCarContact = !g.done ? circleCarContact(c, p.x, p.y, PR) : null;
     if (playerCarContact) {
       const carVx = c.hx * c.v, carVy = c.hy * c.v;
       const closing = Math.max(0, (carVx - p.vx) * playerCarContact.nx + (carVy - p.vy) * playerCarContact.ny);
-      const sgn = (dy * c.hx - dx * c.hy) > 0 ? 1 : -1;      // в какую сторону откинуть
+      const sgn = (dy * c.hx - dx * c.hy) > 0 ? 1 : -1;      // Choose which side to throw the player toward.
       if (closing > 24 && c.playerBodyCd <= 0) {
         damageCarWithPlayer(g, c, p, playerCarContact, closing);
         c.playerBodyCd = .55;
@@ -723,18 +723,18 @@ function update(g, dt) {
         hurt(g, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
         if (g.lives <= 0) return;
       }
-      // Любая машина является телом, а не проходным спрайтом. После определения
-      // импульса разводим окружность игрока и уже деформированный контур кузова.
+      // Every car is a physical body rather than a pass-through sprite. After the
+      // impulse is calculated, separate the player circle from the deformed outline.
       resolveCircleCar(c, p, PR);
     }
   }
 
-  // кто не успел уступить — тот столкнулся
+  // Cars that fail to yield collide.
   for (let i = 0; i < g.cars.length; i++) for (let j = i + 1; j < g.cars.length; j++) {
     const a = g.cars[i], b = g.cars[j];
     if (a.cd > 0 || b.cd > 0) continue;
-    // Ограничивающие окружности — только дешёвая широкая фаза. Старый OBB здесь
-    // нельзя использовать: он мог бы отсечь контакт выступившей после удара панели.
+    // Bounding circles are only a cheap broad phase. The old OBB cannot be used
+    // because it could reject contact with a panel protruding after an impact.
     const ar = a.body ? a.body.collider.rad : CAR_L / 2 + 3;
     const br = b.body ? b.body.collider.rad : CAR_L / 2 + 3;
     if (Math.hypot(a.x - b.x, a.y - b.y) > ar + br) continue;
@@ -742,7 +742,7 @@ function update(g, dt) {
     if (manifold) crash(g, a, b, manifold);
   }
 
-  // Редкий промах торможения перед припаркованной машиной тоже имеет реальные последствия.
+  // A rare failure to brake before a parked car also has real consequences.
   for (const c of g.cars) {
     if (c.cd > 0 || c.broken || c.v < 24) continue;
     for (const parked of g.parked) if (obbHit(c.box, parked)) { crashObstacle(g, c, parked); break; }
@@ -757,7 +757,7 @@ function update(g, dt) {
     if (s.l <= 0) g.carSmoke.splice(i, 1);
   }
 
-  // посылки
+  // Parcels.
   for (const b of g.parcels) {
     if (b.got) continue;
     b.ph += dt * 3;
@@ -769,7 +769,7 @@ function update(g, dt) {
     }
   }
 
-  // доставка
+  // Delivery.
   if (g.got >= g.need && !g.done && Math.hypot(g.goal.x - p.x, g.goal.y - p.y) < 26) {
     g.done = true;
     SND.play('win');
@@ -784,19 +784,19 @@ function update(g, dt) {
       runtime.state = 'win';
       cv.classList.remove('aim');
       overlay.classList.remove('hidden');
-      UI.overlayTitle.textContent = 'ДОСТАВЛЕНО!';
-      UI.overlaySubtitle.textContent = `район ${g.level} закрыт за ${g.time.toFixed(1)} с`;
+      UI.overlayTitle.textContent = 'DELIVERED!';
+      UI.overlaySubtitle.textContent = `district ${g.level} completed in ${g.time.toFixed(1)} s`;
       UI.overlayMessage.innerHTML =
-        `Зомби упокоено: <b>${g.killed}</b>. Уклонений / рывков: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
-        `Гнилью прилетело: <b>${g.filthHits}</b> из ${g.filthThrown}.<br>` +
-        `Машины сбили зомби: <b>${g.roadKills}</b>; окончательно сломано машин: <b>${g.carsBroken}</b>.<br>` +
-        `Дальше район <b>${g.level + 1}</b>: посылок больше, машин и зомби тоже.<br>` +
-        `Жизни и патроны — по новой.`;
-      startBtn.textContent = 'ДАЛЬШЕ';
+        `Zombies eliminated: <b>${g.killed}</b>. Dodges / surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
+        `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
+        `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
+        `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
+        `Lives and ammunition reset.`;
+      startBtn.textContent = 'NEXT DISTRICT';
     }, 900);
   }
 
-  // Объёмные капли крови: после короткого полёта каждая становится пятном на земле.
+  // Volumetric blood droplets become ground stains after a short flight.
   for (let i = g.bloodDrops.length - 1; i >= 0; i--) {
     const d = g.bloodDrops[i];
     d.l -= dt; d.px = d.x; d.py = d.y; d.pz = d.z;
@@ -808,7 +808,7 @@ function update(g, dt) {
     }
   }
 
-  // остальные частицы
+  // Remaining particles.
   for (let i = g.parts.length - 1; i >= 0; i--) {
     const q = g.parts[i];
     q.l -= dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 320 * dt; q.vx *= .98;
@@ -846,15 +846,15 @@ function gameOver(g) {
   cv.classList.remove('aim');
   drawHud(g);
   overlay.classList.remove('hidden');
-  UI.overlayTitle.textContent = 'СМЕНА ОКОНЧЕНА';
-  UI.overlaySubtitle.textContent = `район ${g.level}, посылок ${g.got} из ${g.need}, зомби упокоено ${g.killed}`;
+  UI.overlayTitle.textContent = 'SHIFT OVER';
+  UI.overlaySubtitle.textContent = `district ${g.level}, parcels ${g.got} of ${g.need}, zombies eliminated ${g.killed}`;
   UI.overlayMessage.innerHTML =
-    `Сгустков брошено: <b>${g.filthThrown}</b>, в тебя попало: <b>${g.filthHits}</b>.<br>` +
-    `Уклонений / догоняющих рывков: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
-    `Машины сбили зомби: <b>${g.roadKills}</b>; сломано машин: <b>${g.carsBroken}</b>.<br>` +
-    'Разбитые машины блокируют улицу — используй их как укрытие от толпы.<br>' +
-    'Не пали в белый свет: патроны кончаются, а на шум сбегается вся округа.';
-  startBtn.textContent = 'ЕЩЁ РАЗ';
+    `Filth thrown: <b>${g.filthThrown}</b>; hits taken: <b>${g.filthHits}</b>.<br>` +
+    `Dodges / pursuing surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
+    `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
+    'Wrecked vehicles block the road; use them as cover from the horde.<br>' +
+    'Do not fire blindly: ammunition is limited, and noise draws the whole district.';
+  startBtn.textContent = 'TRY AGAIN';
 }
 
 return Object.freeze({ update });

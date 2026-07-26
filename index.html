@@ -1,68 +1,68 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>КУРЬЕР</title>
+<title>COURIER</title>
 <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
-<div id="hud" aria-label="Состояние игры">
-  <span class="hud__level">РАЙОН <b id="lvl">1</b></span>
-  <span class="hud__parcels">ПОСЫЛКИ <b id="box">0/3</b></span>
-  <span class="hud__ammo">ПАТРОНЫ <b id="ammo">12</b></span>
-  <span class="hud__lives">ЖИЗНИ <b id="lives">♥♥♥</b></span>
-  <span class="hud__time">ВРЕМЯ <b id="time">0.0</b></span>
-  <span class="hud__best">РЕКОРД <b id="best">1</b></span>
+<div id="hud" aria-label="Game status">
+  <span class="hud__level">DISTRICT <b id="lvl">1</b></span>
+  <span class="hud__parcels">PARCELS <b id="box">0/3</b></span>
+  <span class="hud__ammo">AMMO <b id="ammo">12</b></span>
+  <span class="hud__lives">LIVES <b id="lives">♥♥♥</b></span>
+  <span class="hud__time">TIME <b id="time">0.0</b></span>
+  <span class="hud__best">BEST <b id="best">1</b></span>
 </div>
 <div id="wrap">
-  <canvas id="c" width="720" height="560" aria-label="Игровое поле">
-    Ваш браузер не поддерживает Canvas.
+  <canvas id="c" width="720" height="560" aria-label="Game field">
+    Your browser does not support Canvas.
   </canvas>
   <div id="overlay">
-    <h1>КУРЬЕР</h1>
-    <h2>ночная смена, вид сверху</h2>
+    <h1>COURIER</h1>
+    <h2>night shift, top-down</h2>
     <p>
-      <span class="key">WASD / стрелки</span> — идти · <span class="key">мышь</span> — целиться · <span class="key">клик / ПРОБЕЛ</span> — стрелять.<br>
-      На телефоне: первый палец ведёт, второй стреляет.<br>
-      Собери <span class="legend legend--parcel">посылки</span> и отнеси их к <span class="legend legend--door">зелёной двери</span>; каждую посылку охраняют двое зомби.<br>
-      После появления есть 5 секунд осмотреться, но первый выстрел сразу заканчивает передышку.<br>
-      <span class="key">F</span> — фонарь · <span class="key">SHIFT</span> — бег · <span class="key">M</span> — звук. Свет, топот и выстрелы выдают тебя.<br>
-      <span class="legend legend--walker">Зелёные</span> обычные, <span class="legend legend--runner">рыжие</span> быстрые и хрупкие,
-      <span class="legend legend--brute">фиолетовые</span> медленные, но выдерживают четыре попадания.<br>
-      Толпа заходит с флангов и уклоняется; каждый вид бросает <span class="legend legend--filth">сгусток своего цвета и скорости</span>.<br>
-      <span class="legend legend--battery">Батарейки</span> и <span class="legend legend--neutral">патроны</span> лежат во дворах.<br>
-      <span class="legend legend--car">Машины</span> сбивают зомби, но аварии мнут кузов, бьют стёкла и фары; сломанная машина дымит и становится укрытием.<br>
-      Сирена <span class="legend legend--patrol">патруля</span> созывает зомби.<br>
-      На асфальте быстрее и шумнее; <span class="legend legend--rain">дождь</span> приглушает слух, <span class="legend legend--thunder">гром</span> сбивает след.
+      <span class="key">WASD / arrow keys</span> — move · <span class="key">mouse</span> — aim · <span class="key">click / SPACE</span> — shoot.<br>
+      On a phone: the first finger moves, the second fires.<br>
+      Collect the <span class="legend legend--parcel">parcels</span> and deliver them to the <span class="legend legend--door">green door</span>; three zombies guard each parcel.<br>
+      You have 5 seconds to look around after spawning, but your first shot immediately ends the grace period.<br>
+      <span class="key">F</span> — flashlight · <span class="key">SHIFT</span> — sprint · <span class="key">M</span> — sound. Light, footsteps, and gunfire reveal your position.<br>
+      <span class="legend legend--walker">Green zombies</span> are standard, <span class="legend legend--runner">orange runners</span> are fast and fragile,
+      and <span class="legend legend--brute">purple brutes</span> are slow but survive four hits.<br>
+      The horde flanks and dodges; every type throws a <span class="legend legend--filth">projectile with its own color and speed</span>.<br>
+      <span class="legend legend--battery">Batteries</span> and <span class="legend legend--neutral">ammo</span> are scattered through the yards.<br>
+      <span class="legend legend--car">Cars</span> run zombies down, but crashes crumple bodywork and smash windows and lights; a wrecked car smokes and becomes cover.<br>
+      A <span class="legend legend--patrol">patrol car</span> siren draws zombies.<br>
+      Pavement is faster and louder; <span class="legend legend--rain">rain</span> muffles sound, while <span class="legend legend--thunder">thunder</span> breaks the trail.
     </p>
     <div class="quality-control">
-      <label for="qualitySelect">КАЧЕСТВО</label>
+      <label for="qualitySelect">QUALITY</label>
       <select id="qualitySelect">
-        <option value="auto">АВТО</option>
-        <option value="low">НИЗКОЕ</option>
-        <option value="medium">СРЕДНЕЕ</option>
-        <option value="high">ВЫСОКОЕ</option>
+        <option value="auto">AUTO</option>
+        <option value="low">LOW</option>
+        <option value="medium">MEDIUM</option>
+        <option value="high">HIGH</option>
       </select>
       <span id="qualityStatus" aria-live="polite"></span>
     </div>
-    <button id="startBtn" type="button">НА МАРШРУТ</button>
+    <button id="startBtn" type="button">START SHIFT</button>
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260726-16"></script>
-  <script src="src/core.js?v=20260726-16"></script>
-  <script src="src/quality.js?v=20260726-16"></script>
-  <script src="src/audio.js?v=20260726-16"></script>
-  <script src="src/car-physics.js?v=20260726-16"></script>
-  <script src="src/environment.js?v=20260726-19"></script>
-  <script src="src/world.js?v=20260726-16"></script>
-  <script src="src/physics.js?v=20260726-16"></script>
-  <script src="src/input.js?v=20260726-16"></script>
-  <script src="src/gameplay.js?v=20260726-16"></script>
-  <script src="src/lighting.js?v=20260726-19"></script>
-  <script src="src/entities.js?v=20260726-17"></script>
-  <script src="src/render.js?v=20260726-19"></script>
-  <script src="src/main.js?v=20260726-17"></script>
+  <script src="src/namespace.js?v=20260726-20"></script>
+  <script src="src/core.js?v=20260726-20"></script>
+  <script src="src/quality.js?v=20260726-20"></script>
+  <script src="src/audio.js?v=20260726-20"></script>
+  <script src="src/car-physics.js?v=20260726-20"></script>
+  <script src="src/environment.js?v=20260726-20"></script>
+  <script src="src/world.js?v=20260726-20"></script>
+  <script src="src/physics.js?v=20260726-20"></script>
+  <script src="src/input.js?v=20260726-20"></script>
+  <script src="src/gameplay.js?v=20260726-20"></script>
+  <script src="src/lighting.js?v=20260726-20"></script>
+  <script src="src/entities.js?v=20260726-20"></script>
+  <script src="src/render.js?v=20260726-20"></script>
+  <script src="src/main.js?v=20260726-20"></script>
 </body>
 </html>

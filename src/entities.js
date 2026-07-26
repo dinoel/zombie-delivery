@@ -1,4 +1,4 @@
-// Персонажи, шкалы состояния и мини-карта.
+// Characters, status gauges, and minimap.
 window.TownGame.entities = (() => {
 'use strict';
 
@@ -23,15 +23,15 @@ function drawZombie(c, z) {
   c.beginPath(); c.ellipse(z.x + 3, z.y + 8, 13, 7.5, 0, 0, 6.283); c.fill();
   c.save(); c.translate(z.x, z.y); c.rotate(z.ang);
   const skin = z.hit > 0 ? '#ffd2d2' : (z.skin || '#8fae63');
-  // вытянутые руки
+  // Outstretched arms.
   c.fillStyle = skin;
   roundRect(c, 4, -12 - sw * .5, 16, 5, 2.5); c.fill();
   roundRect(c, 4, 7 + sw * .5, 16, 5, 2.5); c.fill();
-  // ноги
+  // Legs.
   c.fillStyle = '#4a4436';
   roundRect(c, -5, -8 + sw, 11, 6, 3); c.fill();
   roundRect(c, -5, 2 - sw, 11, 6, 3); c.fill();
-  // рваная одежда
+  // Torn clothing.
   c.fillStyle = z.hit > 0 ? '#e9b6b6' : (z.clothes || '#5d6b4a');
   roundRect(c, -10, -9, 19, 18, 6); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
@@ -40,7 +40,7 @@ function drawZombie(c, z) {
   }
   c.fillStyle = 'rgba(0,0,0,.18)';
   c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
-  // голова и глаза
+  // Head and eyes.
   c.fillStyle = skin;
   c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
@@ -74,48 +74,48 @@ function nearestParcel(g) {
 }
 
 function drawPlayer(c, p, g) {
-  if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // мигание после наезда
+  if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // Flash after an impact.
   const sw = Math.sin(p.walk) * 3.4;
   c.fillStyle = 'rgba(0,0,0,.28)';
   c.beginPath(); c.ellipse(p.x + 3, p.y + 8, 14, 8, 0, 0, 6.283); c.fill();
-  // ноги идут туда, куда бежим — и торчат из-под корпуса, иначе шага не видно
+  // Legs face the movement direction and protrude from the body so the stride remains visible.
   c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(1.22, 1.22);
   for (const s of [-1, 1]) {
     const oy = s * 8 + sw * s;
     c.fillStyle = '#38507a'; roundRect(c, -9, oy - 3, 14, 6, 3); c.fill();
     c.fillStyle = '#26314a';
-    roundRect(c, 1, oy - 2.5, 5, 5, 2); c.fill();                    // ботинок
+    roundRect(c, 1, oy - 2.5, 5, 5, 2); c.fill();                    // Boot.
   }
   c.restore();
 
-  // корпус развёрнут туда, куда светим и целимся
+  // The torso faces the aim and flashlight direction.
   c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(1.22, 1.22);
-  // руки: левая держит фонарь, правая — пистолет
+  // Left hand holds the flashlight; right hand holds the pistol.
   c.fillStyle = '#e8b48a';
   roundRect(c, 1, -11 - sw * .3, 9, 5, 2.5); c.fill();
   roundRect(c, 1, 6 + sw * .3, 9, 5, 2.5); c.fill();
-  // корпус + сумка
+  // Torso and bag.
   c.fillStyle = '#e0603f'; roundRect(c, -10, -9, 20, 18, 6); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
   c.fillStyle = '#b7452c'; roundRect(c, -11, -7, 8, 14, 3); c.fill();
   if (g.got > 0) { c.fillStyle = '#c9a26a'; roundRect(c, -12, -5, 5, 10, 2); c.fill(); }
-  // голова
+  // Head.
   c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
-  c.fillStyle = '#3b3630'; c.beginPath(); c.arc(-.5, 0, 7.2, 1.6, 4.7); c.fill();  // затылок/волосы
-  c.fillStyle = '#ffd766'; roundRect(c, 3.5, -6, 4.5, 12, 2); c.fill();            // козырёк кепки
-  // фонарь в кулаке — отсюда и бьёт луч
+  c.fillStyle = '#3b3630'; c.beginPath(); c.arc(-.5, 0, 7.2, 1.6, 4.7); c.fill();  // Back of the head and hair.
+  c.fillStyle = '#ffd766'; roundRect(c, 3.5, -6, 4.5, 12, 2); c.fill();            // Cap visor.
+  // The flashlight beam originates from the fist.
   c.fillStyle = '#2f3a46'; roundRect(c, 7, -10.5 - sw * .3, 8, 4.5, 1.5); c.fill();
   if (p.torch && p.batt > 0) {
     c.fillStyle = `rgba(255,242,200,${.5 + .5 * p.flick})`;
     c.fillRect(14.5, -10 - sw * .3, 2.5, 3.5);
   }
-  // пистолет
+  // Pistol.
   c.fillStyle = '#33383f'; roundRect(c, 7, 6 + sw * .3, 9, 3.5, 1); c.fill();
   c.restore();
 }
 
-// шкалы фонаря и дыхания + кнопка фонаря на телефоне
+// Flashlight and stamina gauges, plus the mobile flashlight button.
 function drawGauges(g) {
   const p = g.p, x = 16, y = H - 46;
   const bar = (yy, v, col, label, on) => {
@@ -127,11 +127,11 @@ function drawGauges(g) {
   };
   const low = p.batt < .2 && p.torch;
   bar(y, p.batt, low && Math.sin(g.time * 12) > 0 ? '#ff8b5a' : '#ffd766',
-      p.torch ? 'ФОНАРЬ (F)' : 'ФОНАРЬ ВЫКЛ (F)', p.torch);
-  bar(y + 18, p.stam, p.stam < .2 ? '#ff8b7a' : '#8ee6a0', 'БЕГ (SHIFT)', p.running);
+      p.torch ? 'FLASHLIGHT (F)' : 'FLASHLIGHT OFF (F)', p.torch);
+  bar(y + 18, p.stam, p.stam < .2 ? '#ff8b7a' : '#8ee6a0', 'SPRINT (SHIFT)', p.running);
   ctx.fillStyle = SND.muted ? 'rgba(232,240,255,.4)' : 'rgba(232,240,255,.8)';
   ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText(SND.muted ? '♪ ЗВУК ВЫКЛ (M)' : '♪ ЗВУК (M)', x, y - 7);
+  ctx.fillText(SND.muted ? '♪ SOUND OFF (M)' : '♪ SOUND (M)', x, y - 7);
 
   if ('ontouchstart' in window) {
     ctx.save();
@@ -139,15 +139,15 @@ function drawGauges(g) {
     ctx.strokeStyle = '#ffd766'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(TORCH_BTN.x, TORCH_BTN.y, TORCH_BTN.r, 0, 6.283); ctx.stroke();
     ctx.fillStyle = '#ffd766'; ctx.font = 'bold 12px Trebuchet MS, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('ФОНАРЬ', TORCH_BTN.x, TORCH_BTN.y + 4);
+    ctx.fillText('LIGHT', TORCH_BTN.x, TORCH_BTN.y + 4);
     ctx.restore();
   }
 }
 
 function drawMinimap(g) {
   const S = 118, k = S / WORLD, mx = W - S - 12, my = 12;
-  // Улицы и дома не меняются в течение уровня: готовим их один раз вместо
-  // сотен path/rotate/fill на каждом кадре.
+  // Roads and houses do not change during a level, so prepare them once instead
+  // of issuing hundreds of path, rotate, and fill operations every frame.
   if (!g.minimapStatic) {
     const map = document.createElement('canvas'); map.width = map.height = S;
     const m = map.getContext('2d');
@@ -172,13 +172,13 @@ function drawMinimap(g) {
   ctx.fillStyle = '#2b3446'; roundRect(ctx, mx - 4, my - 4, S + 8, S + 8, 6); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = 2; ctx.stroke();
   ctx.drawImage(g.minimapStatic, mx, my);
-  // карта открыта лишь там, где курьер побывал
+  // The map is revealed only where the courier has explored.
   ctx.imageSmoothingEnabled = true;
   ctx.globalAlpha = .94;
   ctx.drawImage(fogCv, 0, 0, FW, FW, mx, my, S, S);
   ctx.globalAlpha = .85;
 
-  for (const c of g.cars) {                      // живое видно только в поле зрения
+  for (const c of g.cars) {                      // Moving objects are visible only within sight.
     if (fogAt(g, c.x, c.y) < .8) continue;
     ctx.fillStyle = c.broken ? '#666a70' : c.police ? (Math.sin(c.beacon * 3.1) > 0 ? '#ff6a6a' : '#6a9cff') : '#ff8b7a';
     ctx.fillRect(mx + c.x * k - (c.police ? 2 : 1.5), my + c.y * k - (c.police ? 2 : 1.5), c.police ? 4 : 3, c.police ? 4 : 3);

@@ -1,4 +1,4 @@
-// Погода, видимость, дороги и поведение транспорта.
+// Weather, visibility, roads, and traffic behavior.
 window.TownGame.environment = (() => {
 'use strict';
 
@@ -12,7 +12,7 @@ const { createCarBody, syncCarBody, deformCarBody, circleCarContact, worldToLoca
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
 
-// Шум сообщает зомби координаты события. Дождь глушит все источники.
+// Noise tells zombies where an event happened. Rain muffles every source.
 function makeNoise(g, x, y, r, strength, ring, skip) {
   r *= 1 - .3 * g.weather.rain;
   const r2 = r * r;
@@ -24,13 +24,13 @@ function makeNoise(g, x, y, r, strength, ring, skip) {
   if (ring) g.rings.push({ x, y, r: 10, max: r, l: .55 });
 }
 
-// Насколько точка «асфальтовая»: 1 — середина улицы, 0 — газон.
+// Pavement factor at a point: 1 at the road center, 0 on grass.
 const surfaceAt = (g, x, y) => clamp((ROAD / 2 + 8 - g.roadDist(x, y)) / 22, 0, 1);
 
-// ---------- туман войны: сетка «что курьер уже видел» ----------
+// ---------- fog of war: cells the courier has already seen ----------
 const FCELL = 14;
 const FW = Math.ceil(WORLD / FCELL);
-const REMEMBER = .46;                             // яркость разведанного, но сейчас невидимого
+const REMEMBER = .46;                             // Brightness of explored but currently hidden areas.
 const fogCv = document.createElement('canvas');
 fogCv.width = fogCv.height = FW;
 const fctx = fogCv.getContext('2d');
@@ -38,18 +38,18 @@ const fogImg = fctx.createImageData(FW, FW);
 
 function updateFog(g, dt) {
   const p = g.p, lit = p.torch && p.batt > 0, w = g.weather;
-  const o = torchHand(p);                          // видно от фонаря в руке, а не от пупка
-  // в дождь луч бьёт короче, зато вспышка молнии на миг показывает весь квартал
+  const o = torchHand(p);                          // Vision starts at the hand, not the body center.
+  // Rain shortens the beam, while lightning briefly reveals the whole block.
   const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6), R2 = R * R;
   const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6)) ** 2;
   const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
   const fade = Math.min(1, dt * 6), rise = Math.min(1, dt * 9);
 
-  // Ячейки, которых игрок ещё ни разу не видел, уже равны нулю. Не обходим
-  // каждый кадр всю карту — только реально открывавшуюся её часть.
+  // Cells the player has never seen are already zero. Iterate only the explored
+  // part of the map instead of scanning the entire grid every frame.
   const active = g.fogActive, activeMark = g.fogActiveMark;
   const fadeList = legacyPerf ? g.fog : active;
-  for (let n = 0; n < fadeList.length; n++) {      // то, что вышло из виду, тускнеет до памяти
+  for (let n = 0; n < fadeList.length; n++) {      // Areas leaving sight fade to memory brightness.
     const i = legacyPerf ? n : fadeList[n];
     const tgt = g.seen[i] ? REMEMBER : 0;
     if (g.fog[i] > tgt) g.fog[i] += (tgt - g.fog[i]) * fade;
@@ -60,7 +60,7 @@ function updateFog(g, dt) {
     const dx = gx * FCELL + FCELL / 2 - o.x, dy = gy * FCELL + FCELL / 2 - o.y;
     const d2 = dx * dx + dy * dy;
     if (d2 > R2) continue;
-    // видно вблизи вокруг себя и в конусе фонарика
+    // Nearby surroundings and the flashlight cone are visible.
     if (d2 > PER2 && dx * ca + dy * sa < Math.sqrt(d2) * LIM) continue;
     const i = gy * FW + gx;
     if (!activeMark[i]) { activeMark[i] = 1; active.push(i); }
@@ -82,15 +82,15 @@ function drawFog(g, camx, camy) {
     g.fogRendered = true;
   }
   ctx.save();
-  ctx.imageSmoothingEnabled = true;               // мягкая граница вместо клеток
+  ctx.imageSmoothingEnabled = true;               // Smooth boundary instead of visible cells.
   ctx.drawImage(fogCv, camx / FCELL, camy / FCELL, W / FCELL, H / FCELL, 0, 0, W, H);
   ctx.restore();
 }
 const fogAt = (g, x, y) =>
   g.fog[clamp((y / FCELL) | 0, 0, FW - 1) * FW + clamp((x / FCELL) | 0, 0, FW - 1)];
 
-// ---------- погода: дождь приходит и уходит, гроза уводит зомби на гром ----------
-const RAIN_Z = [.15, .55, 1];                     // три слоя глубины — дальние капли мельче и медленнее
+// ---------- weather: rain comes and goes; thunder distracts zombies ----------
+const RAIN_Z = [.15, .55, 1];                     // Three depth layers; distant drops are smaller and slower.
 const drops = [];
 for (let i = 0; i < 480; i++)
   drops.push({ x: Math.random() * (W + 260) - 130, y: Math.random() * H, z: RAIN_Z[i % 3] });
@@ -104,17 +104,17 @@ const newWeather = () => {
 function updateWeather(g, dt) {
   const w = g.weather;
   w.next -= dt;
-  if (w.next <= 0) {                              // ливень то накатывает, то уходит
+  if (w.next <= 0) {                              // Rain periodically arrives and fades.
     w.next = rnd(16, 42);
     w.target = Math.random() < .42 ? 0 : rnd(.35, 1);
     w.wind = rnd(-.5, .5);
   }
   w.rain += clamp(w.target - w.rain, -.12 * dt, .12 * dt);
-  // асфальт намокает быстро, а сохнет минуту
+  // Asphalt gets wet quickly and takes about a minute to dry.
   w.wet += w.rain > w.wet ? Math.min(w.rain - w.wet, .3 * dt) : Math.max(w.rain - w.wet, -.05 * dt);
   SND.rain(w.rain);
 
-  // молния: вспышка сразу, раскат — через паузу, и вот он-то и есть подарок игроку
+  // Lightning flashes immediately; delayed thunder is the useful distraction.
   w.flash = Math.max(0, w.flash - dt * 3.2);
   if (w.reflash > 0 && (w.reflash -= dt) <= 0) w.flash = Math.max(w.flash, .8);
   if (w.rain > .55) {
@@ -132,10 +132,10 @@ function updateWeather(g, dt) {
     w.boom = 0;
     SND.play('thunder');
     g.shake = Math.max(g.shake, .5);
-    makeNoise(g, w.boomX, w.boomY, 1300, 6, true);   // на раскат уходит вся округа
+    makeNoise(g, w.boomX, w.boomY, 1300, 6, true);   // The whole district follows the thunder.
   }
 
-  // капли на экране и брызги на земле
+  // Screen-space raindrops and ground splashes.
   const density = quality.current.rainDensity;
   const n = (drops.length * w.rain * density) | 0;
   for (let i = 0; i < n; i++) {
@@ -173,12 +173,12 @@ function drawRain(g) {
   ctx.restore();
 }
 
-// фонари и фары ночью видно издалека — сам огонёк светит сквозь туман, но города не открывает
+// Lamps and headlights remain visible through fog without revealing the town.
 function drawGlowThroughFog(g, camx, camy) {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const l of g.lit) {
-    if (l.r < 60) continue;                       // мелкие блики так далеко не разглядеть
+    if (l.r < 60) continue;                       // Tiny glints cannot be seen from that far away.
     const a = (1 - fogAt(g, l.x, l.y)) * l.int * .12;
     if (a < .012) continue;
     const x = l.x - camx, y = l.y - camy, r = l.r * .8;
@@ -194,7 +194,7 @@ function drawGlowThroughFog(g, camx, camy) {
   ctx.restore();
 }
 
-// ---------- граф улиц: узлы вразброс, рёбра-кривые ----------
+// ---------- road graph: scattered nodes and curved edges ----------
 function makeRoads() {
   const nodes = [], at = (i, j) => j * GN + i;
   for (let j = 0; j < GN; j++) for (let i = 0; i < GN; i++)
@@ -211,14 +211,14 @@ function makeRoads() {
     const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } };
   shuffle(cand); shuffle(diag);
 
-  // улица как кривая по точкам
+  // Represent a road as a point-sampled curve.
   const curve = (a, b) => {
     const A = nodes[a], B = nodes[b];
     const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
-    const k = rnd(-.18, .18);                          // изгиб улицы
+    const k = rnd(-.18, .18);                          // Road curvature.
     const cx = (A.x + B.x) / 2 - dy * k, cy = (A.y + B.y) / 2 + dx * k;
     const n = Math.max(6, Math.round(len / 50)), pts = [], cum = [0];
-    for (let s = 0; s <= n; s++) {                     // квадратичная кривая по точкам
+    for (let s = 0; s <= n; s++) {                     // Sample a quadratic curve.
       const t = s / n, u = 1 - t;
       pts.push({ x: u * u * A.x + 2 * u * t * cx + t * t * B.x,
                  y: u * u * A.y + 2 * u * t * cy + t * t * B.y });
@@ -227,7 +227,7 @@ function makeRoads() {
     return { a, b, pts, cum, len: cum[cum.length - 1] };
   };
 
-  // две улицы не должны сходиться вне перекрёстка: там некому уступать
+  // Roads must not converge outside intersections, where traffic cannot yield.
   const MINSEP = ROAD + 12;
   const segDist = (p, q, r) => {
     const dx = q.x - p.x, dy = q.y - p.y, l2 = dx * dx + dy * dy || 1;
@@ -240,7 +240,7 @@ function makeRoads() {
     return false;
   };
 
-  // сначала остов по прямым улицам — связность гарантирована, потом петли, потом косые
+  // Build a connected orthogonal skeleton first, then add loops and diagonals.
   const par = nodes.map((_, i) => i);
   const find = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
   const keep = [];
@@ -249,7 +249,7 @@ function makeRoads() {
     if (ra !== rb) { par[ra] = rb; keep.push(curve(a, b)); }
     else if (Math.random() < .3) keep.push(curve(a, b));
   }
-  for (const [a, b] of diag) {                         // косая — только если ничего не режет
+  for (const [a, b] of diag) {                         // Keep a diagonal only when it crosses nothing.
     if (Math.random() > .4) continue;
     const e = curve(a, b);
     const shares = o => o.a === a || o.a === b || o.b === a || o.b === b;
@@ -264,7 +264,7 @@ function makeRoads() {
   return { nodes, edges };
 }
 
-// точка и касательная на расстоянии s от начала улицы
+// Point and tangent at distance s from the start of a road.
 function onEdge(e, s) {
   s = clamp(s, 0, e.len);
   let i = 1;
@@ -275,23 +275,23 @@ function onEdge(e, s) {
   return { x: p.x + dx * t, y: p.y + dy * t, tx: dx / d, ty: dy / d };
 }
 
-// точка правой полосы улицы и курс в ней
+// Point and heading on the right lane.
 function lanePoint(e, s, dir) {
   const p = onEdge(e, s);
   const hx = p.tx * dir, hy = p.ty * dir;
   return { x: p.x - hy * LANE, y: p.y + hx * LANE, hx, hy };
 }
 function setCar(c, x, y, hx, hy) {
-  c.x = x + (c.jx || 0); c.y = y + (c.jy || 0);      // jx/jy — толчок от удара, рельсы под ним остаются
+  c.x = x + (c.jx || 0); c.y = y + (c.jy || 0);      // jx/jy is crash displacement while the lane remains underneath.
   c.hx = hx; c.hy = hy;
   setOBB(c.box, c.x, c.y, Math.atan2(hy, hx), CAR_L / 2, CAR_W / 2);
   syncCarBody(c);
 }
-function placeCar(c) {                            // на прямом участке
+function placeCar(c) {                            // On a straight segment.
   const l = lanePoint(c.edge, c.s, c.dir);
   setCar(c, l.x, l.y, l.hx, l.hy);
 }
-// руль не крутится мгновенно: курс догоняет нужный с ограничением скорости
+// Steering is not instantaneous; heading approaches the target at a limited rate.
 function steerCar(c, x, y, hx, hy, dt, rate) {
   const cur = Math.atan2(c.hy, c.hx);
   let d = Math.atan2(hy, hx) - cur;
@@ -301,8 +301,8 @@ function steerCar(c, x, y, hx, hy, dt, rate) {
   setCar(c, x, y, Math.cos(a), Math.sin(a));
 }
 
-// ---------- поворот: дуга от своей полосы к полосе следующей улицы ----------
-const TURN_IN = ROAD * .62;                       // за сколько до перекрёстка начинаем доворот
+// ---------- turn: an arc from the current lane to the next road ----------
+const TURN_IN = ROAD * .62;                       // Distance before an intersection where turning begins.
 const bezAt = (T, t) => {
   const u = 1 - t, a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t;
   return { x: a * T.x0 + b * T.x1 + d * T.x2 + e * T.x3, y: a * T.y0 + b * T.y1 + d * T.y2 + e * T.y3 };
@@ -315,7 +315,7 @@ const bezDir = (T, t) => {
   return { x: dx / d, y: dy / d };
 };
 function startTurn(g, c) {
-  const at = c.dir > 0 ? c.edge.b : c.edge.a;     // узел, к которому подъехали
+  const at = c.dir > 0 ? c.edge.b : c.edge.a;     // Node the car has reached.
   const opts = g.roads.nodes[at].e.filter(i => i !== c.edge.id);
   let nextId = opts.length ? pick(opts) : c.edge.id;
   if (opts.length && c.driverTimer > 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) {
@@ -330,9 +330,9 @@ function startTurn(g, c) {
     }
   }
   const next = g.roads.edges[nextId];
-  const ndir = next.a === at ? 1 : -1;            // в тупике разворачиваемся по той же улице
+  const ndir = next.a === at ? 1 : -1;            // Reverse along the same road at a dead end.
   const uturn = next === c.edge;
-  const back = uturn ? TURN_IN * 2.4 : TURN_IN;   // разворот выполняем с запасом, иначе выйдет петля
+  const back = uturn ? TURN_IN * 2.4 : TURN_IN;   // Give U-turns extra room to avoid a loop.
   const sIn = ndir > 0 ? Math.min(back, next.len) : Math.max(next.len - back, 0);
   const end = lanePoint(next, sIn, ndir);
   const d = Math.max(uturn ? 78 : 34, Math.hypot(end.x - c.x, end.y - c.y) * (uturn ? .95 : .55));
@@ -341,13 +341,13 @@ function startTurn(g, c) {
     x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
     next, ndir, sIn, t: 0, len: 0
   };
-  let px = c.x, py = c.y, L = 0;                  // длина дуги по восьми отрезкам
+  let px = c.x, py = c.y, L = 0;                  // Approximate arc length with eight segments.
   for (let i = 1; i <= 8; i++) { const q = bezAt(T, i / 8); L += Math.hypot(q.x - px, q.y - py); px = q.x; py = q.y; }
   T.len = Math.max(24, L);
-  c.turn = T; c.mode = 'turn'; c.node = at;         // узел занят, пока машина в нём
+  c.turn = T; c.mode = 'turn'; c.node = at;         // The node remains occupied while the car is inside it.
 }
 
-// где машина окажется через dist пикселей — по своей полосе или по дуге поворота
+// Predict the car position after dist pixels along a lane or turn arc.
 const probeBox = obb(0, 0, 0, CAR_L / 2, CAR_W / 2);
 function ahead(c, dist) {
   if (c.mode === 'turn' && c.turn) {
@@ -359,8 +359,8 @@ function ahead(c, dist) {
   return setOBB(probeBox, l.x, l.y, Math.atan2(l.hy, l.hx), CAR_L / 2 + 4, CAR_W / 2 + 2);
 }
 
-// ---------- повреждения машин ----------
-// Все значения постоянные: авария оставляет след до конца района, а не «заживает» через секунду.
+// ---------- vehicle damage ----------
+// Every value is persistent: crash damage lasts for the district instead of healing.
 function newCarDamage() {
   return {
     integrity: 100, engine: 100, wheel: 0,
@@ -376,15 +376,15 @@ function ensureCarDamage(c) {
   return c.damage || (c.damage = newCarDamage());
 }
 
-// Дым является читаемым индикатором повреждений, а не бинарным эффектом поломки.
+// Smoke communicates damage continuously instead of acting as a binary failure effect.
 function carSmokeProfile(c) {
   const d = ensureCarDamage(c);
   const engine = clamp(1 - d.engine / 100, 0, 1);
   const structure = clamp(1 - d.integrity / 100, 0, 1) * .78;
   const plastic = clamp((d.plasticWork || 0) / 190, 0, 1) * .72;
   const damage = c.broken ? 1 : clamp(Math.max(engine, structure, plastic), 0, 1);
-  // У совсем лёгкого повреждения физический уровень близок к нулю, но дым всё
-  // равно должен читаться в тёмной игре. Исправная машина частиц не создаёт.
+  // Very light damage has almost no physical severity, but smoke must still read
+  // in the dark scene. An undamaged car creates no particles.
   const level = damage > .004 ? clamp(.22 + damage * .78, .22, 1) : 0;
   return {
     active: level > 0,
@@ -431,9 +431,9 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
     contactX = c.x + nx * CAR_L * .48;
     contactY = c.y + ny * CAR_L * .48;
   }
-  // Равный показатель скорости для двух автомобилей означает намного большую
-  // переданную энергию, чем для мягкого тела. Механический урон ниже всё ещё
-  // считается от исходного impactSpeed, а сетка получает эквивалентный импульс.
+  // The same speed transfers far more energy between two cars than against a soft
+  // body. Mechanical damage still uses the original impactSpeed, while the mesh
+  // receives an equivalent impulse.
   const deformationImpact = source === 'collision' ? 25 + impactSpeed * 1.28 : impactSpeed;
   const deformation = deformCarBody(c, contactX, contactY, nx, ny, deformationImpact);
 
@@ -444,8 +444,8 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
   const severity = clamp(scaled / 190, 0, 1.45);
   const armour = c.police ? .84 : 1;
   const durability = c.durability || 1;
-  // Мягкое тело хорошо мнёт тонкие внешние панели, но поглощает большую часть
-  // энергии само: геометрическая вмятина заметна раньше серьёзной поломки мотора.
+  // A soft body crumples thin outer panels but absorbs most of the energy itself:
+  // geometric dents become visible before serious engine damage.
   const bodyFactor = source === 'zombie' ? .32 : source === 'player' ? .4 : source === 'bullet' ? .16 : 1;
   const hpLoss = Math.pow(scaled / 22, 1.18) * 4 * armour * bodyFactor / durability;
   const crushGain = severity * (source === 'zombie' ? .28 : source === 'player' ? .34 : source === 'bullet' ? .14 : .72);
@@ -456,7 +456,7 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
   d.maxStrain = c.body.maxStrain;
   d.crush[zone] = clamp(d.crush[zone] + crushGain, 0, 1);
   d.engine = clamp(d.engine - hpLoss * .14, 0, 100);
-  c.smokeCd = 0;                                      // первое облако сразу сообщает игроку о попадании
+  c.smokeCd = 0;                                      // The first cloud immediately communicates a hit.
 
   const sideBias = clamp(.5 + side * .5, 0, 1);
   const breakPair = (leftName, rightName, amount) => {
@@ -465,7 +465,7 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
   };
 
   if (zone === 'front') {
-    d.engine = clamp(d.engine - hpLoss * .72, 0, 100);            // радиатор и мотор принимают лобовой удар
+    d.engine = clamp(d.engine - hpLoss * .72, 0, 100);            // Radiator and engine absorb frontal impacts.
     d.glass.front = clamp(d.glass.front - Math.max(0, severity - .12) * .78, 0, 1);
     breakPair('frontLeft', 'frontRight', severity * 1.08);
     d.wheel = clamp(d.wheel + severity * .18, 0, 1);
@@ -493,7 +493,7 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
   return { severity, zone, disabled, deformation };
 }
 
-// Зомби легче машины, но туши постепенно забивают радиатор и добивают переднюю подвеску.
+// Zombies are lighter than cars, but bodies gradually clog the radiator and ruin the front suspension.
 function softBodyContact(c, body, radius, contact, mass, relativeSpeed = c.v, base = 56, speedFactor = .38) {
   const dx = body.x - c.x, dy = body.y - c.y, dist = Math.hypot(dx, dy) || 1;
   const hit = contact || circleCarContact(c, body.x, body.y, radius);
@@ -502,8 +502,8 @@ function softBodyContact(c, body, radius, contact, mass, relativeSpeed = c.v, ba
     y: hit ? hit.y : body.y - dy / dist * radius,
     nx: hit ? hit.nx : dx / dist,
     ny: hit ? hit.ny : dy / dist,
-    // Эквивалентный импульс учитывает скорость машины и массу цели. Он управляет
-    // пластикой панели; bodyFactor выше отдельно не даёт туше ломать двигатель как стене.
+    // Equivalent impulse accounts for vehicle speed and target mass. It controls
+    // panel deformation; bodyFactor separately prevents a body from damaging the engine like a wall.
     impact: base + clamp(relativeSpeed, 20, 190) * speedFactor + mass * 8
   };
 }
@@ -538,7 +538,7 @@ function damageCarWithBullet(g, c, contact, bullet) {
   if (c.bulletDents.length > 12) c.bulletDents.shift();
   c.hitFlash = .18;
 
-  // Точная точка попадания дополнительно определяет разбитую деталь.
+  // The exact hit point also determines which part breaks.
   const d = ensureCarDamage(c), ax = Math.abs(local.x), ay = Math.abs(local.y);
   if (local.x > 18 && ay > 3.5) {
     const lamp = local.y < 0 ? 'frontLeft' : 'frontRight';
@@ -568,8 +568,8 @@ function damageCarWithBullet(g, c, contact, bullet) {
   return { ...result, mode: c.driverMode, local, speed };
 }
 
-// QA-сравнение проходит через обычные объекты района и основной рендер.
-// В обычной игре функция никогда не вызывается.
+// QA comparison uses normal district objects and the main renderer.
+// Normal gameplay never calls this function.
 function prepareCarImpactComparison(g) {
   if (!g || g.cars.length < 3) return false;
   const p = g.p, above = p.y > 125, y = clamp(p.y + (above ? -82 : 82), 32, WORLD - 32);
@@ -603,14 +603,14 @@ function crashEffects(g, x, y, impactSpeed) {
       l: rnd(.3, 1), c: pick(['#ffe08a', '#ffffff', '#9fb4c8', '#ff9a5a', '#34383d']), s: rnd(2, 4) });
 }
 
-// Удар двух машин: сила считается по относительной скорости вдоль линии контакта.
+// Car-to-car impact force uses relative speed along the contact line.
 function crash(g, a, b, manifold) {
   const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
   const nx = manifold ? manifold.nx : dx / d, ny = manifold ? manifold.ny : dy / d;
   const contactX = manifold ? manifold.x : (a.x + b.x) * .5;
   const contactY = manifold ? manifold.y : (a.y + b.y) * .5;
   const closing = Math.max(0, (a.hx * a.v - b.hx * b.v) * nx + (a.hy * a.v - b.hy * b.v) * ny);
-  const impact = Math.max(32, closing);                         // даже медленное касание оставляет царапину и небольшую вмятину
+  const impact = Math.max(32, closing);                         // Even a slow touch leaves a scratch and small dent.
   const hard = closing > 55;
   const separation = manifold ? manifold.penetration * .55 : 0;
   const k = clamp(2.5 + impact * .045 + separation, 2.5, 16);
@@ -623,8 +623,8 @@ function crash(g, a, b, manifold) {
   const shiftA = k * 2 * invA / invSum, shiftB = k * 2 * invB / invSum;
   const ax = -nx * shiftA, ay = -ny * shiftA, bx = nx * shiftB, by = ny * shiftB;
   a.jx += ax; a.jy += ay; b.jx += bx; b.jy += by;
-  // Раздвигаем физические тела сразу: на текущем кадре одна машина уже не
-  // рисуется поверх другой. jx/jy сохраняют это смещение относительно полосы.
+  // Separate the physical bodies immediately so they no longer overlap in the
+  // current frame. jx/jy preserve this displacement relative to the lane.
   a.x += ax; a.y += ay; b.x += bx; b.y += by;
   if (a.box) setOBB(a.box, a.x, a.y, Math.atan2(a.hy, a.hx), CAR_L / 2, CAR_W / 2);
   if (b.box) setOBB(b.box, b.x, b.y, Math.atan2(b.hy, b.hx), CAR_L / 2, CAR_W / 2);
@@ -634,14 +634,14 @@ function crash(g, a, b, manifold) {
     c.honk = 1;
     c.hazard = Math.max(c.hazard || 0, hard ? 8 : 2.5);
     if (c.broken) { c.v = 0; continue; }
-    if (!hard) { c.v *= .38; continue; }                // задели бортами — сбросили ход, но след на кузове остался
+    if (!hard) { c.v *= .38; continue; }                // A side scrape slows the car and still marks the body.
     c.v = 0;
     c.stall = Math.max(c.stall, rnd(.8, 1.7) + ownImpact / 180);
   }
   crashEffects(g, contactX, contactY, Math.max(impactA, impactB));
 }
 
-// Если поток всё-таки не успел затормозить перед припаркованной машиной, повреждается и останавливается едущая.
+// If traffic fails to stop before a parked car, the moving vehicle is damaged and halted.
 function crashObstacle(g, c, obstacle) {
   if (c.cd > 0 || c.broken) return;
   const dx = obstacle.cx - c.x, dy = obstacle.cy - c.y, d = Math.hypot(dx, dy) || 1;
@@ -660,7 +660,7 @@ function crashObstacle(g, c, obstacle) {
   crashEffects(g, contactX, contactY, impact);
 }
 
-// ближайшая точка улицы: расстояние и её направление
+// Nearest road point: distance and direction.
 function nearRoad(R, x, y) {
   let bd = 1e9, ba = 0, bx = 0, by = 0;
   for (const e of R.edges) for (let i = 1; i < e.pts.length; i++) {

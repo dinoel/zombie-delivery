@@ -19,6 +19,13 @@ const CAR_BUILDS = Object.freeze([
   Object.freeze({ name: 'standard', mass: 1, stiffness: 1, durability: 1, speed: 1 }),
   Object.freeze({ name: 'heavy', mass: 1.38, stiffness: 1.36, durability: 1.32, speed: .88 })
 ]);
+const LAMP_TEMPERATURES = Object.freeze([
+  Object.freeze({ rgb: Object.freeze([1, .64, .32]), bulb: '#ffd088', power: 1.04 }),
+  Object.freeze({ rgb: Object.freeze([1, .77, .47]), bulb: '#ffe0a0', power: 1.02 }),
+  Object.freeze({ rgb: Object.freeze([1, .9, .72]), bulb: '#fff0c5', power: 1 }),
+  Object.freeze({ rgb: Object.freeze([.92, .96, 1]), bulb: '#f0f7ff', power: .98 }),
+  Object.freeze({ rgb: Object.freeze([.76, .87, 1]), bulb: '#d6e8ff', power: .95 })
+]);
 // Everything below is tuned per unit of area rather than per district, so the density of
 // houses, trees, traffic, and the horde survives any change to the road grid. The
 // reference is the original 1530-pixel town.
@@ -196,14 +203,14 @@ function buildTown(level) {
     if (roadDist(x, y) < ROAD / 2 + 19) continue;
     if (!farFrom(x, y, r + 16)) continue;
     if (trees.some(t => Math.hypot(t.x - x, t.y - y) < t.r + r + 20)) continue;
-    trees.push({ x, y, r, seed: Math.random() });
+    trees.push({ x, y, r, seed: Math.random(), foliage: 'tree' });
   }
   for (let tries = 0; tries < per(2600) && soft.length < per(46); tries++) {
     const x = rnd(30, WORLD - 30), y = rnd(30, WORLD - 30), r = rnd(16, 26);
     if (roadDist(x, y) < ROAD / 2 + 14) continue;
     if (!farFrom(x, y, r + 8)) continue;
     if (trees.some(t => Math.hypot(t.x - x, t.y - y) < t.r + r + 6)) continue;
-    soft.push({ x, y, r, seed: Math.random() });
+    soft.push({ x, y, r, seed: Math.random(), foliage: 'bush' });
   }
 
   // ---------- lamps and benches along sidewalks ----------
@@ -219,7 +226,9 @@ function buildTown(level) {
         p = q; break;
       }
       if (!p) { side = -side; continue; }
-      props.push({ t: 'lamp', x: p.x, y: p.y });
+      const temperature = pick(LAMP_TEMPERATURES);
+      props.push({ t: 'lamp', x: p.x, y: p.y, lampRgb: temperature.rgb,
+        bulb: temperature.bulb, lampPower: temperature.power });
       if (Math.random() < .3) {
         const bx = p.x - p.ty * 23 * p.side, by = p.y + p.tx * 23 * p.side;
         if (insideEdge(bx, by, 17) && nearRoad(R, bx, by).d > SIDEWALK_OUTER + 5 &&
@@ -557,6 +566,24 @@ function buildTown(level) {
     }
   }
 
+  // A clean lighting laboratory keeps three color temperatures and three foliage
+  // silhouettes in the same viewport for HIGH/LOW visual comparison.
+  if (qaMode === 'foliage-lighting') {
+    const cx = clamp(start.x, 220, WORLD - 220), cy = clamp(start.y - 110, 190, WORLD - 230);
+    start = { x: cx, y: cy + 90 };
+    houses.splice(0); trees.splice(0); soft.splice(0); props.splice(0); solids.splice(0);
+    cars.splice(0); zombies.splice(0);
+    const tree = { x: cx - 145, y: cy + 48, r: 22, seed: .17, foliage: 'tree' };
+    const bush = { x: cx, y: cy + 48, r: 24, seed: .53, foliage: 'bush' };
+    const hedge = obb(cx + 145, cy + 48, 0, 43, 9, { t: 'hedge', seed: .81 });
+    trees.push(tree); soft.push(bush); props.push(hedge); solids.push(hedge);
+    for (let i = 0; i < 3; i++) {
+      const temperature = LAMP_TEMPERATURES[i * 2];
+      props.push({ t: 'lamp', x: cx + (i - 1) * 145, y: cy,
+        lampRgb: temperature.rgb, bulb: temperature.bulb, lampPower: temperature.power });
+    }
+  }
+
   // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
@@ -574,6 +601,13 @@ function buildTown(level) {
     if (s) ammoBoxes.push({ x: s.x, y: s.y, batt: k % 2 === 1, n: 8, ph: Math.random() * 6.283 });
   }
 
+  const weather = newWeather();
+  const fog = new Float32Array(FW * FW), seen = new Uint8Array(FW * FW);
+  if (qaMode === 'foliage-lighting') {
+    Object.assign(weather, { rain: 0, target: 0, wet: 0, next: 999, strike: 999 });
+    fog.fill(1); seen.fill(1);
+  }
+
   return {
     level, solids, trees, soft, houses, props, parcels, cars, goal, need, zombies, ammoBoxes,
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
@@ -581,14 +615,14 @@ function buildTown(level) {
     p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
          tx: start.x, ty: start.y - 300,
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
-         torch: true, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
+         torch: qaMode !== 'foliage-lighting', batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
          takedown: 0, finishHeld: false },
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
-    weather: newWeather(), ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
+    weather, ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     headKicks: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
-    fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
+    fog, seen,                                                    // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
     time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
@@ -709,7 +743,7 @@ function renderStatic(g) {
       c.fillStyle = 'rgba(0,0,0,.2)';
       c.beginPath(); c.ellipse(p.x + 5, p.y + 6, 7, 4.5, 0, 0, 6.283); c.fill();
       c.fillStyle = '#3c4450'; c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 6.283); c.fill();
-      c.fillStyle = '#ffe9a8'; c.beginPath(); c.arc(p.x, p.y, 2.4, 0, 6.283); c.fill();
+      c.fillStyle = p.bulb || '#ffe9a8'; c.beginPath(); c.arc(p.x, p.y, 2.4, 0, 6.283); c.fill();
     }
     if (p.t === 'bench') {
       c.save(); c.translate(p.x, p.y); c.rotate(p.a);

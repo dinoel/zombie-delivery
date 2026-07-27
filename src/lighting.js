@@ -23,9 +23,39 @@ const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .
 const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
 const RGB_CASH = [.66, .9, .69];
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
+const GOLDEN_ANGLE = 2.399963;
+
+const foliageNoise = (seed, i) => {
+  const n = Math.sin((seed || .37) * 913.7 + i * 78.233) * 43758.5453;
+  return n - Math.floor(n);
+};
+
+// High quality models foliage as separated leaf clusters. Their shadow wedges
+// overlap irregularly and leave stable pinholes for light instead of forming a wall.
+function forEachFoliageLobe(o, visit) {
+  if (o.t === 'hedge') {
+    const count = Math.max(4, Math.ceil(o.hw * 2 / 17));
+    const ca = Math.cos(o.ang), sa = Math.sin(o.ang);
+    for (let i = 0; i < count; i++) {
+      const noise = foliageNoise(o.seed || o.cx * .001 + o.cy * .002, i);
+      const along = (-.88 + 1.76 * (i + .5) / count) * o.hw;
+      const across = (noise - .5) * o.hh * .9;
+      visit(o.cx + ca * along - sa * across, o.cy + sa * along + ca * across,
+        o.hh * (.46 + noise * .2));
+    }
+    return;
+  }
+  const bush = o.foliage === 'bush', count = bush ? 4 : 6;
+  for (let i = 0; i < count; i++) {
+    const noise = foliageNoise(o.seed, i), angle = (o.seed || 0) * 6.283 + i * GOLDEN_ANGLE;
+    const distance = i === 0 ? 0 : o.r * (.4 + noise * .22);
+    const radius = o.r * (i === 0 ? .13 : (bush ? .15 : .13) + noise * .07);
+    visit(o.x + Math.cos(angle) * distance, o.y + Math.sin(angle) * distance, radius);
+  }
+}
 
 // Occluders near a point: houses, hedges, trees, and cars.
-function occNear(g, x, y, r, skip) {
+function occNear(g, x, y, r, skip, detailedFoliage = false) {
   const out = [];
   for (const s of g.solids) {
     const dx = s.cx - x, dy = s.cy - y, reach = r + s.rad;
@@ -33,6 +63,8 @@ function occNear(g, x, y, r, skip) {
   }
   for (const t of g.trees)
     if (Math.abs(t.x - x) < r + t.r && Math.abs(t.y - y) < r + t.r) out.push(t);
+  if (detailedFoliage) for (const b of g.soft)
+    if (Math.abs(b.x - x) < r + b.r && Math.abs(b.y - y) < r + b.r) out.push(b);
   for (const c of g.cars) {
     const dx = c.x - x, dy = c.y - y, reach = r + c.box.rad;
     if (c !== skip && dx * dx + dy * dy < reach * reach) out.push(c.body ? c.body.collider : c.box);
@@ -41,21 +73,28 @@ function occNear(g, x, y, r, skip) {
 }
 
 // Cut every obstacle shadow out of the light pool.
-function castShadows(c, lx, ly, occ) {
+function castShadows(c, lx, ly, occ, detailedFoliage) {
   c.globalCompositeOperation = 'destination-out';
   c.fillStyle = '#000';
+  const circleShadow = (x, y, r) => {
+    const dx = x - lx, dy = y - ly, d = Math.hypot(dx, dy);
+    if (d < r) return;
+    const px = -dy / d * r, py = dx / d * r;
+    const ax = x + px, ay = y + py, bx = x - px, by = y - py;
+    const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+    c.beginPath();
+    c.moveTo(ax, ay); c.lineTo(bx, by);
+    c.lineTo(bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN);
+    c.lineTo(ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+    c.closePath(); c.fill();
+  };
   for (const o of occ) {
+    if (detailedFoliage && (o.r !== undefined || o.t === 'hedge')) {
+      forEachFoliageLobe(o, circleShadow);
+      continue;
+    }
     if (o.r !== undefined) {                          // Tree: wedge between tangents.
-      const dx = o.x - lx, dy = o.y - ly, d = Math.hypot(dx, dy);
-      if (d < o.r) continue;                          // Ignore a light source inside the crown.
-      const px = -dy / d * o.r, py = dx / d * o.r;
-      const ax = o.x + px, ay = o.y + py, bx = o.x - px, by = o.y - py;
-      const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
-      c.beginPath();                                  // The crown is lit while its shadow extends behind it.
-      c.moveTo(ax, ay); c.lineTo(bx, by);
-      c.lineTo(bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN);
-      c.lineTo(ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
-      c.closePath(); c.fill();
+      circleShadow(o.x, o.y, o.r);                    // The crown is lit while its shadow extends behind it.
     } else {                                          // House, hedge, or car: wedges from far faces.
       const pts = o.pts;
       for (let i = 0; i < 4; i++) {
@@ -94,7 +133,10 @@ function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip,
   gr.addColorStop(1, col.replace('%a', 0));
   tctx.fillStyle = gr; tctx.fillRect(x - r, y - r, r * 2, r * 2);
   tctx.restore();
-  if (shadows && r > 20) castShadows(tctx, x, y, occNear(g, x, y, r, skip));
+  if (shadows && r > 20) {
+    const foliage = quality.current.foliageShadows;
+    castShadows(tctx, x, y, occNear(g, x, y, r, skip, foliage), foliage);
+  }
   tctx.setTransform(1, 0, 0, 1, 0, 0);
 
   ctx.save();                                          // Color above the scene.
@@ -137,7 +179,8 @@ function collectLights(g, camx, camy) {
                soft: soft || 0, priority, skip });
   };
 
-  for (const l of g.lamps) add(l.x, l.y, 120, RGB_LAMP, 1.15, .24, .95, 0, 0, 14, 1);
+  for (const l of g.lamps)
+    add(l.x, l.y, 120, l.lampRgb || RGB_LAMP, 1.15 * (l.lampPower || 1), .24, .95, 0, 0, 14, 1);
   for (const c of g.cars) {
     if (!legacyPerf && (c.x + 270 < camx || c.y + 270 < camy || c.x - 270 > camx + W || c.y - 270 > camy + H)) continue;
     const a = Math.atan2(c.hy, c.hx);
@@ -311,23 +354,31 @@ const GLR = gl && (() => { try {
 quality.setRenderer(gl ? 'webgl' : 'canvas2d');
 
 // Obstacle shadow wedges in screen coordinates, stored in a shared buffer.
-function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
+function buildShadowVerts(occ, lx, ly, camx, camy, arr, detailedFoliage) {
   let n = 0;
   const push = (x1, y1, x2, y2, x3, y3, x4, y4) => {          // A quadrilateral as two triangles.
     arr[n++] = x1; arr[n++] = y1; arr[n++] = x2; arr[n++] = y2; arr[n++] = x3; arr[n++] = y3;
     arr[n++] = x1; arr[n++] = y1; arr[n++] = x3; arr[n++] = y3; arr[n++] = x4; arr[n++] = y4;
   };
+  const circleShadow = (worldX, worldY, radius) => {
+    const ox = worldX - camx, oy = worldY - camy;
+    const dx = ox - lx, dy = oy - ly, d = Math.hypot(dx, dy);
+    if (d < radius || n > arr.length - 12) return;
+    const px = -dy / d * radius, py = dx / d * radius;
+    const ax = ox + px, ay = oy + py, bx = ox - px, by = oy - py;
+    const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+    push(ax, ay, bx, by,
+      bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
+      ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+  };
   for (const o of occ) {
+    if (detailedFoliage && (o.r !== undefined || o.t === 'hedge')) {
+      forEachFoliageLobe(o, circleShadow);
+      if (n > arr.length - 84) break;
+      continue;
+    }
     if (o.r !== undefined) {                                   // Tree.
-      const ox = o.x - camx, oy = o.y - camy;
-      const dx = ox - lx, dy = oy - ly, d = Math.hypot(dx, dy);
-      if (d < o.r) continue;
-      const px = -dy / d * o.r, py = dx / d * o.r;
-      const ax = ox + px, ay = oy + py, bx = ox - px, by = oy - py;
-      const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
-      push(ax, ay, bx, by,
-           bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
-           ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
+      circleShadow(o.x, o.y, o.r);
     } else {                                                   // House, hedge, or car.
       const pts = o.pts;
       for (let i = 0; i < 4; i++) {
@@ -368,14 +419,14 @@ function drawLightGL(g, camx, camy) {
     gl.scissor(bx, H - (by + bh), bw, bh);             // GL coordinates start at the bottom.
 
     const shadows = li < profile.shadowLights;
-    const occ = shadows && r > 20 ? occNear(g, L.x, L.y, r, L.skip) : null;
+    const occ = shadows && r > 20 ? occNear(g, L.x, L.y, r, L.skip, profile.foliageShadows) : null;
     const wantedSamples = L.soft > 0 ? (L.soft < 6 ? 4 : 8) : 1;
     const n = shadows ? Math.min(wantedSamples, profile.shadowSamples) : 1;
     for (let s = 0; s < n; s++) {
       const a = s / n * 6.283, ox = Math.cos(a) * L.soft, oy = Math.sin(a) * L.soft;
 
       if (occ && occ.length) {                         // 1) Shadows into the stencil buffer.
-        const cnt = buildShadowVerts(occ, lx + ox, ly + oy, camx, camy, R.verts);
+        const cnt = buildShadowVerts(occ, lx + ox, ly + oy, camx, camy, R.verts, profile.foliageShadows);
         if (cnt) {
           gl.colorMask(false, false, false, false);
           gl.stencilFunc(gl.ALWAYS, 1, 0xff);

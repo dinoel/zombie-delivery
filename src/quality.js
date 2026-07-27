@@ -7,17 +7,17 @@ const { UI, STORAGE_KEYS, gameStorage } = window.TownGame.core;
 const profiles = Object.freeze({
   low: Object.freeze({
     key: 'low', label: 'low', maxLights: 8,
-    shadowLights: 0, shadowSamples: 1,
+    shadowLights: 0, shadowSamples: 1, foliageShadows: false,
     rainDensity: .35, fogEvery: 4
   }),
   medium: Object.freeze({
     key: 'medium', label: 'medium', maxLights: 18,
-    shadowLights: 6, shadowSamples: 2,
+    shadowLights: 6, shadowSamples: 2, foliageShadows: false,
     rainDensity: .65, fogEvery: 2
   }),
   high: Object.freeze({
     key: 'high', label: 'high', maxLights: Infinity,
-    shadowLights: Infinity, shadowSamples: 8,
+    shadowLights: Infinity, shadowSamples: 8, foliageShadows: true,
     rainDensity: 1, fogEvery: 1
   })
 });

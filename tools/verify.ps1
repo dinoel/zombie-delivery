@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-33',
-  'src/core.js?v=20260727-33',
-  'src/quality.js?v=20260727-33',
-  'src/audio.js?v=20260727-33',
-  'src/car-physics.js?v=20260727-33',
-  'src/environment.js?v=20260727-33',
-  'src/world.js?v=20260727-33',
-  'src/physics.js?v=20260727-33',
-  'src/input.js?v=20260727-33',
-  'src/gameplay.js?v=20260727-33',
-  'src/lighting.js?v=20260727-33',
-  'src/entities.js?v=20260727-33',
-  'src/render.js?v=20260727-33',
-  'src/main.js?v=20260727-33'
+  'src/namespace.js?v=20260727-36',
+  'src/core.js?v=20260727-36',
+  'src/quality.js?v=20260727-36',
+  'src/audio.js?v=20260727-36',
+  'src/car-physics.js?v=20260727-36',
+  'src/environment.js?v=20260727-36',
+  'src/world.js?v=20260727-36',
+  'src/physics.js?v=20260727-36',
+  'src/input.js?v=20260727-36',
+  'src/gameplay.js?v=20260727-36',
+  'src/lighting.js?v=20260727-36',
+  'src/entities.js?v=20260727-36',
+  'src/render.js?v=20260727-36',
+  'src/main.js?v=20260727-36'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -125,6 +125,24 @@ foreach ($explosiveHeadFeature in @('explodeZombieHead', 'shootZombieHead', 'hea
 $audioSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\audio.js')
 if (-not $audioSource.Contains("case 'headBlast'")) {
   $problems.Add('Explosive tank-head audio is missing.')
+}
+
+$qualitySource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\quality.js')
+if (-not $qualitySource.Contains('foliageShadows: true') -or
+    ([regex]::Matches($qualitySource, 'foliageShadows: false')).Count -ne 2) {
+  $problems.Add('Detailed foliage shadows must be enabled only by the HIGH quality profile.')
+}
+$lightingSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
+foreach ($lightingFeature in @('forEachFoliageLobe', 'profile.foliageShadows', 'l.lampRgb', 'g.soft')) {
+  if (-not $lightingSource.Contains($lightingFeature)) {
+    $problems.Add("Detailed lighting behavior is missing: $lightingFeature")
+  }
+}
+$worldSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\world.js')
+foreach ($worldLightingFeature in @('LAMP_TEMPERATURES', 'lampRgb:', "foliage: 'tree'", "foliage: 'bush'")) {
+  if (-not $worldSource.Contains($worldLightingFeature)) {
+    $problems.Add("World lighting data is missing: $worldLightingFeature")
+  }
 }
 
 # The frozen reference HTML is guarded by version control, not by a pinned hash here:

@@ -53,6 +53,35 @@ function drawCarSmoke(g, camx, camy) {
   ctx.globalAlpha = 1;
 }
 
+function drawZombiePart(part) {
+  const height = Math.max(0, part.h), size = part.size || 1;
+  ctx.globalAlpha = Math.min(1, part.l * .5);
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath(); ctx.ellipse(part.x + 2, part.y + 4, (part.kind === 'head' ? 8 : 10) * size,
+    (part.kind === 'head' ? 4 : 3.5) * size, 0, 0, 6.283); ctx.fill();
+  ctx.save();
+  ctx.translate(part.x, part.y - height * .28);
+  ctx.rotate(part.ang);
+  if (size !== 1) ctx.scale(size, size);
+  if (part.kind === 'arm') {
+    ctx.fillStyle = part.skin; roundRect(ctx, -8, -2.5, 17, 5, 2.5); ctx.fill();
+    ctx.fillStyle = part.blood && part.blood[0] || '#8fd34f';
+    ctx.beginPath(); ctx.arc(-7.5, 0, 2.5, 0, 6.283); ctx.fill();
+    ctx.fillStyle = 'rgba(210,255,145,.42)';
+    ctx.beginPath(); ctx.arc(-8, -.6, 1, 0, 6.283); ctx.fill();
+  } else {
+    ctx.fillStyle = part.skin; ctx.beginPath(); ctx.arc(0, 0, 7.5, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = '#7b3b2a'; ctx.beginPath(); ctx.arc(-3, 0, 6.8, 1.7, 4.6); ctx.fill();
+    ctx.fillStyle = part.eye; ctx.beginPath(); ctx.arc(4, -2.5, 1.6, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(4, 2.5, 1.6, 0, 6.283); ctx.fill();
+    ctx.fillStyle = part.blood && part.blood[0] || '#8fd34f';
+    ctx.beginPath(); ctx.arc(-6.4, 0, 2.2, 0, 6.283); ctx.fill();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 // ---------- rendering ----------
 function draw(g) {
   const p = g.p;
@@ -276,6 +305,12 @@ function draw(g) {
       ctx.closePath(); ctx.fill();
     }
     ctx.restore();
+  }
+
+  // Detached zombie parts remain physical objects long enough to mark the fight.
+  for (const part of (g.zombieParts || [])) {
+    if (!visible(part.x, part.y, 22 * (part.size || 1))) continue;
+    drawZombiePart(part);
   }
 
   // Airborne droplets have a short bright trail and a small ground shadow.

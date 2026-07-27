@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-28',
-  'src/core.js?v=20260727-28',
-  'src/quality.js?v=20260727-28',
-  'src/audio.js?v=20260727-28',
-  'src/car-physics.js?v=20260727-28',
-  'src/environment.js?v=20260727-28',
-  'src/world.js?v=20260727-28',
-  'src/physics.js?v=20260727-28',
-  'src/input.js?v=20260727-28',
-  'src/gameplay.js?v=20260727-28',
-  'src/lighting.js?v=20260727-28',
-  'src/entities.js?v=20260727-28',
-  'src/render.js?v=20260727-28',
-  'src/main.js?v=20260727-28'
+  'src/namespace.js?v=20260727-29',
+  'src/core.js?v=20260727-29',
+  'src/quality.js?v=20260727-29',
+  'src/audio.js?v=20260727-29',
+  'src/car-physics.js?v=20260727-29',
+  'src/environment.js?v=20260727-29',
+  'src/world.js?v=20260727-29',
+  'src/physics.js?v=20260727-29',
+  'src/input.js?v=20260727-29',
+  'src/gameplay.js?v=20260727-29',
+  'src/lighting.js?v=20260727-29',
+  'src/entities.js?v=20260727-29',
+  'src/render.js?v=20260727-29',
+  'src/main.js?v=20260727-29'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -99,6 +99,17 @@ $gameplaySource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\gamepla
 foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
   if (-not $gameplaySource.Contains($actionCode)) {
     $problems.Add("Physical gameplay action is missing: $actionCode")
+  }
+}
+
+foreach ($damageThreshold in @('damage >= .3', 'damage >= .7', 'damage >= .9')) {
+  if (-not $gameplaySource.Contains($damageThreshold)) {
+    $problems.Add("Zombie dismemberment threshold is missing: $damageThreshold")
+  }
+}
+foreach ($dismembermentFeature in @('severZombiePart', 'g.zombieParts', "kind === 'arm'")) {
+  if (-not $gameplaySource.Contains($dismembermentFeature)) {
+    $problems.Add("Zombie dismemberment behavior is missing: $dismembermentFeature")
   }
 }
 

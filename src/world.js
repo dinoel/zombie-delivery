@@ -450,6 +450,7 @@ function buildTown(level) {
       blood: type.blood, stain: type.stain, shot: type.shot,
       ang: rnd(0, 6.283), wdir: rnd(0, 6.283), wander: rnd(0, 2.5),
       spd: rnd(type.speed[0], type.speed[1]) * zspd, walk: rnd(0, 6), hit: 0, kx: 0, ky: 0, seed: Math.random(),
+      lostArms: 0, armOrder: k % 2 ? 1 : -1, headless: false,
       bleed: 0, bleedCd: 0,
       alert: 0, tx: 0, ty: 0, hunt: 0, moan: rnd(0, 3),
       notice: 0, silent: false,                        // Awareness meter and the silent-kill flag.
@@ -526,6 +527,16 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
+  // Ten health points put each dismemberment threshold on an exact test shot.
+  if (qaMode === 'zombie-dismember' && zombies.length) {
+    const z = zombies.find(o => o.kind === 'walker') || zombies[0];
+    zombies.splice(0, zombies.length, z);
+    cars.splice(0, cars.length);
+    z.x = start.x; z.y = start.y - 68; z.ang = Math.PI / 2;
+    z.hp = z.maxHp = 10; z.spd = 0; z.wander = 999; z.guardParcel = -1;
+    z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
+  }
+
   // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
@@ -552,7 +563,7 @@ function buildTown(level) {
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
          torch: true, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
          takedown: 0, finishHeld: false },
-    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], rings: [], splash: [], carSmoke: [],
+    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather: newWeather(), ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
@@ -560,7 +571,8 @@ function buildTown(level) {
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
     time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
-    bloodQa: qaMode === 'zombie-blood', bloodQaDone: false
+    bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
+    dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0
   };
 }
 

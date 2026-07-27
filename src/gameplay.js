@@ -138,6 +138,57 @@ function sprayZombieBlood(g, z, x, y, dx, dy, count = 14, power = 1) {
       vy: ny * rnd(30, 145) + py * rnd(-75, 75), l: rnd(.22, .58), c: pick(z.blood), s: rnd(2, 5) });
 }
 
+function zombieLocalPoint(z, x, y) {
+  const ca = Math.cos(z.ang), sa = Math.sin(z.ang), size = z.size || 1;
+  return { x: z.x + (x * ca - y * sa) * size, y: z.y + (x * sa + y * ca) * size };
+}
+
+function severZombiePart(g, z, kind, side, dx, dy) {
+  const len = Math.hypot(dx, dy) || 1, nx = dx / len, ny = dy / len;
+  const point = zombieLocalPoint(z, kind === 'arm' ? 11 : 3, kind === 'arm' ? side * 10 : 0);
+  const lateralX = -Math.sin(z.ang) * side, lateralY = Math.cos(z.ang) * side;
+  const quiet = z.silent ? .35 : 1;
+  const impulse = rnd(75, 145) * quiet;
+  const part = {
+    kind, side, x: point.x, y: point.y, h: kind === 'head' ? 10 : 7,
+    vx: nx * impulse + lateralX * rnd(25, 70) * quiet,
+    vy: ny * impulse + lateralY * rnd(25, 70) * quiet,
+    vh: rnd(85, 145) * quiet, ang: z.ang, spin: rnd(-8, 8), size: z.size || 1,
+    skin: z.skin || '#8fae63', eye: z.eye || '#ff5a45', blood: z.blood, stain: z.stain,
+    bleed: kind === 'arm' ? 3.4 : 1.5, bleedCd: 0, l: 18
+  };
+  g.zombieParts.push(part);
+  if (g.zombieParts.length > 72) g.zombieParts.shift();
+  sprayZombieBlood(g, z, point.x, point.y, nx, ny, kind === 'arm' ? 10 : 14, 1.05);
+  z.bleed = Math.min(8, (z.bleed || 0) + (kind === 'arm' ? 2.8 : 4));
+  z.bleedCd = 0;
+}
+
+function updateZombieDismemberment(g, z, dx, dy) {
+  const damage = 1 - clamp(z.hp / Math.max(.01, z.maxHp), 0, 1);
+  if (damage >= .3 && z.lostArms < 1) {
+    z.lostArms = 1;
+    severZombiePart(g, z, 'arm', z.armOrder || 1, dx, dy);
+  }
+  if (damage >= .7 && z.lostArms < 2) {
+    z.lostArms = 2;
+    severZombiePart(g, z, 'arm', -(z.armOrder || 1), dx, dy);
+  }
+  if (damage >= .9 && !z.headless) {
+    z.headless = true;
+    severZombiePart(g, z, 'head', 0, dx, dy);
+  }
+  if (z.lostArms >= 2 || z.headless) {
+    z.throwWind = 0;
+    z.throwCd = Math.max(z.throwCd, 99);
+  }
+}
+
+function damageZombie(g, z, amount, dx, dy) {
+  z.hp -= amount;
+  updateZombieDismemberment(g, z, dx, dy);
+}
+
 // Continuous bullet-to-circle intersection: at low FPS one bullet step is longer
 // than a zombie body, so endpoint-only tests allowed shots to pass through.
 function segmentCircleT(x1, y1, x2, y2, cx, cy, radius) {
@@ -165,7 +216,9 @@ function dropCash(g, z) {
 
 function killZombie(g, z) {
   if (z.gone) return;
-  z.gone = true; z.hp = 0; g.killed++;
+  z.hp = 0;
+  updateZombieDismemberment(g, z, Math.cos(z.ang), Math.sin(z.ang));
+  z.gone = true; g.killed++;
   dropCash(g, z);
   addGroundBlood(g, z.x, z.y, z.stain, z.kind === 'brute' ? 14 : 10);
   sprayZombieBlood(g, z, z.x, z.y, Math.cos(z.ang), Math.sin(z.ang), z.kind === 'brute' ? 22 : 17, 1.08);
@@ -265,7 +318,7 @@ function startFeud(a, b) {
 
 function hitByFilth(g, z, s) {
   const speed = Math.hypot(s.vx, s.vy) || 1;
-  z.hp -= FILTH_DMG;
+  damageZombie(g, z, FILTH_DMG, s.vx, s.vy);
   z.hit = .2;
   z.kx += s.vx * .1; z.ky += s.vy * .1;
   z.bleed = Math.min(7, (z.bleed || 0) + 2.4);
@@ -494,9 +547,17 @@ function update(g, dt) {
   g.time += dt;
   if (g.bloodQa && !g.bloodQaDone && g.time >= .35 && g.zombies[0]) {
     const z = g.zombies[0];
-    g.bloodQaDone = true; z.hp--; z.hit = .45; z.alert = 0;
+    g.bloodQaDone = true; damageZombie(g, z, 1, 0, -1); z.hit = .45; z.alert = 0;
     z.bleed = 3.8; z.bleedCd = 0;
     sprayZombieBlood(g, z, z.x, z.y, 0, -1, 18, 1.08);
+  }
+  if (g.dismemberQa && g.zombies[0]) {
+    const z = g.zombies[0];
+    const steps = [{ at: .35, damage: 3 }, { at: 1.05, damage: 4 }, { at: 1.75, damage: 2 }];
+    while (g.dismemberQaStep < steps.length && g.time >= steps[g.dismemberQaStep].at) {
+      const step = steps[g.dismemberQaStep++];
+      damageZombie(g, z, step.damage, 0, -1); z.hit = .45; z.alert = 0;
+    }
   }
   g.spawnGrace = Math.max(0, g.spawnGrace - dt);
   g.shake = Math.max(0, g.shake - dt * 3);
@@ -629,7 +690,7 @@ function update(g, dt) {
       b.x = b.px + (b.x - b.px) * zombieT; b.y = b.py + (b.y - b.py) * zombieT;
       const bulletSpeed = Math.hypot(b.vx, b.vy) || 1;
       const dmg = b.dmg || 1;
-      z.hp -= dmg; z.hit = .2; z.alert = 6;
+      damageZombie(g, z, dmg, b.vx, b.vy); z.hit = .2; z.alert = 6;
       z.kx += b.vx * .12 * dmg; z.ky += b.vy * .12 * dmg;
       z.bleed = Math.min(7, (z.bleed || 0) + (z.kind === 'brute' ? 3.8 : 2.7) * dmg);
       z.bleedCd = 0;
@@ -801,7 +862,8 @@ function update(g, dt) {
       if (z.throwWind <= 0) throwFilth(g, z);
     } else if (z.surge > 0) {
       moveScale = 1.55;
-    } else if (!z.dumb && !g.done && g.spawnGrace <= 0 && (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&
+    } else if (!z.dumb && z.lostArms < 2 && !z.headless && !g.done && g.spawnGrace <= 0 &&
+               (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&
                d > FILTH_MIN_RANGE && d < FILTH_MAX_RANGE && g.zombieShots.length < 5) {
       const lead = Math.min(.55, d / z.shot.speed * .45);
       z.throwAimX = clamp(p.x + p.vx * lead + rnd(-16, 16), 8, WORLD - 8);
@@ -847,7 +909,7 @@ function update(g, dt) {
         z.foeHitCd = rnd(.5, .85);
         z.recoil = .18;
         const o = z.rival;
-        o.hp -= z.kind === 'brute' ? 1.5 : z.kind === 'runner' ? .5 : 1;
+        damageZombie(g, o, z.kind === 'brute' ? 1.5 : z.kind === 'runner' ? .5 : 1, rx, ry);
         o.hit = .2; o.rivalCd = Math.max(o.rivalCd, 4);
         o.kx += rx / rd * 90; o.ky += ry / rd * 90;
         o.bleed = Math.min(7, (o.bleed || 0) + 2);
@@ -867,7 +929,7 @@ function update(g, dt) {
           // car takes the worse end of it: the collision all but stops the vehicle.
           if (z.tankHitCd > 0) { resolveCircleCar(c, z, z.r); continue; }
           z.tankHitCd = .8;
-          z.hp -= z.maxHp * .5;
+          damageZombie(g, z, z.maxHp * .5, c.hx, c.hy);
           z.hit = .25;
           z.kx = c.hx * 90; z.ky = c.hy * 90;          // Barely shifted by the impact.
           damageCarWithZombie(g, c, z, carContact);
@@ -1224,6 +1286,38 @@ function update(g, dt) {
     }, 900);
   }
 
+  // Severed limbs tumble, settle, and leave a short green trail from the torn end.
+  for (let i = g.zombieParts.length - 1; i >= 0; i--) {
+    const part = g.zombieParts[i];
+    part.l -= dt;
+    part.x = clamp(part.x + part.vx * dt, 2, WORLD - 2);
+    part.y = clamp(part.y + part.vy * dt, 2, WORLD - 2);
+    if (part.h > 0 || part.vh > 0) {
+      part.h += part.vh * dt;
+      part.vh -= 255 * dt;
+      if (part.h <= 0 && part.vh < 0) {
+        part.h = 0;
+        if (Math.abs(part.vh) > 38) part.vh *= -.32;
+        else { part.vh = 0; part.spin = 0; }
+      }
+    }
+    const drag = Math.pow(part.h > 0 ? .986 : .9, dt * 60);
+    part.vx *= drag; part.vy *= drag; part.ang += part.spin * dt;
+    part.bleed = Math.max(0, part.bleed - dt);
+    part.bleedCd -= dt;
+    if (part.bleed > 0 && part.bleedCd <= 0) {
+      part.bleedCd = part.h > .5 ? rnd(.1, .18) : rnd(.15, .25);
+      if (part.h > .5) {
+        addBloodDrop(g, part, part.x, part.y, part.vx * .18 + rnd(-14, 14),
+          part.vy * .18 + rnd(-14, 14), rnd(12, 34), rnd(1.1, 2.3), part.h + 2);
+      } else {
+        addGroundBlood(g, part.x + rnd(-2, 2), part.y + rnd(-2, 2), part.stain,
+          rnd(1.2, 2.5), part.vx, part.vy);
+      }
+    }
+    if (part.l <= 0) g.zombieParts.splice(i, 1);
+  }
+
   // Volumetric blood droplets become ground stains after a short flight.
   for (let i = g.bloodDrops.length - 1; i >= 0; i--) {
     const d = g.bloodDrops[i];
@@ -1262,6 +1356,13 @@ function drawHud(g) {
     cv.dataset.zombieHp = String(g.zombies[0] ? g.zombies[0].hp : -1);
     cv.dataset.zombieHit = String(g.zombies[0] ? g.zombies[0].hit : 0);
     cv.dataset.bullets = String(g.bullets.length);
+  }
+  if (typeof location !== 'undefined' && location.search.includes('qa=zombie-dismember')) {
+    const z = g.zombies[0];
+    cv.dataset.zombieHp = String(z ? z.hp : 0);
+    cv.dataset.lostArms = String(z ? z.lostArms : 2);
+    cv.dataset.headless = String(z ? z.headless : true);
+    cv.dataset.detachedParts = String(g.zombieParts.length);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=population')) {
     cv.dataset.zombies = String(g.zombies.length);

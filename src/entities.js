@@ -40,8 +40,17 @@ function drawZombie(c, z) {
   const skin = z.hit > 0 ? '#ffd2d2' : (z.skin || '#8fae63');
   // Outstretched arms.
   c.fillStyle = skin;
-  roundRect(c, 4, -12 - sw * .5, 16, 5, 2.5); c.fill();
-  roundRect(c, 4, 7 + sw * .5, 16, 5, 2.5); c.fill();
+  for (const side of [-1, 1]) {
+    const armY = side < 0 ? -12 - sw * .5 : 7 + sw * .5;
+    const missing = z.lostArms >= 2 || (z.lostArms >= 1 && side === (z.armOrder || 1));
+    if (!missing) { roundRect(c, 4, armY, 16, 5, 2.5); c.fill(); }
+    else {
+      c.fillStyle = z.clothes || '#5d6b4a'; roundRect(c, 4, armY, 6, 5, 2); c.fill();
+      c.fillStyle = z.blood && z.blood[0] || '#8fd34f';
+      c.beginPath(); c.arc(9, armY + 2.5, 2.4, 0, 6.283); c.fill();
+      c.fillStyle = skin;
+    }
+  }
   // Legs.
   c.fillStyle = '#4a4436';
   roundRect(c, -5, -8 + sw, 11, 6, 3); c.fill();
@@ -62,16 +71,22 @@ function drawZombie(c, z) {
   }
   c.fillStyle = 'rgba(0,0,0,.18)';
   c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
-  // Head and eyes.
-  c.fillStyle = skin;
-  c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
-  c.fillStyle = '#7b3b2a';
-  c.beginPath(); c.arc(-1, 0, 7.2, 1.7, 4.6); c.fill();
-  c.fillStyle = z.eye || '#ff5a45';
-  c.beginPath(); c.arc(6, -2.6, 1.7, 0, 6.283); c.fill();
-  c.beginPath(); c.arc(6, 2.6, 1.7, 0, 6.283); c.fill();
-  if (z.throwWind > 0) {
+  // Head, or the wet neck stump after enough damage.
+  if (!z.headless) {
+    c.fillStyle = skin;
+    c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#7b3b2a';
+    c.beginPath(); c.arc(-1, 0, 7.2, 1.7, 4.6); c.fill();
+    c.fillStyle = z.eye || '#ff5a45';
+    c.beginPath(); c.arc(6, -2.6, 1.7, 0, 6.283); c.fill();
+    c.beginPath(); c.arc(6, 2.6, 1.7, 0, 6.283); c.fill();
+  } else {
+    c.fillStyle = '#26301e'; c.beginPath(); c.arc(4, 0, 4.6, 0, 6.283); c.fill();
+    c.fillStyle = z.blood && z.blood[0] || '#8fd34f';
+    c.beginPath(); c.arc(4.8, 0, 2.8, 0, 6.283); c.fill();
+  }
+  if (z.throwWind > 0 && z.lostArms < 2 && !z.headless) {
     const pulse = .85 + Math.sin(z.throwWind * 24) * .15;
     const heldR = Math.min(9, Math.max(5, z.shot.radius * .82));
     c.fillStyle = z.shot.held; c.strokeStyle = z.shot.heldEdge; c.lineWidth = 1.2;

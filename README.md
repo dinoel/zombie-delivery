@@ -103,6 +103,9 @@ The second gameplay pass adds survivability, stealth, and a livelier street:
 - world density is tuned per unit of area rather than per district, so houses, trees, traffic, and the horde survive changes to the road grid;
 - the start screen fits inside the canvas: an objective line, a grid of keys, and a row of threats, with the remaining mechanics behind a `FIELD MANUAL` section that scrolls inside itself and never pushes the start button off screen;
 - on a narrow viewport the start screen uses the whole window instead of the letterboxed canvas rectangle;
-- the district result has its own element, so finishing a district no longer overwrites the briefing permanently.
+- the district result has its own element, so finishing a district no longer overwrites the briefing permanently;
+- most zombies drop cash and a tank always does; notes scatter out of the body, settle against whatever they meet, glow faintly in the dark, and show on the minimap;
+- a drop is worth $2–5 from a runner, $3–8 from a walker, $9–16 from a brute, and $26–42 from a tank;
+- the wallet is shown in the HUD, survives district rebuilds like lives do, and resets only on a fresh run. Nothing sells anything yet.
 
 JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

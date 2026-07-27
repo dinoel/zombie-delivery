@@ -15,6 +15,7 @@ const UI = Object.freeze({
   ammo: $('ammo'),
   hp: $('hp'),
   lives: $('lives'),
+  cash: $('cash'),
   time: $('time'),
   best: $('best'),
   quality: $('qualitySelect'),
@@ -92,6 +93,7 @@ const runtime = {
   fireHeld: false,
   mouse: { sx: W / 2, sy: H / 2, down: 0, active: false },
   lives: LIVES_MAX,                  // Survives district rebuilds: the budget belongs to the run, not the level.
+  cash: 0,                           // The wallet belongs to the run as well. Nothing sells anything yet.
   best: +(gameStorage.get(STORAGE_KEYS.best, '1')) || 1
 };
 UI.best.textContent = runtime.best;

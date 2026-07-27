@@ -148,6 +148,21 @@ function draw(g) {
     ctx.restore();
   }
 
+  // Cash dropped by the horde.
+  for (const m of g.cash) {
+    if (!visible(m.x, m.y, 14)) continue;
+    const bob = Math.sin(m.ph) * 1.5;
+    ctx.fillStyle = 'rgba(0,0,0,.22)';
+    ctx.beginPath(); ctx.ellipse(m.x, m.y + 6, 8, 3.5, 0, 0, 6.283); ctx.fill();
+    ctx.save(); ctx.translate(m.x, m.y + bob); ctx.rotate(m.tilt);
+    ctx.fillStyle = '#5f9c62'; roundRect(ctx, -9, -5.5, 18, 11, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#cfe8c4';
+    ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, 6.283); ctx.fill();      // The face on the note.
+    ctx.fillRect(-7.5, -3.5, 1.5, 7); ctx.fillRect(6, -3.5, 1.5, 7);
+    ctx.restore();
+  }
+
   // Noise rings.
   for (const r of g.rings) {
     if (!visible(r.x, r.y, r.r + 3)) continue;

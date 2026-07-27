@@ -21,6 +21,7 @@ const RGB_RED = [1, .25, .2], RGB_HAZARD = [1, .56, .16], RGB_BEACON_RED = [1, .
 const RGB_BEACON_BLUE = [.24, .38, 1], RGB_ROOF_RED = [1, .2, .24], RGB_ROOF_BLUE = [.3, .42, 1];
 const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .82, .35];
 const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
+const RGB_CASH = [.66, .9, .69];
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 
 // Occluders near a point: houses, hedges, trees, and cars.
@@ -178,6 +179,9 @@ function collectLights(g, camx, camy) {
   for (const s of g.zombieShots) add(s.x, s.y, 23 + s.r, s.light || RGB_FILTH, .75, .28, .62, 0, 0, 0, 8);
   for (const b of g.parcels) if (!b.got) add(b.x, b.y, 46, RGB_PARCEL, .7, .24, .8, 0, 0, 0, 5);
   for (const a of g.ammoBoxes) add(a.x, a.y, 42, RGB_AMMO, .6, .22, .78, 0, 0, 0, 5);
+  // A note is small and there can be many of them, so it glows faintly and yields the
+  // light budget to everything else on the street.
+  for (const m of g.cash) add(m.x, m.y, 26, RGB_CASH, .38, .18, .6, 0, 0, 0, 4);
   const near = g.got >= g.need;
   add(g.goal.x, g.goal.y, 76, RGB_GOAL, near ? 1 : .5, near ? .32 : .15, near ? .95 : .6, 0, 0, 0, 5);
   for (const z of g.zombies) add(z.x + Math.cos(z.ang) * 6, z.y + Math.sin(z.ang) * 6, 14, RGB_ZOMBIE, .7, .32, .3, 0, 0, 0, 0);

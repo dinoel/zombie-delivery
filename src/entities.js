@@ -212,6 +212,9 @@ function drawMinimap(g) {
   ctx.fillStyle = '#a9d6ff';
   for (const a of g.ammoBoxes) if (fogAt(g, a.x, a.y) > 0)
     ctx.fillRect(mx + a.x * k - 1.5, my + a.y * k - 1.5, 3, 3);
+  ctx.fillStyle = '#a9e6b0';
+  for (const m of g.cash) if (fogAt(g, m.x, m.y) > 0)
+    ctx.fillRect(mx + m.x * k - 1, my + m.y * k - 1, 2, 2);
   ctx.fillStyle = '#ffd766';
   for (const b of g.parcels) if (!b.got) { ctx.beginPath(); ctx.arc(mx + b.x * k, my + b.y * k, 2.6, 0, 6.283); ctx.fill(); }
   if (g.got >= g.need) {

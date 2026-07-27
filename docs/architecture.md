@@ -2,7 +2,7 @@
 
 The browser sees one global object: `window.TownGame`. Each file registers exactly one subsystem on that object, hides its implementation inside a closure, and publishes a frozen API object. After `main.js` loads, the subsystem collection itself is frozen as well.
 
-Mutable launch state lives in `TownGame.core.runtime`: the current screen, active district, keyboard state, pointer state, touch controls, and best score. `world.buildTown()` creates district-specific state, and the entry point passes it to `gameplay.update()` and `render.draw()`.
+Mutable launch state lives in `TownGame.core.runtime`: the current screen, active district, keyboard state, pointer state, touch controls, best score, and the two counters that belong to a run rather than to a district — remaining lives and the wallet. `world.buildTown()` creates district-specific state, and the entry point passes it to `gameplay.update()` and `render.draw()`.
 
 ```mermaid
 flowchart TD

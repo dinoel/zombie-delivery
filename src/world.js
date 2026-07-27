@@ -501,7 +501,8 @@ function buildTown(level) {
          torch: true, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
          takedown: 0, finishHeld: false },
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], rings: [], splash: [], carSmoke: [],
-    weather: newWeather(), ammo: 24, killed: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
+    cash: [],                                                       // Notes dropped by the horde, not yet picked up.
+    weather: newWeather(), ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
     fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),

@@ -148,9 +148,25 @@ function segmentCircleT(x1, y1, x2, y2, cx, cy, radius) {
   return ox * ox + oy * oy <= radius * radius ? t : null;
 }
 
+// ---------- cash ----------
+// The horde carries what it was carrying when the district went quiet. There is nothing to
+// spend it on yet, so the wallet only accumulates across a run.
+const CASH_DROP = { runner: [2, 5], walker: [3, 8], brute: [9, 16], tank: [26, 42] };
+const CASH_CHANCE = .62;          // Not every body has a wallet on it.
+function dropCash(g, z) {
+  if (!z.dumb && Math.random() > CASH_CHANCE) return;   // A tank costs enough to always pay out.
+  const band = CASH_DROP[z.kind] || CASH_DROP.walker;
+  const a = Math.random() * 6.283, s = rnd(34, 82);
+  g.cash.push({
+    x: z.x, y: z.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+    n: Math.round(rnd(band[0], band[1])), ph: Math.random() * 6.283, tilt: rnd(-.6, .6)
+  });
+}
+
 function killZombie(g, z) {
   if (z.gone) return;
   z.gone = true; z.hp = 0; g.killed++;
+  dropCash(g, z);
   addGroundBlood(g, z.x, z.y, z.stain, z.kind === 'brute' ? 14 : 10);
   sprayZombieBlood(g, z, z.x, z.y, Math.cos(z.ang), Math.sin(z.ang), z.kind === 'brute' ? 22 : 17, 1.08);
   for (let k = 0; k < 18; k++)
@@ -394,6 +410,7 @@ function loseLife(g) {
     'COURIER DOWN',
     `district ${g.level}, parcels ${g.got} of ${g.need}, lives left ${runtime.lives}`,
     `Zombies eliminated: <b>${g.killed}</b>; road kills: <b>${g.roadKills}</b>.<br>` +
+    `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
     `The district is dispatched again from the depot: a fresh street layout, ` +
     `full health, and a full magazine.<br>` +
     `Lives are not restored — <b>${runtime.lives}</b> of ${LIVES_MAX} left for the whole run.`,
@@ -935,6 +952,28 @@ function update(g, dt) {
     }
   }
 
+  // Cash. A note slides a short way out of the body, settles against whatever it meets,
+  // and then simply lies there until the courier walks over it.
+  for (let i = g.cash.length - 1; i >= 0; i--) {
+    const m = g.cash[i];
+    m.ph += dt * 2.4;
+    if (m.vx || m.vy) {
+      m.x += m.vx * dt; m.y += m.vy * dt;
+      const damp = Math.pow(.0022, dt);          // Paper carries no momentum worth speaking of.
+      m.vx *= damp; m.vy *= damp;
+      settleCircleBody(g, m, 6);                 // Never comes to rest inside a wall or a hedge.
+      if (Math.abs(m.vx) < 4 && Math.abs(m.vy) < 4) { m.vx = 0; m.vy = 0; }
+    }
+    if (Math.hypot(m.x - p.x, m.y - p.y) < 22) {
+      runtime.cash += m.n; g.earned += m.n;
+      g.cash.splice(i, 1);
+      SND.play('cash', m.x, m.y);
+      for (let k = 0; k < 9; k++)
+        g.parts.push({ x: m.x, y: m.y, vx: rnd(-70, 70), vy: rnd(-125, -20), l: rnd(.25, .55),
+                       c: pick(['#a9e6b0', '#d8e8c8', '#6fae74']), s: rnd(2, 4) });
+    }
+  }
+
   // Noise rings show how far the player has revealed their position.
   for (let i = g.rings.length - 1; i >= 0; i--) {
     const r = g.rings[i];
@@ -1177,6 +1216,7 @@ function update(g, dt) {
         `district ${g.level} completed in ${g.time.toFixed(1)} s`,
         `Zombies eliminated: <b>${g.killed}</b>. Dodges / surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
         `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
+        `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
         `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
         `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
         `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`,
@@ -1214,6 +1254,7 @@ function drawHud(g) {
   UI.ammo.textContent = g.ammo;
   UI.hp.textContent = '♥'.repeat(Math.max(0, g.hp)) + '·'.repeat(clamp(g.hpMax - g.hp, 0, g.hpMax));
   UI.lives.textContent = '●'.repeat(Math.max(0, runtime.lives)) + '·'.repeat(clamp(LIVES_MAX - runtime.lives, 0, LIVES_MAX));
+  UI.cash.textContent = `$${runtime.cash}`;
   UI.time.textContent = g.time.toFixed(1);
   if (typeof location !== 'undefined' && location.search.includes('qa=zombie-blood')) {
     cv.dataset.bloodDrops = String((g.bloodDrops || []).length);
@@ -1226,6 +1267,8 @@ function drawHud(g) {
     cv.dataset.zombies = String(g.zombies.length);
     cv.dataset.ammoBoxes = String(g.ammoBoxes.filter(a => !a.batt).length);
     cv.dataset.batteryBoxes = String(g.ammoBoxes.filter(a => a.batt).length);
+    cv.dataset.cashDrops = String(g.cash.length);
+    cv.dataset.cashEarned = String(g.earned);
   }
 }
 
@@ -1238,6 +1281,7 @@ function gameOver(g) {
     `district ${g.level}, parcels ${g.got} of ${g.need}, zombies eliminated ${g.killed}`,
     `Filth thrown: <b>${g.filthThrown}</b>; hits taken: <b>${g.filthHits}</b>.<br>` +
     `Dodges / pursuing surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
+    `Cash picked up over the shift: <b>$${runtime.cash}</b>.<br>` +
     `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
     'Wrecked vehicles block the road; use them as cover from the horde.<br>' +
     'Do not fire blindly: ammunition is limited, and noise draws the whole district.',

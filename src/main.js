@@ -61,7 +61,7 @@ startBtn.addEventListener('click', () => {
   SND.init();                                 // Audio can only start from a user gesture.
   // A win advances the district, a lost life replays it, anything else starts a fresh run.
   const won = runtime.state === 'win', retry = runtime.state === 'retry';
-  if (!won && !retry) runtime.lives = LIVES_MAX;
+  if (!won && !retry) { runtime.lives = LIVES_MAX; runtime.cash = 0; }
   const next = won ? runtime.game.level + 1 : retry ? runtime.game.level : 1;
   runtime.game = buildTown(next);
   const impactQa = qaMode === 'impact-compare';

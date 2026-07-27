@@ -547,7 +547,7 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
-  // One stationary watcher makes normal movement and CTRL crawling directly comparable.
+  // One stationary watcher makes normal movement and C-key crawling directly comparable.
   if (stealthQa && zombies.length) {
     const z = zombies.find(o => o.kind === 'walker') || zombies[0];
     zombies.splice(0, zombies.length, z); cars.splice(0, cars.length);

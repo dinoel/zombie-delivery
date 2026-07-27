@@ -177,7 +177,7 @@ function drawGauges(g) {
   const awareness = clamp(g.stealthNotice || 0, 0, 1);
   const stealthLabel = g.stealthDetected ? 'DETECTED' : awareness > .68 ? 'DANGER' :
     awareness > .04 ? `SUSPICION ${Math.round(awareness * 100)}%` :
-    p.sneaking ? 'HIDDEN · CRAWLING (CTRL)' : 'HIDDEN · CTRL TO CRAWL';
+    p.sneaking ? 'HIDDEN · CRAWLING (C)' : 'HIDDEN · HOLD C TO CRAWL';
   const stealthColor = g.stealthDetected ? (Math.sin(g.time * 15) > 0 ? '#fff0a0' : '#ff5b4d') :
     awareness > .68 ? '#ff9a5a' : '#ffd766';
   bar(y - 20, awareness, stealthColor, stealthLabel, p.sneaking || awareness > .04 || g.stealthDetected);

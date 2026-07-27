@@ -7,6 +7,56 @@ const SND = window.TownGame.audio;
 const { FW, fogCv, fogAt } = window.TownGame.environment;
 const { TORCH_BTN } = window.TownGame.input;
 
+const SPRITE_FRAME = 256;
+const walkerWalkSheet = new Image();
+const walkerThrowSheet = new Image();
+walkerWalkSheet.decoding = walkerThrowSheet.decoding = 'async';
+walkerWalkSheet.src = 'assets/zombie-walker-walk.png?v=20260727-26';
+walkerThrowSheet.src = 'assets/zombie-walker-throw.png?v=20260727-26';
+const spriteReady = image => image.complete && image.naturalWidth > 0;
+
+function drawWalkerSprite(c, z, scale) {
+  const throwing = z.throwWind > 0 || z.throwRecover > 0;
+  const sheet = throwing ? walkerThrowSheet : walkerWalkSheet;
+  if (!spriteReady(sheet)) return false;
+
+  let frame, columns;
+  if (throwing) {
+    columns = 3;
+    if (z.throwWind > 0) {
+      const duration = Math.max(.01, z.shot.windup);
+      const progress = Math.max(0, Math.min(.999, 1 - z.throwWind / duration));
+      frame = Math.min(3, Math.floor(progress * 4));
+    } else frame = z.throwRecover > .12 ? 4 : 5;
+  } else {
+    columns = 4;
+    frame = Math.floor(z.walk * 8 / 6.283) % 8;
+    if (frame < 0) frame += 8;
+  }
+
+  const sx = frame % columns * SPRITE_FRAME;
+  const sy = Math.floor(frame / columns) * SPRITE_FRAME;
+  const size = 44 * scale;
+  const paint = () => c.drawImage(sheet, sx, sy, SPRITE_FRAME, SPRITE_FRAME,
+    -size / 2, -size / 2, size, size);
+
+  c.save();
+  c.translate(z.x, z.y);
+  c.rotate(z.ang + Math.PI / 2);       // The generated sheets face toward the top of their cells.
+  paint();
+  if (z.hit > 0) {
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = .58;
+    paint();
+  }
+  if (z.guardParcel >= 0) {
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
+    c.fillStyle = '#e2b84e'; roundRect(c, -3, -size * .36, 6, 4, 1); c.fill();
+  }
+  c.restore();
+  return true;
+}
+
 // Awareness arc above a zombie that has started to notice the courier but has not
 // locked on yet. Without it stealth reads as random luck.
 function drawNotice(c, z) {
@@ -36,48 +86,50 @@ function drawZombie(c, z) {
   const S = z.size || 1;
   c.fillStyle = 'rgba(0,0,0,.3)';
   c.beginPath(); c.ellipse(z.x + 3 * S, z.y + 8 * S, 13 * S, 7.5 * S, 0, 0, 6.283); c.fill();
-  c.save(); c.translate(z.x, z.y); c.rotate(z.ang); if (S !== 1) c.scale(S, S);
-  const skin = z.hit > 0 ? '#ffd2d2' : (z.skin || '#8fae63');
-  // Outstretched arms.
-  c.fillStyle = skin;
-  roundRect(c, 4, -12 - sw * .5, 16, 5, 2.5); c.fill();
-  roundRect(c, 4, 7 + sw * .5, 16, 5, 2.5); c.fill();
-  // Legs.
-  c.fillStyle = '#4a4436';
-  roundRect(c, -5, -8 + sw, 11, 6, 3); c.fill();
-  roundRect(c, -5, 2 - sw, 11, 6, 3); c.fill();
-  // Torn clothing.
-  c.fillStyle = z.hit > 0 ? '#e9b6b6' : (z.clothes || '#5d6b4a');
-  roundRect(c, -10, -9, 19, 18, 6); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
-  if (z.guardParcel >= 0) {
-    c.fillStyle = '#e2b84e'; roundRect(c, -1, -10, 6, 4, 1); c.fill();
+  if (!(z.kind === 'walker' && drawWalkerSprite(c, z, S))) {
+    c.save(); c.translate(z.x, z.y); c.rotate(z.ang); if (S !== 1) c.scale(S, S);
+    const skin = z.hit > 0 ? '#ffd2d2' : (z.skin || '#8fae63');
+    // Outstretched arms.
+    c.fillStyle = skin;
+    roundRect(c, 4, -12 - sw * .5, 16, 5, 2.5); c.fill();
+    roundRect(c, 4, 7 + sw * .5, 16, 5, 2.5); c.fill();
+    // Legs.
+    c.fillStyle = '#4a4436';
+    roundRect(c, -5, -8 + sw, 11, 6, 3); c.fill();
+    roundRect(c, -5, 2 - sw, 11, 6, 3); c.fill();
+    // Torn clothing.
+    c.fillStyle = z.hit > 0 ? '#e9b6b6' : (z.clothes || '#5d6b4a');
+    roundRect(c, -10, -9, 19, 18, 6); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
+    if (z.guardParcel >= 0) {
+      c.fillStyle = '#e2b84e'; roundRect(c, -1, -10, 6, 4, 1); c.fill();
+    }
+    if (z.dumb) {                                  // Slab shoulders read as bulk, not as a blown-up walker.
+      c.fillStyle = '#2f3742';
+      roundRect(c, -7, -13, 13, 5, 2); c.fill();
+      roundRect(c, -7, 8, 13, 5, 2); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.08)';
+      roundRect(c, -8, -7, 7, 14, 3); c.fill();
+    }
+    c.fillStyle = 'rgba(0,0,0,.18)';
+    c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
+    // Head and eyes.
+    c.fillStyle = skin;
+    c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#7b3b2a';
+    c.beginPath(); c.arc(-1, 0, 7.2, 1.7, 4.6); c.fill();
+    c.fillStyle = z.eye || '#ff5a45';
+    c.beginPath(); c.arc(6, -2.6, 1.7, 0, 6.283); c.fill();
+    c.beginPath(); c.arc(6, 2.6, 1.7, 0, 6.283); c.fill();
+    if (z.throwWind > 0) {
+      const pulse = .85 + Math.sin(z.throwWind * 24) * .15;
+      const heldR = Math.min(9, Math.max(5, z.shot.radius * .82));
+      c.fillStyle = z.shot.held; c.strokeStyle = z.shot.heldEdge; c.lineWidth = 1.2;
+      c.beginPath(); c.arc(20, 0, heldR * pulse, 0, 6.283); c.fill(); c.stroke();
+    }
+    c.restore();
   }
-  if (z.dumb) {                                  // Slab shoulders read as bulk, not as a blown-up walker.
-    c.fillStyle = '#2f3742';
-    roundRect(c, -7, -13, 13, 5, 2); c.fill();
-    roundRect(c, -7, 8, 13, 5, 2); c.fill();
-    c.fillStyle = 'rgba(255,255,255,.08)';
-    roundRect(c, -8, -7, 7, 14, 3); c.fill();
-  }
-  c.fillStyle = 'rgba(0,0,0,.18)';
-  c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
-  // Head and eyes.
-  c.fillStyle = skin;
-  c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.2; c.stroke();
-  c.fillStyle = '#7b3b2a';
-  c.beginPath(); c.arc(-1, 0, 7.2, 1.7, 4.6); c.fill();
-  c.fillStyle = z.eye || '#ff5a45';
-  c.beginPath(); c.arc(6, -2.6, 1.7, 0, 6.283); c.fill();
-  c.beginPath(); c.arc(6, 2.6, 1.7, 0, 6.283); c.fill();
-  if (z.throwWind > 0) {
-    const pulse = .85 + Math.sin(z.throwWind * 24) * .15;
-    const heldR = Math.min(9, Math.max(5, z.shot.radius * .82));
-    c.fillStyle = z.shot.held; c.strokeStyle = z.shot.heldEdge; c.lineWidth = 1.2;
-    c.beginPath(); c.arc(20, 0, heldR * pulse, 0, 6.283); c.fill(); c.stroke();
-  }
-  c.restore();
   if (z.hit > 0 && z.hp > 0 && z.maxHp > 1) {
     const w = 24 * S, top = z.y - 24 * S;
     c.fillStyle = 'rgba(10,14,24,.75)'; c.fillRect(z.x - w / 2, top, w, 4);

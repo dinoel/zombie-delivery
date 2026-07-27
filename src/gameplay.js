@@ -46,6 +46,7 @@ function warnZombiesOfShot(g, x, y, hx, hy) {
     z.dodgeTime = DODGE_TIME;
     z.dodgeCd = rnd(1.55, 2.55);
     z.throwWind = 0;                         // Dodging for safety interrupts the throw.
+    z.throwRecover = 0;
     z.throwCd = Math.max(z.throwCd, .7);
     z.hunt = Math.max(z.hunt, 2.4);
     g.dodges++;
@@ -87,6 +88,7 @@ function throwFilth(g, z) {
   });
   g.filthThrown++;
   z.throwCd = rnd(spec.cooldown[0], spec.cooldown[1]);
+  z.throwRecover = .24;
   for (let k = 0; k < 4; k++)
     g.parts.push({ x, y, vx: rnd(-35, 35), vy: rnd(-55, 25), l: rnd(.18, .35), c: spec.body, s: rnd(2, 4) });
   SND.play('spit', z.x, z.y);
@@ -461,6 +463,7 @@ function resolveZombieContact(g, z) {
   z.surge = 0;
   z.pressure = 0;
   z.throwWind = 0;
+  z.throwRecover = 0;
   z.throwCd = Math.max(z.throwCd, .75);
   hurt(g, nx, ny, 190, .28);
 }
@@ -659,6 +662,7 @@ function update(g, dt) {
     z.alert = Math.max(0, z.alert - dt);
     z.hunt = Math.max(0, z.hunt - dt);
     z.throwCd = Math.max(0, z.throwCd - dt);
+    z.throwRecover = Math.max(0, (z.throwRecover || 0) - dt);
     z.dodgeCd = Math.max(0, z.dodgeCd - dt);
     z.dodgeTime = Math.max(0, z.dodgeTime - dt);
     z.surgeCd = Math.max(0, z.surgeCd - dt);
@@ -786,6 +790,7 @@ function update(g, dt) {
       ax = ay = 0;
       moveScale = 0;
       z.throwWind = 0;
+      z.throwRecover = 0;
     } else if (z.dodgeTime > 0) {
       // A lateral dodge leaves the firing line while preserving slight forward pressure.
       ax = -dy / d * z.dodgeDir + dx / d * .14;
@@ -799,6 +804,8 @@ function update(g, dt) {
       z.ang = Math.atan2(z.throwAimY - z.y, z.throwAimX - z.x);
       moveScale = .16;
       if (z.throwWind <= 0) throwFilth(g, z);
+    } else if (z.throwRecover > 0) {
+      moveScale = .32;
     } else if (z.surge > 0) {
       moveScale = 1.55;
     } else if (!z.dumb && !g.done && g.spawnGrace <= 0 && (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&

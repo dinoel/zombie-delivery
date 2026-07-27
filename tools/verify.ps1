@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-25',
-  'src/core.js?v=20260727-25',
-  'src/quality.js?v=20260727-25',
-  'src/audio.js?v=20260727-25',
-  'src/car-physics.js?v=20260727-25',
-  'src/environment.js?v=20260727-25',
-  'src/world.js?v=20260727-25',
-  'src/physics.js?v=20260727-25',
-  'src/input.js?v=20260727-25',
-  'src/gameplay.js?v=20260727-25',
-  'src/lighting.js?v=20260727-25',
-  'src/entities.js?v=20260727-25',
-  'src/render.js?v=20260727-25',
-  'src/main.js?v=20260727-25'
+  'src/namespace.js?v=20260727-26',
+  'src/core.js?v=20260727-26',
+  'src/quality.js?v=20260727-26',
+  'src/audio.js?v=20260727-26',
+  'src/car-physics.js?v=20260727-26',
+  'src/environment.js?v=20260727-26',
+  'src/world.js?v=20260727-26',
+  'src/physics.js?v=20260727-26',
+  'src/input.js?v=20260727-26',
+  'src/gameplay.js?v=20260727-26',
+  'src/lighting.js?v=20260727-26',
+  'src/entities.js?v=20260727-26',
+  'src/render.js?v=20260727-26',
+  'src/main.js?v=20260727-26'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -88,8 +88,9 @@ if (-not $mainSource.Contains('Object.freeze(window.TownGame)')) {
 # The frozen reference HTML is guarded by version control, not by a pinned hash here:
 # a checked-in hash breaks on line-ending conversion at checkout while the content is intact.
 
+$textExtensions = @('.css', '.html', '.js', '.json', '.md', '.ps1', '.txt', '.yaml', '.yml')
 $cyrillicFiles = Get-ChildItem -LiteralPath $project -Recurse -File -Force |
-  Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+  Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' -and $textExtensions -contains $_.Extension.ToLowerInvariant() } |
   Select-String -Pattern '[\u0400-\u052F]' -List
 if ($cyrillicFiles) {
   $problems.Add("Cyrillic text remains in:`n$($cyrillicFiles.Path -join "`n")")

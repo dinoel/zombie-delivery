@@ -8,7 +8,8 @@ const SND = window.TownGame.audio;
 // ---------- input ----------
 addEventListener('keydown', e => {
   const code = e.code;
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) ||
+      (e.ctrlKey && ['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(code))) e.preventDefault();
   if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') {
     runtime.game.p.torch = !runtime.game.p.torch;
     SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
@@ -89,6 +90,7 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 function inputDir() {
   const { keys, touch } = runtime;
   let dx = 0, dy = 0, run = !!(keys.ShiftLeft || keys.ShiftRight);
+  const sneak = !!(keys.ControlLeft || keys.ControlRight);
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
   if (keys.ArrowUp || keys.KeyW) dy -= 1;
@@ -100,7 +102,7 @@ function inputDir() {
   }
   const m = Math.hypot(dx, dy);
   const v = m > 1 ? { x: dx / m, y: dy / m, m: 1 } : { x: dx, y: dy, m };
-  v.run = run;
+  v.run = run; v.sneak = sneak;
   return v;
 }
 

@@ -2,7 +2,7 @@
 window.TownGame.entities = (() => {
 'use strict';
 
-const { ctx, W, H, WORLD, ROAD, roundRect } = window.TownGame.core;
+const { ctx, W, H, WORLD, ROAD, clamp, roundRect } = window.TownGame.core;
 const SND = window.TownGame.audio;
 const { FW, fogCv, fogAt } = window.TownGame.environment;
 const { TORCH_BTN } = window.TownGame.input;
@@ -10,8 +10,16 @@ const { TORCH_BTN } = window.TownGame.input;
 // Awareness arc above a zombie that has started to notice the courier but has not
 // locked on yet. Without it stealth reads as random luck.
 function drawNotice(c, z) {
-  if (z.hunt > 0 || z.notice <= .04) return;
   const S = z.size || 1, r = 15 * S, y = z.y - 21 * S;
+  if (z.hunt > 0) {
+    c.save();
+    c.fillStyle = 'rgba(50,10,14,.88)'; c.strokeStyle = '#ff6b5a'; c.lineWidth = 2;
+    c.beginPath(); c.arc(z.x, y, 8 * S, 0, 6.283); c.fill(); c.stroke();
+    c.fillStyle = '#fff0df'; c.font = `bold ${Math.round(12 * S)}px Trebuchet MS, sans-serif`;
+    c.textAlign = 'center'; c.fillText('!', z.x, y + 4 * S); c.restore();
+    return;
+  }
+  if (z.notice <= .04) return;
   c.save();
   c.lineWidth = 2.6; c.lineCap = 'round';
   c.strokeStyle = 'rgba(12,16,24,.55)';
@@ -112,11 +120,11 @@ function nearestParcel(g) {
 
 function drawPlayer(c, p, g) {
   if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // Flash after an impact.
-  const sw = Math.sin(p.walk) * 3.4;
+  const crawling = p.sneaking, sw = Math.sin(p.walk) * 3.4 * (crawling ? .42 : 1);
   c.fillStyle = 'rgba(0,0,0,.28)';
-  c.beginPath(); c.ellipse(p.x + 3, p.y + 8, 14, 8, 0, 0, 6.283); c.fill();
+  c.beginPath(); c.ellipse(p.x + 3, p.y + (crawling ? 5 : 8), crawling ? 16 : 14, crawling ? 5 : 8, 0, 0, 6.283); c.fill();
   // Legs face the movement direction and protrude from the body so the stride remains visible.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(1.22, 1.22);
+  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(crawling ? 1.34 : 1.22, crawling ? .78 : 1.22);
   for (const s of [-1, 1]) {
     const oy = s * 8 + sw * s;
     c.fillStyle = '#38507a'; roundRect(c, -9, oy - 3, 14, 6, 3); c.fill();
@@ -126,7 +134,7 @@ function drawPlayer(c, p, g) {
   c.restore();
 
   // The torso faces the aim and flashlight direction.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(1.22, 1.22);
+  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(crawling ? 1.34 : 1.22, crawling ? .8 : 1.22);
   // Left hand holds the flashlight; right hand holds the pistol.
   c.fillStyle = '#e8b48a';
   roundRect(c, 1, -11 - sw * .3, 9, 5, 2.5); c.fill();
@@ -157,7 +165,7 @@ function drawGauges(g) {
   const p = g.p, x = 16, y = H - 46;
   const bar = (yy, v, col, label, on) => {
     ctx.fillStyle = 'rgba(10,14,26,.6)'; roundRect(ctx, x, yy, 132, 12, 6); ctx.fill();
-    ctx.fillStyle = col; roundRect(ctx, x + 2, yy + 2, Math.max(0, 128 * v), 8, 4); ctx.fill();
+    if (v > .005) { ctx.fillStyle = col; roundRect(ctx, x + 2, yy + 2, Math.max(0, 128 * v), 8, 4); ctx.fill(); }
     ctx.fillStyle = on ? '#e8f0ff' : 'rgba(232,240,255,.45)';
     ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
     ctx.fillText(label, x + 138, yy + 10);
@@ -166,9 +174,16 @@ function drawGauges(g) {
   bar(y, p.batt, low && Math.sin(g.time * 12) > 0 ? '#ff8b5a' : '#ffd766',
       p.torch ? 'FLASHLIGHT (F)' : 'FLASHLIGHT OFF (F)', p.torch);
   bar(y + 18, p.stam, p.stam < .2 ? '#ff8b7a' : '#8ee6a0', 'SPRINT (SHIFT)', p.running);
+  const awareness = clamp(g.stealthNotice || 0, 0, 1);
+  const stealthLabel = g.stealthDetected ? 'DETECTED' : awareness > .68 ? 'DANGER' :
+    awareness > .04 ? `SUSPICION ${Math.round(awareness * 100)}%` :
+    p.sneaking ? 'HIDDEN · CRAWLING (CTRL)' : 'HIDDEN · CTRL TO CRAWL';
+  const stealthColor = g.stealthDetected ? (Math.sin(g.time * 15) > 0 ? '#fff0a0' : '#ff5b4d') :
+    awareness > .68 ? '#ff9a5a' : '#ffd766';
+  bar(y - 20, awareness, stealthColor, stealthLabel, p.sneaking || awareness > .04 || g.stealthDetected);
   ctx.fillStyle = SND.muted ? 'rgba(232,240,255,.4)' : 'rgba(232,240,255,.8)';
   ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText(SND.muted ? '♪ SOUND OFF (M)' : '♪ SOUND (M)', x, y - 7);
+  ctx.fillText(SND.muted ? '♪ SOUND OFF (M)' : '♪ SOUND (M)', x, y - 29);
 
   if ('ontouchstart' in window) {
     ctx.save();

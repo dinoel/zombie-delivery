@@ -118,6 +118,7 @@ const TANK_TYPE = Object.freeze({
 // ---------- district generation ----------
 function buildTown(level) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
+  const stealthQa = qaMode === 'stealth' || qaMode === 'stealth-walk' || qaMode === 'stealth-crawl';
   const R = makeRoads();
   const solids = [];   // Oriented boxes: houses, hedges, and parked cars.
   const trees  = [];   // {x,y,r}
@@ -546,6 +547,16 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
+  // One stationary watcher makes normal movement and CTRL crawling directly comparable.
+  if (stealthQa && zombies.length) {
+    const z = zombies.find(o => o.kind === 'walker') || zombies[0];
+    zombies.splice(0, zombies.length, z); cars.splice(0, cars.length);
+    houses.splice(0); trees.splice(0); soft.splice(0); props.splice(0); solids.splice(0);
+    z.x = start.x; z.y = start.y - 170; z.ang = Math.PI / 2;
+    z.spd = 0; z.wdir = Math.PI / 2; z.wander = 999; z.guardParcel = -1; z.alert = z.hunt = z.notice = 0;
+    z.throwCd = z.dodgeCd = z.surgeCd = 999;
+  }
+
   // A tank head, one victim, and one stationary car make the fifth-shot blast repeatable.
   if (qaMode === 'zombie-head-explosion' && zombies.length) {
     const source = zombies.find(o => o.kind === 'tank') || zombies[0];
@@ -615,7 +626,7 @@ function buildTown(level) {
 
   const weather = newWeather();
   const fog = new Float32Array(FW * FW), seen = new Uint8Array(FW * FW);
-  if (qaMode === 'foliage-lighting' || qaMode === 'roof-lighting') {
+  if (qaMode === 'foliage-lighting' || qaMode === 'roof-lighting' || stealthQa) {
     Object.assign(weather, { rain: 0, target: 0, wet: 0, next: 999, strike: 999 });
     fog.fill(1); seen.fill(1);
   }
@@ -627,20 +638,21 @@ function buildTown(level) {
     p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
          tx: start.x, ty: start.y - 300,
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
-         torch: qaMode !== 'foliage-lighting', batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
-         takedown: 0, finishHeld: false },
+         torch: qaMode !== 'foliage-lighting' && !stealthQa, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
+         takedown: 0, finishHeld: false, sneaking: false },
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather, ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
-    headKicks: 0,
+    headKicks: 0, stealthNotice: 0, stealthWatchers: 0, stealthDetected: false, stealthCrawlTime: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
     fog, seen,                                                    // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
-    time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
+    time: 0, spawnGrace: stealthQa ? 0 : 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
     dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false,
-    headExplosionQa: qaMode === 'zombie-head-explosion', headExplosionQaStep: 0
+    headExplosionQa: qaMode === 'zombie-head-explosion', headExplosionQaStep: 0,
+    stealthQaInput: qaMode === 'stealth-walk' ? 'walk' : qaMode === 'stealth-crawl' ? 'crawl' : ''
   };
 }
 

@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-39',
-  'src/core.js?v=20260727-39',
-  'src/quality.js?v=20260727-39',
-  'src/audio.js?v=20260727-39',
-  'src/car-physics.js?v=20260727-39',
-  'src/environment.js?v=20260727-39',
-  'src/world.js?v=20260727-39',
-  'src/physics.js?v=20260727-39',
-  'src/input.js?v=20260727-39',
-  'src/gameplay.js?v=20260727-39',
-  'src/lighting.js?v=20260727-39',
-  'src/entities.js?v=20260727-39',
-  'src/render.js?v=20260727-39',
-  'src/main.js?v=20260727-39'
+  'src/namespace.js?v=20260727-43',
+  'src/core.js?v=20260727-43',
+  'src/quality.js?v=20260727-43',
+  'src/audio.js?v=20260727-43',
+  'src/car-physics.js?v=20260727-43',
+  'src/environment.js?v=20260727-43',
+  'src/world.js?v=20260727-43',
+  'src/physics.js?v=20260727-43',
+  'src/input.js?v=20260727-43',
+  'src/gameplay.js?v=20260727-43',
+  'src/lighting.js?v=20260727-43',
+  'src/entities.js?v=20260727-43',
+  'src/render.js?v=20260727-43',
+  'src/main.js?v=20260727-43'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -89,7 +89,7 @@ $inputSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\input.js')
 if ($inputSource -match '\be\.key\b' -or -not $inputSource.Contains('const code = e.code;')) {
   $problems.Add('Keyboard controls must use physical KeyboardEvent.code values, not layout-dependent key labels.')
 }
-foreach ($controlCode in @('KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyM', 'KeyP', 'Space')) {
+foreach ($controlCode in @('KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyM', 'KeyP', 'Space', 'ControlLeft', 'ControlRight')) {
   if (-not $inputSource.Contains($controlCode)) {
     $problems.Add("Physical keyboard control is missing: $controlCode")
   }
@@ -99,6 +99,11 @@ $gameplaySource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\gamepla
 foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
   if (-not $gameplaySource.Contains($actionCode)) {
     $problems.Add("Physical gameplay action is missing: $actionCode")
+  }
+}
+foreach ($stealthFeature in @('NOTICE_SNEAK', 'SNEAK_SPEED', 'p.sneaking', 'g.stealthNotice', 'stealthDetected')) {
+  if (-not $gameplaySource.Contains($stealthFeature)) {
+    $problems.Add("Stealth crawling behavior is missing: $stealthFeature")
   }
 }
 

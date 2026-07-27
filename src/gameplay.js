@@ -447,7 +447,7 @@ function hitByFilth(g, z, s) {
 
 // ---------- stealth ----------
 const FRONT_ARC = 1.75;           // A zombie watches roughly a 200-degree arc in front of itself.
-const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45;
+const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45, NOTICE_SNEAK = 28;
 const BACK_FACTOR = .38;          // From behind everything shrinks: 57 / 34 / 17 steps.
 const NOTICE_FILL = 1 / .55;      // Full awareness in just over half a second in the open.
 const NOTICE_FILL_BEAM = 1 / .2;  // A beam in the face is almost instant.
@@ -455,6 +455,7 @@ const NOTICE_FADE = 1 / 2.4;      // And it cools down slowly.
 const TAKEDOWN_RANGE = 26;
 const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
+const SNEAK_SPEED = 68;
 
 // A silent finish is only available on an unaware zombie approached from behind.
 function takedownTarget(g) {
@@ -713,6 +714,8 @@ function update(g, dt) {
     if (dx * dx + dy * dy < r * r) { inBush = true; break; }
   }
   const dir = inputDir();
+  if (g.stealthQaInput) Object.assign(dir,
+    { x: 0, y: -1, m: 1, run: false, sneak: g.stealthQaInput === 'crawl' });
 
   // The flashlight drains and flickers at low charge.
   if (p.torch && p.batt > 0) {
@@ -722,8 +725,10 @@ function update(g, dt) {
   } else p.flick = 1;
 
   // Sprinting consumes stamina and creates noise.
-  p.running = dir.run && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
+  p.sneaking = dir.sneak && p.stagger <= 0 && p.takedown <= 0;
+  p.running = dir.run && !p.sneaking && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
   p.moving = dir.m > .2;                        // Standing still is what makes a zombie hard to alert.
+  if (p.sneaking && p.moving) g.stealthCrawlTime = (g.stealthCrawlTime || 0) + dt;
   if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
   else {
     p.rest = Math.max(0, p.rest - dt);
@@ -731,16 +736,19 @@ function update(g, dt) {
   }
   // The courier moves noticeably faster on asphalt than through grass and yards.
   const road = surfaceAt(g, p.x, p.y);
-  const speed = (inBush ? .62 : 1) * (p.running ? RUN : WALK) * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
+  const movementSpeed = p.sneaking ? SNEAK_SPEED : p.running ? RUN : WALK;
+  const speed = (inBush ? .62 : 1) * movementSpeed * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
   p.stagger = Math.max(0, (p.stagger || 0) - dt);
 
   // Sprinting carries far, walking is quiet, and soles sound sharper on asphalt.
   if (dir.m > .2) {
     p.step -= dt;
     if (p.step <= 0) {
-      p.step = (p.running ? .34 : .8) * (1 - .12 * road);
-      makeNoise(g, p.x, p.y, (p.running ? 210 : 78) * (1 + .3 * road), p.running ? 3.5 : 1.2, p.running);
-      SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
+      p.step = (p.sneaking ? 1.15 : p.running ? .34 : .8) * (1 - .12 * road);
+      makeNoise(g, p.x, p.y,
+        (p.sneaking ? 28 : p.running ? 210 : 78) * (1 + .3 * road),
+        p.sneaking ? .35 : p.running ? 3.5 : 1.2, p.running);
+      if (!p.sneaking) SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
     }
   } else p.step = .1;
 
@@ -750,7 +758,7 @@ function update(g, dt) {
   p.vy += (tvy - p.vy) * Math.min(1, acc);
   if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
   p.x += p.vx * dt; p.y += p.vy * dt;
-  if (dir.m > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (inBush ? 7 : 11); }
+  if (dir.m > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (p.sneaking ? 5 : inBush ? 7 : 11); }
   else p.walk += dt * 1.5;
 
   p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
@@ -865,7 +873,7 @@ function update(g, dt) {
   }
 
   // Zombies.
-  let activeSurges = 0;
+  let activeSurges = 0, stealthNotice = 0, stealthWatchers = 0, stealthDetected = false;
   for (const z of g.zombies) if (!z.gone && z.surge > 0) activeSurges++;
   for (const z of g.zombies) {
     if (z.gone) continue;
@@ -895,7 +903,7 @@ function update(g, dt) {
     // What the courier is doing decides how far they carry, and a zombie only watches
     // its own front: a quiet approach from behind stays unseen.
     const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
-    const reach = (p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
+    const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
                   (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
     let exposed = canNotice && d < reach;
 
@@ -908,12 +916,14 @@ function update(g, dt) {
     }
 
     // Awareness fills instead of flipping, so the player can read the danger and back off.
-    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) : 0;
+    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) * (p.sneaking ? .48 : 1) : 0;
     z.notice = clamp(z.notice + (fill > 0 ? fill : -NOTICE_FADE) * dt, 0, 1);
     const sees = z.notice >= 1;
     // A tank is slow to catch on and slow to let go: it notices from closer, but once it
     // has locked on it keeps walking long after a sharper zombie would have given up.
     if (sees) { z.hunt = z.dumb ? 9 : 3.2; z.tx = p.x; z.ty = p.y; z.notice = 1; }
+    if (z.notice > .02) { stealthWatchers++; stealthNotice = Math.max(stealthNotice, z.notice); }
+    if (z.hunt > 0) stealthDetected = true;
 
     // A patrol car that comes close is a target in its own right. With both within reach
     // the horde still prefers the courier: sixty against forty.
@@ -1110,6 +1120,9 @@ function update(g, dt) {
     if (!z.gone) resolveZombieContact(g, z);
     if (g.dead) return;
   }
+  g.stealthDetected = stealthDetected;
+  g.stealthNotice = stealthDetected ? 1 : stealthNotice;
+  g.stealthWatchers = stealthWatchers;
   for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
 
   // Filth projectiles move slowly, break on the environment, and remain dodgeable.
@@ -1614,6 +1627,15 @@ function drawHud(g) {
     cv.dataset.victimHp = String(victim ? victim.hp.toFixed(2) : 0);
     cv.dataset.playerHp = String(g.hp);
     cv.dataset.carIntegrity = String(g.cars[0] && g.cars[0].damage ? g.cars[0].damage.integrity.toFixed(2) : 0);
+  }
+  if (typeof location !== 'undefined' && location.search.includes('qa=stealth')) {
+    cv.dataset.sneaking = String(!!g.p.sneaking);
+    cv.dataset.stealthNotice = String((g.stealthNotice || 0).toFixed(2));
+    cv.dataset.stealthWatchers = String(g.stealthWatchers || 0);
+    cv.dataset.stealthDetected = String(!!g.stealthDetected);
+    cv.dataset.playerSpeed = String(Math.hypot(g.p.vx, g.p.vy).toFixed(2));
+    cv.dataset.stealthCrawlTime = String((g.stealthCrawlTime || 0).toFixed(2));
+    cv.dataset.watcherDistance = String(g.zombies[0] ? Math.hypot(g.zombies[0].x - g.p.x, g.zombies[0].y - g.p.y).toFixed(2) : 0);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=population')) {
     cv.dataset.zombies = String(g.zombies.length);

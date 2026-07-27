@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-44',
-  'src/core.js?v=20260727-44',
-  'src/quality.js?v=20260727-44',
-  'src/audio.js?v=20260727-44',
-  'src/car-physics.js?v=20260727-44',
-  'src/environment.js?v=20260727-44',
-  'src/world.js?v=20260727-44',
-  'src/physics.js?v=20260727-44',
-  'src/input.js?v=20260727-44',
-  'src/gameplay.js?v=20260727-44',
-  'src/lighting.js?v=20260727-44',
-  'src/entities.js?v=20260727-44',
-  'src/render.js?v=20260727-44',
-  'src/main.js?v=20260727-44'
+  'src/namespace.js?v=20260727-45',
+  'src/core.js?v=20260727-45',
+  'src/quality.js?v=20260727-45',
+  'src/audio.js?v=20260727-45',
+  'src/car-physics.js?v=20260727-45',
+  'src/environment.js?v=20260727-45',
+  'src/world.js?v=20260727-45',
+  'src/physics.js?v=20260727-45',
+  'src/input.js?v=20260727-45',
+  'src/gameplay.js?v=20260727-45',
+  'src/lighting.js?v=20260727-45',
+  'src/entities.js?v=20260727-45',
+  'src/render.js?v=20260727-45',
+  'src/main.js?v=20260727-45'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -105,6 +105,10 @@ foreach ($stealthFeature in @('NOTICE_SNEAK', 'SNEAK_SPEED', 'p.sneaking', 'g.st
   if (-not $gameplaySource.Contains($stealthFeature)) {
     $problems.Add("Stealth crawling behavior is missing: $stealthFeature")
   }
+}
+if (-not $inputSource.Contains('p.sneakToggle = !runtime.game.p.sneakToggle') -or
+    -not $inputSource.Contains('runtime.game.p.sneakToggle')) {
+  $problems.Add('Crawl must be toggled by a single KeyC press rather than held continuously.')
 }
 
 foreach ($damageThreshold in @('damage >= .3', 'damage >= .7', 'damage >= .9')) {

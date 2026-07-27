@@ -13,6 +13,9 @@ addEventListener('keydown', e => {
     runtime.game.p.torch = !runtime.game.p.torch;
     SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
   }
+  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyC') {
+    runtime.game.p.sneakToggle = !runtime.game.p.sneakToggle;
+  }
   if (!runtime.keys[code] && code === 'KeyM') SND.toggle();
   // Pause freezes the district but keeps the frame on screen.
   if (!runtime.keys[code] && (code === 'KeyP' || code === 'Escape') && runtime.game &&
@@ -89,7 +92,7 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 function inputDir() {
   const { keys, touch } = runtime;
   let dx = 0, dy = 0, run = !!(keys.ShiftLeft || keys.ShiftRight);
-  const sneak = !!keys.KeyC;
+  const sneak = !!(runtime.game && runtime.game.p.sneakToggle);
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
   if (keys.ArrowUp || keys.KeyW) dy -= 1;

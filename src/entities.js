@@ -120,11 +120,54 @@ function nearestParcel(g) {
 
 function drawPlayer(c, p, g) {
   if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // Flash after an impact.
-  const crawling = p.sneaking, sw = Math.sin(p.walk) * 3.4 * (crawling ? .42 : 1);
+  const crawling = p.sneaking, sw = Math.sin(p.walk) * 3.4;
+
+  if (crawling) {
+    const stride = Math.sin(p.walk) * 1.8, sway = Math.cos(p.walk) * .7;
+    c.save(); c.translate(p.x, p.y); c.rotate(p.aim);
+    c.fillStyle = 'rgba(0,0,0,.25)';
+    c.beginPath(); c.ellipse(-2, 4, 22, 8.5, 0, 0, 6.283); c.fill();
+
+    // A purpose-built top-down crawl pose: alternating legs extend behind the torso.
+    for (const side of [-1, 1]) {
+      const lx = -17 + stride * side, ly = side * 5 + sway * side;
+      c.fillStyle = '#38507a'; roundRect(c, lx, ly - 2.8, 14, 5.6, 2.8); c.fill();
+      c.fillStyle = '#26314a'; roundRect(c, lx - 4, ly - 2.5, 6, 5, 2); c.fill();
+    }
+
+    // Arms reach forward in opposition to the legs, giving the crawl a readable cycle.
+    for (const side of [-1, 1]) {
+      const reach = stride * -side;
+      c.fillStyle = '#e8b48a'; roundRect(c, -1 + reach, side * 9 - 2.4, 14, 4.8, 2.4); c.fill();
+      c.beginPath(); c.arc(13 + reach, side * 9, 2.8, 0, 6.283); c.fill();
+    }
+
+    // Backpack and torso retain their full width; nothing is globally squashed.
+    c.fillStyle = '#b7452c'; roundRect(c, -12, -6.5, 8, 13, 3); c.fill();
+    if (g.got > 0) { c.fillStyle = '#c9a26a'; roundRect(c, -14, -5, 5, 10, 2); c.fill(); }
+    c.fillStyle = '#e0603f'; roundRect(c, -8, -8, 19, 16, 6); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
+
+    // Head and cap point forward, making the facing direction obvious from above.
+    c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(10, 0, 7.2, 0, 6.283); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#3b3630'; c.beginPath(); c.arc(8, 0, 6.8, 1.55, 4.73); c.fill();
+    c.fillStyle = '#ffd766'; roundRect(c, 14, -5.5, 4.5, 11, 2); c.fill();
+
+    c.fillStyle = '#2f3a46'; roundRect(c, 12 - stride, -11, 9, 4.5, 1.5); c.fill();
+    if (p.torch && p.batt > 0) {
+      c.fillStyle = `rgba(255,242,200,${.5 + .5 * p.flick})`;
+      c.fillRect(20.5 - stride, -10.5, 2.5, 3.5);
+    }
+    c.fillStyle = '#33383f'; roundRect(c, 12 + stride, 7.2, 10, 3.5, 1); c.fill();
+    c.restore();
+    return;
+  }
+
   c.fillStyle = 'rgba(0,0,0,.28)';
-  c.beginPath(); c.ellipse(p.x + 3, p.y + (crawling ? 5 : 8), crawling ? 16 : 14, crawling ? 5 : 8, 0, 0, 6.283); c.fill();
+  c.beginPath(); c.ellipse(p.x + 3, p.y + 8, 14, 8, 0, 0, 6.283); c.fill();
   // Legs face the movement direction and protrude from the body so the stride remains visible.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(crawling ? 1.34 : 1.22, crawling ? .78 : 1.22);
+  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(1.22, 1.22);
   for (const s of [-1, 1]) {
     const oy = s * 8 + sw * s;
     c.fillStyle = '#38507a'; roundRect(c, -9, oy - 3, 14, 6, 3); c.fill();
@@ -134,7 +177,7 @@ function drawPlayer(c, p, g) {
   c.restore();
 
   // The torso faces the aim and flashlight direction.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(crawling ? 1.34 : 1.22, crawling ? .8 : 1.22);
+  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(1.22, 1.22);
   // Left hand holds the flashlight; right hand holds the pistol.
   c.fillStyle = '#e8b48a';
   roundRect(c, 1, -11 - sw * .3, 9, 5, 2.5); c.fill();
@@ -177,7 +220,7 @@ function drawGauges(g) {
   const awareness = clamp(g.stealthNotice || 0, 0, 1);
   const stealthLabel = g.stealthDetected ? 'DETECTED' : awareness > .68 ? 'DANGER' :
     awareness > .04 ? `SUSPICION ${Math.round(awareness * 100)}%` :
-    p.sneaking ? 'HIDDEN · CRAWLING (C)' : 'HIDDEN · HOLD C TO CRAWL';
+    p.sneaking ? 'HIDDEN · CRAWLING (C: STAND)' : 'HIDDEN · C: CROUCH';
   const stealthColor = g.stealthDetected ? (Math.sin(g.time * 15) > 0 ? '#fff0a0' : '#ff5b4d') :
     awareness > .68 ? '#ff9a5a' : '#ffd766';
   bar(y - 20, awareness, stealthColor, stealthLabel, p.sneaking || awareness > .04 || g.stealthDetected);

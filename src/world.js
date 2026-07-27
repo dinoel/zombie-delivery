@@ -639,7 +639,7 @@ function buildTown(level) {
          tx: start.x, ty: start.y - 300,
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
          torch: qaMode !== 'foliage-lighting' && !stealthQa, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
-         takedown: 0, finishHeld: false, sneaking: false },
+         takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false },
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather, ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,

@@ -307,7 +307,7 @@ function draw(g) {
     ctx.restore();
   }
 
-  // Detached zombie parts remain physical objects long enough to mark the fight.
+  // Detached parts mark the fight; heads remain until the district is rebuilt.
   for (const part of (g.zombieParts || [])) {
     if (!visible(part.x, part.y, 22 * (part.size || 1))) continue;
     drawZombiePart(part);

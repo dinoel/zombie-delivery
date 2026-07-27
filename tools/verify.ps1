@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-29',
-  'src/core.js?v=20260727-29',
-  'src/quality.js?v=20260727-29',
-  'src/audio.js?v=20260727-29',
-  'src/car-physics.js?v=20260727-29',
-  'src/environment.js?v=20260727-29',
-  'src/world.js?v=20260727-29',
-  'src/physics.js?v=20260727-29',
-  'src/input.js?v=20260727-29',
-  'src/gameplay.js?v=20260727-29',
-  'src/lighting.js?v=20260727-29',
-  'src/entities.js?v=20260727-29',
-  'src/render.js?v=20260727-29',
-  'src/main.js?v=20260727-29'
+  'src/namespace.js?v=20260727-30',
+  'src/core.js?v=20260727-30',
+  'src/quality.js?v=20260727-30',
+  'src/audio.js?v=20260727-30',
+  'src/car-physics.js?v=20260727-30',
+  'src/environment.js?v=20260727-30',
+  'src/world.js?v=20260727-30',
+  'src/physics.js?v=20260727-30',
+  'src/input.js?v=20260727-30',
+  'src/gameplay.js?v=20260727-30',
+  'src/lighting.js?v=20260727-30',
+  'src/entities.js?v=20260727-30',
+  'src/render.js?v=20260727-30',
+  'src/main.js?v=20260727-30'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -110,6 +110,11 @@ foreach ($damageThreshold in @('damage >= .3', 'damage >= .7', 'damage >= .9')) 
 foreach ($dismembermentFeature in @('severZombiePart', 'g.zombieParts', "kind === 'arm'")) {
   if (-not $gameplaySource.Contains($dismembermentFeature)) {
     $problems.Add("Zombie dismemberment behavior is missing: $dismembermentFeature")
+  }
+}
+foreach ($headPhysicsFeature in @('kickZombieHead', "part.kind !== 'head'", 'circleCarContact(car, part.x', 'headKicks')) {
+  if (-not $gameplaySource.Contains($headPhysicsFeature)) {
+    $problems.Add("Persistent zombie-head physics is missing: $headPhysicsFeature")
   }
 }
 

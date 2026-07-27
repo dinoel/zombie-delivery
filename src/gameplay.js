@@ -143,6 +143,39 @@ function zombieLocalPoint(z, x, y) {
   return { x: z.x + (x * ca - y * sa) * size, y: z.y + (x * sa + y * ca) * size };
 }
 
+function kickZombieHead(g, head, nx, ny, power, extraVx = 0, extraVy = 0) {
+  const len = Math.hypot(nx, ny) || 1;
+  nx /= len; ny /= len;
+  head.vx += nx * power + extraVx;
+  head.vy += ny * power + extraVy;
+  head.h = Math.max(head.h, Math.min(7, power * .025));
+  head.vh = Math.max(head.vh, Math.min(105, 28 + power * .28));
+  head.spin += rnd(-7, 7) + (nx * head.vy - ny * head.vx) * .018;
+  head.bleed = Math.max(head.bleed, 1.4 + Math.min(1.8, power / 170));
+  head.bleedCd = 0;
+  head.kickCd = .12;
+  g.headKicks = (g.headKicks || 0) + 1;
+  SND.play('hit', head.x, head.y, Math.random());
+}
+
+function wakeHeadBlood(head, impact) {
+  if (head.kind !== 'head' || impact < 34) return;
+  head.bleed = Math.max(head.bleed, .8 + Math.min(1.8, impact / 120));
+  head.bleedCd = 0;
+}
+
+function bounceHeadFromCorrection(head, beforeX, beforeY, restitution = .48) {
+  const cx = head.x - beforeX, cy = head.y - beforeY, length = Math.hypot(cx, cy);
+  if (length < .0001) return;
+  const nx = cx / length, ny = cy / length;
+  const towardSurface = head.vx * nx + head.vy * ny;
+  if (towardSurface >= 0) return;
+  wakeHeadBlood(head, -towardSurface);
+  head.vx -= (1 + restitution) * towardSurface * nx;
+  head.vy -= (1 + restitution) * towardSurface * ny;
+  head.spin *= .72;
+}
+
 function severZombiePart(g, z, kind, side, dx, dy) {
   const len = Math.hypot(dx, dy) || 1, nx = dx / len, ny = dy / len;
   const point = zombieLocalPoint(z, kind === 'arm' ? 11 : 3, kind === 'arm' ? side * 10 : 0);
@@ -155,10 +188,14 @@ function severZombiePart(g, z, kind, side, dx, dy) {
     vy: ny * impulse + lateralY * rnd(25, 70) * quiet,
     vh: rnd(85, 145) * quiet, ang: z.ang, spin: rnd(-8, 8), size: z.size || 1,
     skin: z.skin || '#8fae63', eye: z.eye || '#ff5a45', blood: z.blood, stain: z.stain,
-    bleed: kind === 'arm' ? 3.4 : 1.5, bleedCd: 0, l: 18
+    bleed: kind === 'arm' ? 3.4 : 1.5, bleedCd: 0, kickCd: 0,
+    l: kind === 'head' ? Infinity : 18
   };
   g.zombieParts.push(part);
-  if (g.zombieParts.length > 72) g.zombieParts.shift();
+  if (kind === 'arm') {
+    const arms = g.zombieParts.filter(o => o.kind === 'arm');
+    if (arms.length > 72) g.zombieParts.splice(g.zombieParts.indexOf(arms[0]), 1);
+  }
   sprayZombieBlood(g, z, point.x, point.y, nx, ny, kind === 'arm' ? 10 : 14, 1.05);
   z.bleed = Math.min(8, (z.bleed || 0) + (kind === 'arm' ? 2.8 : 4));
   z.bleedCd = 0;
@@ -559,6 +596,10 @@ function update(g, dt) {
       damageZombie(g, z, step.damage, 0, -1); z.hit = .45; z.alert = 0;
     }
   }
+  if (g.dismemberQa && !g.headKickQaDone && g.time >= 2.25) {
+    const head = g.zombieParts.find(part => part.kind === 'head');
+    if (head) { g.headKickQaDone = true; kickZombieHead(g, head, 1, 0, 185); }
+  }
   g.spawnGrace = Math.max(0, g.spawnGrace - dt);
   g.shake = Math.max(0, g.shake - dt * 3);
   const p = g.p;
@@ -678,6 +719,20 @@ function update(g, dt) {
         damageCarWithBullet(g, hitCar, carHit, b); gone = 'c';
       }
     }
+    if (!gone) {
+      let headHit = null, headT = 2;
+      for (const part of g.zombieParts) {
+        if (part.kind !== 'head') continue;
+        const t = segmentCircleT(b.px, b.py, b.x, b.y, part.x, part.y, 8 * (part.size || 1));
+        if (t !== null && t < headT) { headHit = part; headT = t; }
+      }
+      if (headHit) {
+        b.x = b.px + (b.x - b.px) * headT; b.y = b.py + (b.y - b.py) * headT;
+        const speed = Math.hypot(b.vx, b.vy) || 1;
+        kickZombieHead(g, headHit, b.vx, b.vy, 190 * (b.dmg || 1), b.vx / speed * 35, b.vy / speed * 35);
+        gone = 'h';
+      }
+    }
     if (!gone && !b.whiff) {
       let zombieHit = null, zombieT = 2;
       for (const z of g.zombies) {
@@ -705,7 +760,7 @@ function update(g, dt) {
       if (gone === 'w') SND.play('wall', b.x, b.y);
       for (let k = 0; k < 3; k++)
         g.parts.push({ x: b.x, y: b.y, vx: rnd(-70, 70), vy: rnd(-70, 70), l: rnd(.1, .25),
-          c: gone === 'c' ? pick(['#d8e0e6', '#ffe08a', '#7c858d']) : '#ffe08a', s: 2 });
+          c: gone === 'c' ? pick(['#d8e0e6', '#ffe08a', '#7c858d']) : gone === 'h' ? '#96d85a' : '#ffe08a', s: 2 });
       g.bullets.splice(i, 1);
     }
   }
@@ -1286,12 +1341,11 @@ function update(g, dt) {
     }, 900);
   }
 
-  // Severed limbs tumble, settle, and leave a short green trail from the torn end.
+  // Severed limbs tumble and bleed. Heads remain physical for the entire district.
   for (let i = g.zombieParts.length - 1; i >= 0; i--) {
     const part = g.zombieParts[i];
-    part.l -= dt;
-    part.x = clamp(part.x + part.vx * dt, 2, WORLD - 2);
-    part.y = clamp(part.y + part.vy * dt, 2, WORLD - 2);
+    part.l -= dt; part.kickCd = Math.max(0, part.kickCd - dt);
+    part.x += part.vx * dt; part.y += part.vy * dt;
     if (part.h > 0 || part.vh > 0) {
       part.h += part.vh * dt;
       part.vh -= 255 * dt;
@@ -1301,6 +1355,79 @@ function update(g, dt) {
         else { part.vh = 0; part.spin = 0; }
       }
     }
+
+    if (part.kind === 'head') {
+      const radius = 8 * (part.size || 1);
+      if (part.x < radius) { wakeHeadBlood(part, Math.abs(part.vx)); part.x = radius; part.vx = Math.abs(part.vx) * .55; }
+      if (part.x > WORLD - radius) { wakeHeadBlood(part, Math.abs(part.vx)); part.x = WORLD - radius; part.vx = -Math.abs(part.vx) * .55; }
+      if (part.y < radius) { wakeHeadBlood(part, Math.abs(part.vy)); part.y = radius; part.vy = Math.abs(part.vy) * .55; }
+      if (part.y > WORLD - radius) { wakeHeadBlood(part, Math.abs(part.vy)); part.y = WORLD - radius; part.vy = -Math.abs(part.vy) * .55; }
+
+      for (const solid of g.solids) {
+        const beforeX = part.x, beforeY = part.y;
+        if (hitOBB(part, radius, solid)) bounceHeadFromCorrection(part, beforeX, beforeY);
+      }
+      for (const tree of g.trees) {
+        const beforeX = part.x, beforeY = part.y;
+        if (hitCircle(part, radius, tree)) bounceHeadFromCorrection(part, beforeX, beforeY, .4);
+      }
+
+      if (part.h < 11) for (const car of g.cars) {
+        const contact = circleCarContact(car, part.x, part.y, radius);
+        if (!contact) continue;
+        resolveCircleCar(car, part, radius);
+        const carVx = car.hx * car.v, carVy = car.hy * car.v;
+        const impact = Math.max(0, carVx * contact.nx + carVy * contact.ny);
+        if (impact > 7 && part.kickCd <= 0) {
+          kickZombieHead(g, part, contact.nx, contact.ny, Math.max(65, impact * .82), carVx * .52, carVy * .52);
+        }
+      }
+
+      if (part.h < 9) {
+        const pdx = part.x - p.x, pdy = part.y - p.y, pd = Math.hypot(pdx, pdy) || 1;
+        const touch = radius + PR;
+        if (pd < touch) {
+          const nx = pdx / pd, ny = pdy / pd;
+          part.x = p.x + nx * (touch + .5); part.y = p.y + ny * (touch + .5);
+          const approach = (p.vx - part.vx) * nx + (p.vy - part.vy) * ny;
+          if (approach > 12 && part.kickCd <= 0) {
+            kickZombieHead(g, part, nx, ny, 58 + approach * .9, p.vx * .32, p.vy * .32);
+          }
+        }
+
+        for (const z of g.zombies) {
+          if (z.gone) continue;
+          const dx = part.x - z.x, dy = part.y - z.y, d = Math.hypot(dx, dy) || 1;
+          const touchZombie = radius + z.r;
+          if (d >= touchZombie) continue;
+          const nx = dx / d, ny = dy / d;
+          part.x = z.x + nx * (touchZombie + .35); part.y = z.y + ny * (touchZombie + .35);
+          const approach = ((z.mvx || 0) - part.vx) * nx + ((z.mvy || 0) - part.vy) * ny;
+          if (approach > 18 && part.kickCd <= 0) kickZombieHead(g, part, nx, ny, 38 + approach * .55);
+        }
+
+        for (let j = 0; j < i; j++) {
+          const other = g.zombieParts[j];
+          if (other.kind !== 'head' || other.h >= 9) continue;
+          const dx = part.x - other.x, dy = part.y - other.y, d = Math.hypot(dx, dy) || 1;
+          const otherRadius = 8 * (other.size || 1), touchHead = radius + otherRadius;
+          if (d >= touchHead) continue;
+          const nx = dx / d, ny = dy / d, overlap = touchHead - d + .2;
+          part.x += nx * overlap * .5; part.y += ny * overlap * .5;
+          other.x -= nx * overlap * .5; other.y -= ny * overlap * .5;
+          const closing = (part.vx - other.vx) * nx + (part.vy - other.vy) * ny;
+          if (closing < 0) {
+            const impulse = -closing * .72;
+            part.vx += nx * impulse; part.vy += ny * impulse;
+            other.vx -= nx * impulse; other.vy -= ny * impulse;
+            wakeHeadBlood(part, -closing); wakeHeadBlood(other, -closing);
+          }
+        }
+      }
+    } else {
+      part.x = clamp(part.x, 2, WORLD - 2); part.y = clamp(part.y, 2, WORLD - 2);
+    }
+
     const drag = Math.pow(part.h > 0 ? .986 : .9, dt * 60);
     part.vx *= drag; part.vy *= drag; part.ang += part.spin * dt;
     part.bleed = Math.max(0, part.bleed - dt);
@@ -1315,7 +1442,7 @@ function update(g, dt) {
           rnd(1.2, 2.5), part.vx, part.vy);
       }
     }
-    if (part.l <= 0) g.zombieParts.splice(i, 1);
+    if (part.kind !== 'head' && part.l <= 0) g.zombieParts.splice(i, 1);
   }
 
   // Volumetric blood droplets become ground stains after a short flight.
@@ -1359,10 +1486,15 @@ function drawHud(g) {
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=zombie-dismember')) {
     const z = g.zombies[0];
+    const head = g.zombieParts.find(part => part.kind === 'head');
     cv.dataset.zombieHp = String(z ? z.hp : 0);
     cv.dataset.lostArms = String(z ? z.lostArms : 2);
     cv.dataset.headless = String(z ? z.headless : true);
     cv.dataset.detachedParts = String(g.zombieParts.length);
+    cv.dataset.heads = String(g.zombieParts.filter(part => part.kind === 'head').length);
+    cv.dataset.headSpeed = String(head ? Math.hypot(head.vx, head.vy).toFixed(2) : 0);
+    cv.dataset.headBleed = String(head ? head.bleed.toFixed(2) : 0);
+    cv.dataset.headKicks = String(g.headKicks);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=population')) {
     cv.dataset.zombies = String(g.zombies.length);

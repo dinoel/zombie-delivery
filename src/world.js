@@ -566,13 +566,14 @@ function buildTown(level) {
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather: newWeather(), ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
+    headKicks: 0,
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
     fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
     time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
-    dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0
+    dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false
   };
 }
 

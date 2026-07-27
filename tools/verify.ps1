@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-25',
-  'src/core.js?v=20260727-25',
-  'src/quality.js?v=20260727-25',
-  'src/audio.js?v=20260727-25',
-  'src/car-physics.js?v=20260727-25',
-  'src/environment.js?v=20260727-25',
-  'src/world.js?v=20260727-25',
-  'src/physics.js?v=20260727-25',
-  'src/input.js?v=20260727-25',
-  'src/gameplay.js?v=20260727-25',
-  'src/lighting.js?v=20260727-25',
-  'src/entities.js?v=20260727-25',
-  'src/render.js?v=20260727-25',
-  'src/main.js?v=20260727-25'
+  'src/namespace.js?v=20260727-28',
+  'src/core.js?v=20260727-28',
+  'src/quality.js?v=20260727-28',
+  'src/audio.js?v=20260727-28',
+  'src/car-physics.js?v=20260727-28',
+  'src/environment.js?v=20260727-28',
+  'src/world.js?v=20260727-28',
+  'src/physics.js?v=20260727-28',
+  'src/input.js?v=20260727-28',
+  'src/gameplay.js?v=20260727-28',
+  'src/lighting.js?v=20260727-28',
+  'src/entities.js?v=20260727-28',
+  'src/render.js?v=20260727-28',
+  'src/main.js?v=20260727-28'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -83,6 +83,23 @@ if (-not $namespaceSource.Contains("Object.defineProperty(global, 'TownGame'")) 
 $mainSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\main.js')
 if (-not $mainSource.Contains('Object.freeze(window.TownGame)')) {
   $problems.Add('The TownGame subsystem collection is not frozen at the entry point.')
+}
+
+$inputSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\input.js')
+if ($inputSource -match '\be\.key\b' -or -not $inputSource.Contains('const code = e.code;')) {
+  $problems.Add('Keyboard controls must use physical KeyboardEvent.code values, not layout-dependent key labels.')
+}
+foreach ($controlCode in @('KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyM', 'KeyP', 'Space')) {
+  if (-not $inputSource.Contains($controlCode)) {
+    $problems.Add("Physical keyboard control is missing: $controlCode")
+  }
+}
+
+$gameplaySource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\gameplay.js')
+foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
+  if (-not $gameplaySource.Contains($actionCode)) {
+    $problems.Add("Physical gameplay action is missing: $actionCode")
+  }
 }
 
 # The frozen reference HTML is guarded by version control, not by a pinned hash here:

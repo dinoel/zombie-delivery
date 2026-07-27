@@ -569,14 +569,14 @@ function update(g, dt) {
   p.cool = Math.max(0, p.cool - dt);
   p.muzzle = Math.max(0, p.muzzle - dt);
   const wantFire = runtime.mouse.down || runtime.fireHeld ||
-    runtime.keys[' '] || runtime.keys['k'];
+    runtime.keys.Space || runtime.keys.KeyK;
   if (wantFire && p.cool <= 0 && g.ammo > 0 && !g.done) fire(g);
 
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
   p.takedown = Math.max(0, p.takedown - dt);
   g.finishTarget = takedownTarget(g);
-  const wantFinish = !!runtime.keys['e'];
+  const wantFinish = !!runtime.keys.KeyE;
   if (wantFinish && !p.finishHeld && g.finishTarget) {
     const z = g.finishTarget;
     p.takedown = TAKEDOWN_LOCK;

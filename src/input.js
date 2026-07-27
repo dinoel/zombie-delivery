@@ -7,26 +7,29 @@ const SND = window.TownGame.audio;
 
 // ---------- input ----------
 addEventListener('keydown', e => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-  const k = e.key.toLowerCase();
-  if (!runtime.keys[k] && runtime.state === 'play' && runtime.game && k === 'f') {
+  const code = e.code;
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
+  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') {
     runtime.game.p.torch = !runtime.game.p.torch;
     SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
   }
-  if (!runtime.keys[k] && k === 'm') SND.toggle();
+  if (!runtime.keys[code] && code === 'KeyM') SND.toggle();
   // Pause freezes the district but keeps the frame on screen.
-  if (!runtime.keys[k] && (k === 'p' || e.key === 'Escape') && runtime.game &&
+  if (!runtime.keys[code] && (code === 'KeyP' || code === 'Escape') && runtime.game &&
       (runtime.state === 'play' || runtime.state === 'paused')) {
     runtime.state = runtime.state === 'play' ? 'paused' : 'play';
     if (runtime.state === 'paused') SND.rain(0);
-    runtime.keys[k] = 1;
+    runtime.keys[code] = 1;
     return;                                   // A paused game must not also fire or start a district.
   }
-  runtime.keys[k] = 1;
+  runtime.keys[code] = 1;
   if (runtime.state !== 'play' && runtime.state !== 'paused' &&
-      (e.key === ' ' || e.key === 'Enter')) startBtn.click();
+      (code === 'Space' || code === 'Enter')) startBtn.click();
 });
-addEventListener('keyup', e => { runtime.keys[e.key.toLowerCase()] = 0; });
+addEventListener('keyup', e => { runtime.keys[e.code] = 0; });
+addEventListener('blur', () => {
+  for (const code of Object.keys(runtime.keys)) runtime.keys[code] = 0;
+});
 
 const tpos = t => {
   const r = cv.getBoundingClientRect();
@@ -85,11 +88,11 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 
 function inputDir() {
   const { keys, touch } = runtime;
-  let dx = 0, dy = 0, run = !!keys['shift'];
-  if (keys['arrowleft'] || keys['a']) dx -= 1;
-  if (keys['arrowright'] || keys['d']) dx += 1;
-  if (keys['arrowup'] || keys['w']) dy -= 1;
-  if (keys['arrowdown'] || keys['s']) dy += 1;
+  let dx = 0, dy = 0, run = !!(keys.ShiftLeft || keys.ShiftRight);
+  if (keys.ArrowLeft || keys.KeyA) dx -= 1;
+  if (keys.ArrowRight || keys.KeyD) dx += 1;
+  if (keys.ArrowUp || keys.KeyW) dy -= 1;
+  if (keys.ArrowDown || keys.KeyS) dy += 1;
   if (touch) {
     const tx = touch.x - touch.ox, ty = touch.y - touch.oy, d = Math.hypot(tx, ty);
     if (d > 10) { const k = Math.min(d, 55) / 55 / d; dx = tx * k; dy = ty * k; }

@@ -68,46 +68,179 @@ canvas.aim {
   cursor: crosshair;
 }
 
+/* The overlay scrolls rather than spilling past the canvas: the panel centers while the
+   briefing is short and grows downward once the manual is open. */
 #overlay {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
+  overflow-y: auto;
   border-radius: 10px;
   background: rgb(24 36 56 / 88%);
   text-align: center;
 }
 
+#overlay .panel {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
 #overlay h1 {
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   color: var(--color-accent);
-  font-size: 38px;
+  font-size: 34px;
   letter-spacing: 6px;
   text-shadow: 0 3px 0 #8a5a1e;
 }
 
 #overlay h2 {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   color: #a9c6e8;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: 2px;
 }
 
 #overlay p {
-  max-width: 620px;
+  max-width: 560px;
   color: var(--color-copy);
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.55;
+}
+
+/* Before the first district the briefing is shown; afterwards the same space carries the
+   result of the run, so the two never compete for room. */
+#overlayMessage { display: none; }
+.overlay--result #brief { display: none; }
+.overlay--result #overlayMessage { display: block; }
+
+.brief__goal {
+  margin-bottom: 14px;
 }
 
 #overlay .key {
+  display: inline-block;
+  min-width: 20px;
+  padding: 2px 6px;
+  border: 1px solid #4d6a94;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 8%);
   color: var(--color-accent);
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 1px;
 }
+
+.keys {
+  display: grid;
+  width: 100%;
+  max-width: 520px;
+  margin-bottom: 14px;
+  gap: 7px 10px;
+  grid-template-columns: repeat(4, 1fr);
+  color: #a9c6e8;
+  font-size: 11px;
+  letter-spacing: 1px;
+  list-style: none;
+}
+
+.keys li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.threats {
+  display: flex;
+  max-width: 560px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 14px;
+  gap: 6px 8px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  list-style: none;
+}
+
+.threats li {
+  padding: 4px 10px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  opacity: .92;
+}
+
+.threats b {
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+/* The manual body scrolls inside itself, so opening it never pushes START off the canvas. */
+.manual {
+  width: 100%;
+  max-width: 560px;
+  text-align: left;
+}
+
+.manual summary {
+  color: #a9c6e8;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  list-style: none;
+  text-align: center;
+}
+
+.manual summary::-webkit-details-marker { display: none; }
+
+.manual summary::before {
+  content: "\25B8\00A0";
+  color: var(--color-accent);
+}
+
+.manual[open] summary::before {
+  content: "\25BE\00A0";
+}
+
+.manual summary:hover {
+  color: var(--color-text);
+}
+
+.manual__body {
+  max-height: 190px;
+  margin-top: 10px;
+  padding: 4px 12px 4px 0;
+  overflow-y: auto;
+}
+
+.manual__body {
+  scrollbar-width: thin;
+  scrollbar-color: #4d6a94 rgb(255 255 255 / 6%);
+}
+
+.manual__body::-webkit-scrollbar { width: 8px; }
+.manual__body::-webkit-scrollbar-track { border-radius: 4px; background: rgb(255 255 255 / 6%); }
+.manual__body::-webkit-scrollbar-thumb { border-radius: 4px; background: #4d6a94; }
+
+.manual__body h3 {
+  margin-bottom: 3px;
+  color: var(--color-accent);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.manual__body p {
+  margin-bottom: 11px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.manual__body p:last-child { margin-bottom: 0; }
 
 .legend--parcel { color: var(--color-accent); }
 .legend--door { color: #8fe388; }
@@ -178,4 +311,17 @@ canvas.aim {
 
 .hidden {
   display: none !important;
+}
+
+/* The canvas shrinks with the viewport while the briefing does not, so the panel reflows. */
+@media (max-width: 720px) {
+  /* A letterboxed canvas leaves too little height for a briefing, so the screen takes the
+     whole viewport instead of the canvas rectangle. */
+  #overlay { position: fixed; border-radius: 0; }
+  #overlay h1 { font-size: 26px; letter-spacing: 4px; }
+  #overlay h2 { margin-bottom: 8px; font-size: 12px; }
+  #overlay .panel { padding: 12px 10px; }
+  .keys { grid-template-columns: repeat(2, 1fr); }
+  .manual__body { max-height: 140px; }
+  #qualityStatus { display: none; }
 }

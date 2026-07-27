@@ -100,6 +100,9 @@ The second gameplay pass adds survivability, stealth, and a livelier street:
 - a zombie splattered by a neighbour's throw turns on the thrower for eight to thirteen seconds;
 - jammed traffic escalates its way out: yield, back up, take another exit from the intersection, and finally turn around onto the opposite lane;
 - `P` and `ESC` pause the district, leaving the dimmed frame on screen;
-- world density is tuned per unit of area rather than per district, so houses, trees, traffic, and the horde survive changes to the road grid.
+- world density is tuned per unit of area rather than per district, so houses, trees, traffic, and the horde survive changes to the road grid;
+- the start screen fits inside the canvas: an objective line, a grid of keys, and a row of threats, with the remaining mechanics behind a `FIELD MANUAL` section that scrolls inside itself and never pushes the start button off screen;
+- on a narrow viewport the start screen uses the whole window instead of the letterboxed canvas rectangle;
+- the district result has its own element, so finishing a district no longer overwrites the briefing permanently.
 
 JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

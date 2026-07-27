@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>COURIER</title>
-<link rel="stylesheet" href="styles/main.css">
+<link rel="stylesheet" href="styles/main.css?v=20260727-23">
 </head>
 <body>
 <div id="hud" aria-label="Game status">
@@ -21,34 +21,77 @@
     Your browser does not support Canvas.
   </canvas>
   <div id="overlay">
+   <div class="panel">
     <h1>COURIER</h1>
     <h2>night shift, top-down</h2>
-    <p>
-      <span class="key">WASD / arrow keys</span> — move · <span class="key">mouse</span> — aim · <span class="key">click / SPACE</span> — shoot.<br>
-      On a phone: the first finger moves, the second fires.<br>
-      Collect the <span class="legend legend--parcel">parcels</span> and deliver them to the <span class="legend legend--door">green door</span>; three zombies guard each parcel.<br>
-      You have 5 seconds to look around after spawning, but your first shot immediately ends the grace period.<br>
-      You take <span class="legend legend--health">5 hits</span> per district. Lose them all and the district is re-issued
-      at the cost of one of your <span class="legend legend--life">3 lives</span>; out of lives, the shift is over.<br>
-      <span class="key">F</span> — flashlight · <span class="key">SHIFT</span> — sprint · <span class="key">M</span> — sound ·
-      <span class="key">P</span> or <span class="key">ESC</span> — pause. Light, footsteps, and gunfire reveal your position.<br>
-      A zombie only watches its own front, and how far it notices you depends on what you are doing:
-      sprinting carries three times farther than standing still. Come up quietly from behind with the light off
-      and press <span class="key">E</span> for a <span class="legend legend--stealth">silent kill</span> —
-      the filling arc above a zombie shows it is starting to notice you.<br>
-      <span class="legend legend--walker">Green zombies</span> are standard, <span class="legend legend--runner">orange runners</span> are fast and fragile,
-      and <span class="legend legend--brute">purple brutes</span> are slow but survive four hits.<br>
-      <span class="legend legend--tank">Tanks</span> roam in packs of three or four, far from the parcels: huge, half as fast
-      as a walker, no tactics at all — they just walk straight at whatever they noticed. Ten hits each, and no silent kill
-      works on them. Traffic steers around a tank instead of flattening it: a car that hits one loses half the
-      tank's health but wrecks its own front, and a second collision leaves the vehicle barely driveable.
-      Walking around a pack costs far less than fighting it.<br>
-      The horde flanks and dodges; every type throws a <span class="legend legend--filth">projectile with its own color and speed</span>.<br>
-      <span class="legend legend--battery">Batteries</span> and <span class="legend legend--neutral">ammo</span> are scattered through the yards.<br>
-      <span class="legend legend--car">Cars</span> run zombies down, but crashes crumple bodywork and smash windows and lights; a wrecked car smokes and becomes cover.<br>
-      A <span class="legend legend--patrol">patrol car</span> siren draws zombies.<br>
-      Pavement is faster and louder; <span class="legend legend--rain">rain</span> muffles sound, while <span class="legend legend--thunder">thunder</span> breaks the trail.
-    </p>
+    <!-- Result text for a finished district; the briefing takes its place before the first run. -->
+    <p id="overlayMessage"></p>
+    <div id="brief">
+      <p class="brief__goal">
+        Collect the <span class="legend legend--parcel">parcels</span> and deliver them to the
+        <span class="legend legend--door">green door</span> — three zombies guard each one.
+        You take <span class="legend legend--health">5 hits</span> per district; out of health costs
+        one of <span class="legend legend--life">3 lives</span>.
+      </p>
+      <ul class="keys">
+        <li><span class="key">WASD</span> move</li>
+        <li><span class="key">MOUSE</span> aim</li>
+        <li><span class="key">CLICK</span> shoot</li>
+        <li><span class="key">SHIFT</span> sprint</li>
+        <li><span class="key">F</span> flashlight</li>
+        <li><span class="key">E</span> silent kill</li>
+        <li><span class="key">P</span> pause</li>
+        <li><span class="key">M</span> sound</li>
+      </ul>
+      <ul class="threats">
+        <li class="legend--walker"><b>walker</b> 2 hits</li>
+        <li class="legend--runner"><b>runner</b> 1 hit</li>
+        <li class="legend--brute"><b>brute</b> 4 hits</li>
+        <li class="legend--tank"><b>tank</b> 10 hits</li>
+      </ul>
+      <details class="manual">
+        <summary>FIELD MANUAL</summary>
+        <div class="manual__body">
+          <h3>Being seen</h3>
+          <p>
+            A zombie only watches the arc in front of itself, and notice distance depends on what you are doing:
+            sprinting carries three times farther than standing still, and everything shrinks to a third from behind.
+            Light, footsteps, and gunfire give you away. The filling arc above a zombie means it is working you out.
+            Come up from behind with the light off and press <span class="key">E</span> for a
+            <span class="legend legend--stealth">silent kill</span>.
+          </p>
+          <h3>The horde</h3>
+          <p>
+            The horde flanks, dodges the firing line, and surges after a retreating courier. Every type throws a
+            <span class="legend legend--filth">projectile with its own colour and speed</span> — and a zombie
+            splattered by a neighbour's throw turns on the thrower instead of you.
+            You have 5 seconds to look around after spawning; your first shot ends that grace period.
+          </p>
+          <h3>Tanks</h3>
+          <p>
+            <span class="legend legend--tank">Tanks</span> roam in packs of three or four, far from the parcels:
+            huge, half as fast as a walker, no tactics at all, and immune to silent kills. Traffic steers around a
+            tank instead of flattening it — a car that hits one wrecks its own front and barely survives a second
+            collision. Walking around a pack costs far less than fighting it.
+          </p>
+          <h3>The street</h3>
+          <p>
+            <span class="legend legend--car">Cars</span> run zombies down, but crashes crumple bodywork and smash
+            windows and lights; a wrecked car smokes and becomes cover. A
+            <span class="legend legend--patrol">patrol car</span> siren draws zombies, and the officers shoot back —
+            their gunfire pulls the horde toward the car rather than toward you.
+            <span class="legend legend--battery">Batteries</span> and
+            <span class="legend legend--neutral">ammo</span> are scattered through the yards.
+          </p>
+          <h3>Ground and weather</h3>
+          <p>
+            Pavement is faster and louder; <span class="legend legend--rain">rain</span> muffles sound, while
+            <span class="legend legend--thunder">thunder</span> breaks the trail.
+            On a phone the first finger moves and the second fires.
+          </p>
+        </div>
+      </details>
+    </div>
     <div class="quality-control">
       <label for="qualitySelect">QUALITY</label>
       <select id="qualitySelect">
@@ -60,22 +103,23 @@
       <span id="qualityStatus" aria-live="polite"></span>
     </div>
     <button id="startBtn" type="button">START SHIFT</button>
+   </div>
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260727-22"></script>
-  <script src="src/core.js?v=20260727-22"></script>
-  <script src="src/quality.js?v=20260727-22"></script>
-  <script src="src/audio.js?v=20260727-22"></script>
-  <script src="src/car-physics.js?v=20260727-22"></script>
-  <script src="src/environment.js?v=20260727-22"></script>
-  <script src="src/world.js?v=20260727-22"></script>
-  <script src="src/physics.js?v=20260727-22"></script>
-  <script src="src/input.js?v=20260727-22"></script>
-  <script src="src/gameplay.js?v=20260727-22"></script>
-  <script src="src/lighting.js?v=20260727-22"></script>
-  <script src="src/entities.js?v=20260727-22"></script>
-  <script src="src/render.js?v=20260727-22"></script>
-  <script src="src/main.js?v=20260727-22"></script>
+  <script src="src/namespace.js?v=20260727-23"></script>
+  <script src="src/core.js?v=20260727-23"></script>
+  <script src="src/quality.js?v=20260727-23"></script>
+  <script src="src/audio.js?v=20260727-23"></script>
+  <script src="src/car-physics.js?v=20260727-23"></script>
+  <script src="src/environment.js?v=20260727-23"></script>
+  <script src="src/world.js?v=20260727-23"></script>
+  <script src="src/physics.js?v=20260727-23"></script>
+  <script src="src/input.js?v=20260727-23"></script>
+  <script src="src/gameplay.js?v=20260727-23"></script>
+  <script src="src/lighting.js?v=20260727-23"></script>
+  <script src="src/entities.js?v=20260727-23"></script>
+  <script src="src/render.js?v=20260727-23"></script>
+  <script src="src/main.js?v=20260727-23"></script>
 </body>
 </html>

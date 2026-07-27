@@ -9,7 +9,7 @@ const overlay = $('overlay'), startBtn = $('startBtn');
 const UI = Object.freeze({
   overlayTitle: overlay.querySelector('h1'),
   overlaySubtitle: overlay.querySelector('h2'),
-  overlayMessage: overlay.querySelector('p'),
+  overlayMessage: $('overlayMessage'),
   level: $('lvl'),
   parcels: $('box'),
   ammo: $('ammo'),

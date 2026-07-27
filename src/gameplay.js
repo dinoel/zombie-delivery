@@ -370,6 +370,18 @@ function hurt(g, dx, dy, power, stagger = .5) {
   if (g.hp <= 0) loseLife(g);
 }
 
+// Every district ends on the same screen: the briefing steps aside for the result, and the
+// button carries the only action left in this state.
+function showResult(title, subtitle, html, button) {
+  cv.classList.remove('aim');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('overlay--result');
+  UI.overlayTitle.textContent = title;
+  UI.overlaySubtitle.textContent = subtitle;
+  UI.overlayMessage.innerHTML = html;
+  startBtn.textContent = button;
+}
+
 // Health runs out inside a district; a life is the right to walk that district again.
 function loseLife(g) {
   g.dead = true;
@@ -377,18 +389,15 @@ function loseLife(g) {
   if (runtime.lives <= 0) { gameOver(g); return; }
   runtime.state = 'retry';
   SND.play('over'); SND.rain(0);
-  cv.classList.remove('aim');
   drawHud(g);
-  overlay.classList.remove('hidden');
-  UI.overlayTitle.textContent = 'COURIER DOWN';
-  UI.overlaySubtitle.textContent =
-    `district ${g.level}, parcels ${g.got} of ${g.need}, lives left ${runtime.lives}`;
-  UI.overlayMessage.innerHTML =
+  showResult(
+    'COURIER DOWN',
+    `district ${g.level}, parcels ${g.got} of ${g.need}, lives left ${runtime.lives}`,
     `Zombies eliminated: <b>${g.killed}</b>; road kills: <b>${g.roadKills}</b>.<br>` +
     `The district is dispatched again from the depot: a fresh street layout, ` +
     `full health, and a full magazine.<br>` +
-    `Lives are not restored — <b>${runtime.lives}</b> of ${LIVES_MAX} left for the whole run.`;
-  startBtn.textContent = 'RETRY DISTRICT';
+    `Lives are not restored — <b>${runtime.lives}</b> of ${LIVES_MAX} left for the whole run.`,
+    'RETRY DISTRICT');
 }
 
 // Bodies must separate physically after a bite. Otherwise the pursuer remains inside
@@ -1163,17 +1172,15 @@ function update(g, dt) {
     }
     setTimeout(() => {
       runtime.state = 'win';
-      cv.classList.remove('aim');
-      overlay.classList.remove('hidden');
-      UI.overlayTitle.textContent = 'DELIVERED!';
-      UI.overlaySubtitle.textContent = `district ${g.level} completed in ${g.time.toFixed(1)} s`;
-      UI.overlayMessage.innerHTML =
+      showResult(
+        'DELIVERED!',
+        `district ${g.level} completed in ${g.time.toFixed(1)} s`,
         `Zombies eliminated: <b>${g.killed}</b>. Dodges / surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
         `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
         `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
         `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
-        `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`;
-      startBtn.textContent = 'NEXT DISTRICT';
+        `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`,
+        'NEXT DISTRICT');
     }, 900);
   }
 
@@ -1225,18 +1232,16 @@ function drawHud(g) {
 function gameOver(g) {
   runtime.state = 'over';
   SND.play('over'); SND.rain(0);
-  cv.classList.remove('aim');
   drawHud(g);
-  overlay.classList.remove('hidden');
-  UI.overlayTitle.textContent = 'SHIFT OVER';
-  UI.overlaySubtitle.textContent = `district ${g.level}, parcels ${g.got} of ${g.need}, zombies eliminated ${g.killed}`;
-  UI.overlayMessage.innerHTML =
+  showResult(
+    'SHIFT OVER',
+    `district ${g.level}, parcels ${g.got} of ${g.need}, zombies eliminated ${g.killed}`,
     `Filth thrown: <b>${g.filthThrown}</b>; hits taken: <b>${g.filthHits}</b>.<br>` +
     `Dodges / pursuing surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
     `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
     'Wrecked vehicles block the road; use them as cover from the horde.<br>' +
-    'Do not fire blindly: ammunition is limited, and noise draws the whole district.';
-  startBtn.textContent = 'TRY AGAIN';
+    'Do not fire blindly: ammunition is limited, and noise draws the whole district.',
+    'TRY AGAIN');
 }
 
 return Object.freeze({ update });

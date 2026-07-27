@@ -584,6 +584,18 @@ function buildTown(level) {
     }
   }
 
+  // A single tall house in a clear flashlight beam verifies that roofs receive
+  // ambient sky light but never ground-level illumination.
+  if (qaMode === 'roof-lighting') {
+    const cx = clamp(start.x, 180, WORLD - 180), cy = clamp(start.y - 145, 150, WORLD - 240);
+    start = { x: cx, y: cy + 155 };
+    houses.splice(0); trees.splice(0); soft.splice(0); props.splice(0); solids.splice(0);
+    cars.splice(0); zombies.splice(0);
+    const house = obb(cx, cy, 0, 66, 52,
+      { wall: WALLS[0], roof: ROOFS[1], seed: .42, face: 1 });
+    houses.push(house); solids.push(house);
+  }
+
   // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
@@ -603,7 +615,7 @@ function buildTown(level) {
 
   const weather = newWeather();
   const fog = new Float32Array(FW * FW), seen = new Uint8Array(FW * FW);
-  if (qaMode === 'foliage-lighting') {
+  if (qaMode === 'foliage-lighting' || qaMode === 'roof-lighting') {
     Object.assign(weather, { rain: 0, target: 0, wet: 0, next: 999, strike: 999 });
     fog.fill(1); seen.fill(1);
   }

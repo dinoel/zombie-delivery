@@ -282,6 +282,19 @@ function drawLight2D(g, camx, camy) {
       paintLightDirect(camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread);
     else paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip, shadows);
   }
+  // Ground-level light may hit walls, but it cannot land on a roof above it. Restore
+  // the ambient night layer over every visible roof after all light holes are cut.
+  if (g.houses.length) {
+    lctx.save(); lctx.beginPath();
+    for (const h of g.houses) {
+      if (h.cx + h.rad < camx || h.cy + h.rad < camy || h.cx - h.rad > camx + W || h.cy - h.rad > camy + H) continue;
+      lctx.moveTo(h.pts[0][0] - camx, h.pts[0][1] - camy);
+      for (let i = 1; i < 4; i++) lctx.lineTo(h.pts[i][0] - camx, h.pts[i][1] - camy);
+      lctx.closePath();
+    }
+    lctx.clip(); lctx.clearRect(0, 0, W, H);
+    lctx.fillStyle = 'rgba(10,14,38,.82)'; lctx.fillRect(0, 0, W, H); lctx.restore();
+  }
   ctx.drawImage(lightCv, 0, 0);
 }
 
@@ -372,6 +385,12 @@ const GLR = gl && (() => { try {
     precision mediump float;
     void main() { gl_FragColor = vec4(0.0); }`);
 
+  const roofP = prog(`
+    attribute vec2 a_pos; uniform vec2 u_res;
+    void main() { vec2 p = a_pos; gl_Position = ${TO_CLIP}; }`, `
+    precision mediump float;
+    void main() { gl_FragColor = vec4(${AMB[0]}, ${AMB[1]}, ${AMB[2]}, 1.0); }`);
+
   const quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
@@ -382,13 +401,13 @@ const GLR = gl && (() => { try {
 
   const U = (p, n) => gl.getUniformLocation(p, n);
   return {
-    litP, shadP, quad, shadowBuf, verts,
+    litP, shadP, roofP, quad, shadowBuf, verts,
     lit: { res: U(litP, 'u_res'), light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
            cam: U(litP, 'u_cam'), color: U(litP, 'u_color'), ang: U(litP, 'u_ang'),
            spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount'),
            foliageCount: U(litP, 'u_foliageCount'), foliage: U(litP, 'u_foliage[0]') },
     foliageData,
-    shad: { res: U(shadP, 'u_res') }
+    shad: { res: U(shadP, 'u_res') }, roof: { res: U(roofP, 'u_res') }
   };
 } catch (e) { console.warn('WebGL lighting failed; using Canvas 2D:', e.message); gl = null; return null; } })();
 
@@ -448,6 +467,17 @@ function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
       }
     }
     if (n > arr.length - 48) break;
+  }
+  return n;
+}
+
+function buildRoofVerts(houses, camx, camy, arr) {
+  let n = 0;
+  for (const h of houses) {
+    if (h.cx + h.rad < camx || h.cy + h.rad < camy || h.cx - h.rad > camx + W || h.cy - h.rad > camy + H) continue;
+    const a = h.pts[0], b = h.pts[1], c = h.pts[2], d = h.pts[3];
+    for (const p of [a, b, c, a, c, d]) { arr[n++] = p[0] - camx; arr[n++] = p[1] - camy; }
+    if (n > arr.length - 12) break;
   }
   return n;
 }
@@ -522,6 +552,19 @@ function drawLightGL(g, camx, camy) {
     gl.clear(gl.STENCIL_BUFFER_BIT);
   }
   gl.disable(gl.SCISSOR_TEST);
+
+  // One height pass overwrites every roof with ambient moonlight. This is cheaper
+  // than testing roof height inside every headlight and prevents ground beams from
+  // painting the top of a tall building.
+  const roofCount = buildRoofVerts(g.houses, camx, camy, R.verts);
+  if (roofCount) {
+    gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND);
+    gl.useProgram(R.roofP); gl.uniform2f(R.roof.res, W, H);
+    gl.bindBuffer(gl.ARRAY_BUFFER, R.shadowBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, R.verts.subarray(0, roofCount), gl.DYNAMIC_DRAW);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, roofCount / 2);
+  }
 
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';           // Multiply the town by the light map.

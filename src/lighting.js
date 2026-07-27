@@ -24,6 +24,7 @@ const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27
 const RGB_CASH = [.66, .9, .69];
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
+const MAX_FOLIAGE_LOBES = 8;
 
 const foliageNoise = (seed, i) => {
   const n = Math.sin((seed || .37) * 913.7 + i * 78.233) * 43758.5453;
@@ -54,6 +55,8 @@ function forEachFoliageLobe(o, visit) {
   }
 }
 
+const isFoliageOccluder = o => o.r !== undefined || o.t === 'hedge';
+
 // Occluders near a point: houses, hedges, trees, and cars.
 function occNear(g, x, y, r, skip, detailedFoliage = false) {
   const out = [];
@@ -76,11 +79,13 @@ function occNear(g, x, y, r, skip, detailedFoliage = false) {
 function castShadows(c, lx, ly, occ, detailedFoliage) {
   c.globalCompositeOperation = 'destination-out';
   c.fillStyle = '#000';
-  const circleShadow = (x, y, r) => {
+  const circleShadow = (x, y, r, startPad = 0) => {
     const dx = x - lx, dy = y - ly, d = Math.hypot(dx, dy);
     if (d < r) return;
     const px = -dy / d * r, py = dx / d * r;
-    const ax = x + px, ay = y + py, bx = x - px, by = y - py;
+    const ux = dx / d, uy = dy / d;
+    const ax = x + px + ux * startPad, ay = y + py + uy * startPad;
+    const bx = x - px + ux * startPad, by = y - py + uy * startPad;
     const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
     c.beginPath();
     c.moveTo(ax, ay); c.lineTo(bx, by);
@@ -89,8 +94,11 @@ function castShadows(c, lx, ly, occ, detailedFoliage) {
     c.closePath(); c.fill();
   };
   for (const o of occ) {
-    if (detailedFoliage && (o.r !== undefined || o.t === 'hedge')) {
-      forEachFoliageLobe(o, circleShadow);
+    if (detailedFoliage && isFoliageOccluder(o)) {
+      c.globalAlpha = .24;
+      const pad = o.r !== undefined ? o.r * .68 : o.hh * .75;
+      forEachFoliageLobe(o, (x, y, r) => circleShadow(x, y, r, pad));
+      c.globalAlpha = 1;
       continue;
     }
     if (o.r !== undefined) {                          // Tree: wedge between tangents.
@@ -110,6 +118,7 @@ function castShadows(c, lx, ly, occ, detailedFoliage) {
       }
     }
   }
+  c.globalAlpha = 1;
   c.globalCompositeOperation = 'source-over';
 }
 
@@ -309,16 +318,43 @@ const GLR = gl && (() => { try {
   // Stages do not share uniforms because GLSL ES rejects mismatched precision.
   const litP = prog(`
     attribute vec2 a_pos;                       // Unit square, 0..1.
-    uniform vec2 u_res, u_light; uniform float u_radius;
-    varying mediump vec2 v_unit;                // -1..1 within the light pool.
+    uniform vec2 u_res, u_light, u_cam; uniform float u_radius;
+    varying mediump vec2 v_unit, v_pixel, v_light, v_world;
     void main() {
       v_unit = a_pos * 2.0 - 1.0;
       vec2 p = u_light + v_unit * u_radius;
+      v_pixel = p; v_light = u_light; v_world = p + u_cam;
       gl_Position = ${TO_CLIP};
     }`, `
     precision mediump float;
     uniform vec3 u_color; uniform float u_ang, u_spread, u_amount;
-    varying mediump vec2 v_unit;
+    uniform float u_foliageCount;
+    uniform vec4 u_foliage[8];                 // Screen x/y, cluster radius, clear start distance.
+    varying mediump vec2 v_unit, v_pixel, v_light, v_world;
+    float foliageTransmission() {
+      if (u_foliageCount < .5) return 1.0;
+      vec2 ray = v_pixel - v_light;
+      float rayLength = max(length(ray), .001);
+      vec2 direction = ray / rayLength;
+      float transmission = 1.0;
+      for (int i = 0; i < 8; i++) {
+        if (float(i) < u_foliageCount) {
+          vec4 leaf = u_foliage[i];
+          vec2 relative = leaf.xy - v_light;
+          float along = dot(relative, direction);
+          float across = abs(relative.x * direction.y - relative.y * direction.x);
+          float behind = step(1.0, along) * step(along + leaf.w, rayLength);
+          float cluster = 1.0 - smoothstep(leaf.z * .5, leaf.z * 1.3, across);
+          vec2 leafWorld = leaf.xy + (v_world - v_pixel);
+          float grain = .5 + .25 * sin(v_world.x * .105 + leafWorld.y * .047)
+                             + .25 * sin(v_world.y * .137 - leafWorld.x * .039);
+          float denseLeaves = smoothstep(.28, .76, grain);
+          float shade = behind * cluster * (.1 + denseLeaves * .24);
+          transmission *= 1.0 - shade;
+        }
+      }
+      return max(.55, transmission);             // Leaves transmit light; they can never make a black wall.
+    }
     void main() {
       float f = max(0.0, 1.0 - length(v_unit));
       f *= f;                                   // Soft falloff toward the edge.
@@ -326,6 +362,7 @@ const GLR = gl && (() => { try {
         float a = mod(atan(v_unit.y, v_unit.x) - u_ang + 9.42477796, 6.28318531) - 3.14159265;
         f *= 1.0 - smoothstep(u_spread * 0.55, u_spread, abs(a));
       }
+      f *= foliageTransmission();
       gl_FragColor = vec4(u_color * f * u_amount, 1.0);
     }`);
 
@@ -341,20 +378,44 @@ const GLR = gl && (() => { try {
 
   const shadowBuf = gl.createBuffer();
   const verts = new Float32Array(60000);              // Enough for about 5,000 wedges.
+  const foliageData = new Float32Array(MAX_FOLIAGE_LOBES * 4);
 
   const U = (p, n) => gl.getUniformLocation(p, n);
   return {
     litP, shadP, quad, shadowBuf, verts,
     lit: { res: U(litP, 'u_res'), light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
-           color: U(litP, 'u_color'), ang: U(litP, 'u_ang'), spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount') },
+           cam: U(litP, 'u_cam'), color: U(litP, 'u_color'), ang: U(litP, 'u_ang'),
+           spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount'),
+           foliageCount: U(litP, 'u_foliageCount'), foliage: U(litP, 'u_foliage[0]') },
+    foliageData,
     shad: { res: U(shadP, 'u_res') }
   };
 } catch (e) { console.warn('WebGL lighting failed; using Canvas 2D:', e.message); gl = null; return null; } })();
 
 quality.setRenderer(gl ? 'webgl' : 'canvas2d');
 
-// Obstacle shadow wedges in screen coordinates, stored in a shared buffer.
-function buildShadowVerts(occ, lx, ly, camx, camy, arr, detailedFoliage) {
+function buildFoliageData(occ, lightX, lightY, camx, camy, out) {
+  out.fill(0);
+  const foliage = occ.filter(isFoliageOccluder).sort((a, b) => {
+    const ax = a.r !== undefined ? a.x : a.cx, ay = a.r !== undefined ? a.y : a.cy;
+    const bx = b.r !== undefined ? b.x : b.cx, by = b.r !== undefined ? b.y : b.cy;
+    return Math.hypot(ax - lightX, ay - lightY) - Math.hypot(bx - lightX, by - lightY);
+  });
+  let count = 0;
+  for (const o of foliage) {
+    const pad = o.r !== undefined ? o.r * .68 : o.hh * .75;
+    forEachFoliageLobe(o, (x, y, r) => {
+      if (count >= MAX_FOLIAGE_LOBES) return;
+      const at = count++ * 4;
+      out[at] = x - camx; out[at + 1] = y - camy; out[at + 2] = r; out[at + 3] = pad;
+    });
+    if (count >= MAX_FOLIAGE_LOBES) break;
+  }
+  return count;
+}
+
+// Opaque obstacle shadow wedges in screen coordinates, stored in a shared buffer.
+function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
   let n = 0;
   const push = (x1, y1, x2, y2, x3, y3, x4, y4) => {          // A quadrilateral as two triangles.
     arr[n++] = x1; arr[n++] = y1; arr[n++] = x2; arr[n++] = y2; arr[n++] = x3; arr[n++] = y3;
@@ -372,11 +433,6 @@ function buildShadowVerts(occ, lx, ly, camx, camy, arr, detailedFoliage) {
       ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
   };
   for (const o of occ) {
-    if (detailedFoliage && (o.r !== undefined || o.t === 'hedge')) {
-      forEachFoliageLobe(o, circleShadow);
-      if (n > arr.length - 84) break;
-      continue;
-    }
     if (o.r !== undefined) {                                   // Tree.
       circleShadow(o.x, o.y, o.r);
     } else {                                                   // House, hedge, or car.
@@ -420,13 +476,16 @@ function drawLightGL(g, camx, camy) {
 
     const shadows = li < profile.shadowLights;
     const occ = shadows && r > 20 ? occNear(g, L.x, L.y, r, L.skip, profile.foliageShadows) : null;
+    const foliageCount = profile.foliageShadows && occ
+      ? buildFoliageData(occ, L.x, L.y, camx, camy, R.foliageData) : 0;
+    const opaqueOcc = profile.foliageShadows && occ ? occ.filter(o => !isFoliageOccluder(o)) : occ;
     const wantedSamples = L.soft > 0 ? (L.soft < 6 ? 4 : 8) : 1;
     const n = shadows ? Math.min(wantedSamples, profile.shadowSamples) : 1;
     for (let s = 0; s < n; s++) {
       const a = s / n * 6.283, ox = Math.cos(a) * L.soft, oy = Math.sin(a) * L.soft;
 
-      if (occ && occ.length) {                         // 1) Shadows into the stencil buffer.
-        const cnt = buildShadowVerts(occ, lx + ox, ly + oy, camx, camy, R.verts, profile.foliageShadows);
+      if (opaqueOcc && opaqueOcc.length) {             // 1) Solid shadows into the stencil buffer.
+        const cnt = buildShadowVerts(opaqueOcc, lx + ox, ly + oy, camx, camy, R.verts);
         if (cnt) {
           gl.colorMask(false, false, false, false);
           gl.stencilFunc(gl.ALWAYS, 1, 0xff);
@@ -447,10 +506,13 @@ function drawLightGL(g, camx, camy) {
       gl.uniform2f(R.lit.res, W, H);
       gl.uniform2f(R.lit.light, lx, ly);
       gl.uniform1f(R.lit.radius, r);
+      gl.uniform2f(R.lit.cam, camx, camy);
       gl.uniform3f(R.lit.color, L.rgb[0], L.rgb[1], L.rgb[2]);
       gl.uniform1f(R.lit.ang, L.ang);
       gl.uniform1f(R.lit.spread, L.spread);
       gl.uniform1f(R.lit.amount, L.int / n);
+      gl.uniform1f(R.lit.foliageCount, foliageCount);
+      gl.uniform4fv(R.lit.foliage, R.foliageData);
       gl.bindBuffer(gl.ARRAY_BUFFER, R.quad);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

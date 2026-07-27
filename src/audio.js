@@ -142,6 +142,11 @@ const SND = (() => {
                     crack(.11, 380, 80, 1.1 * v, P, .8, 'lowpass');
                     crack(.28, 1200, 420, .13 * v, P, .5, 'bandpass', .015);
                     tone(125, 44, .09, 'triangle', .5 * v, P, 0, .001); break;
+      // Fired from inside a cabin: flatter and duller than the courier's pistol.
+      case 'copshot': crack(.028, 2500, 1050, .6 * v, P, .55, 'highpass');
+                      crack(.075, 300, 95, .52 * v, P, .9, 'lowpass');
+                      crack(.2, 880, 360, .1 * v, P, .6, 'bandpass', .012);
+                      tone(112, 46, .07, 'triangle', .26 * v, P, 0, .001); break;
       case 'hit':   crack(.09, 800, 190, .5 * v, P, 1.4, 'bandpass'); break;
       case 'wall':  crack(.05, 3800, 1700, .26 * v, P, 2.2, 'bandpass'); break;
       case 'die':   crack(.26, 620, 100, .5 * v, P, .9, 'bandpass');

@@ -18,7 +18,7 @@ Run this command from PowerShell in the project directory:
 .\tools\verify.ps1
 ```
 
-The script checks JavaScript syntax, referenced resources, subsystem registration, the absence of Cyrillic text, and the translated reference HTML. Node.js is required for syntax checks, but not for the game itself.
+The script checks JavaScript syntax, referenced resources, subsystem registration, and the absence of Cyrillic text. Node.js is required for syntax checks, but not for the game itself.
 
 The vehicle damage model has a separate deterministic test:
 
@@ -85,5 +85,21 @@ The structural refactor and the first major gameplay pass are complete:
 - `tools/verify.ps1` checks load order, API registration, JavaScript, resources, and English-only text;
 - direct `file://` startup is preserved;
 - no external dependencies are required.
+
+The second gameplay pass adds survivability, stealth, and a livelier street:
+
+- the courier survives five hits inside a district; losing them all re-issues the district from the depot with a fresh layout at the cost of one of three lives per run, and the life budget is not restored between districts;
+- a zombie only watches the arc in front of itself, and notice distance depends on what the courier is doing — 150 steps while sprinting, 90 while walking, 45 while standing still, all shrunk to roughly a third from behind;
+- awareness fills in just over half a second in the open, almost instantly in a flashlight beam, and fades over about two and a half;
+- an arc above a zombie shows awareness filling, so stealth reads as a state rather than as luck;
+- `E` performs a silent kill on an unaware zombie approached from behind, with a short freeze while the finish plays out;
+- tanks roam in packs of three or four, placed away from the spawn and from the parcels: 10 HP, half a walker's speed, no tactics, no projectile, and immune to silent kills;
+- traffic steers around a tank instead of flattening it; a collision costs half the tank's health but wrecks the car's front, and a second one leaves the vehicle barely driveable;
+- patrol cars shoot at zombies within 330 pixels, check the line of fire against houses, hedges, and traffic, lead moving targets, and lose accuracy with speed — about 40 % standing still and 30 % at full speed;
+- patrol gunfire draws the horde to the car rather than to the courier, and a nearby patrol becomes an alternative target for zombies;
+- a zombie splattered by a neighbour's throw turns on the thrower for eight to thirteen seconds;
+- jammed traffic escalates its way out: yield, back up, take another exit from the intersection, and finally turn around onto the opposite lane;
+- `P` and `ESC` pause the district, leaving the dimmed frame on screen;
+- world density is tuned per unit of area rather than per district, so houses, trees, traffic, and the horde survive changes to the road grid.
 
 JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

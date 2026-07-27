@@ -14,8 +14,17 @@ addEventListener('keydown', e => {
     SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
   }
   if (!runtime.keys[k] && k === 'm') SND.toggle();
+  // Pause freezes the district but keeps the frame on screen.
+  if (!runtime.keys[k] && (k === 'p' || e.key === 'Escape') && runtime.game &&
+      (runtime.state === 'play' || runtime.state === 'paused')) {
+    runtime.state = runtime.state === 'play' ? 'paused' : 'play';
+    if (runtime.state === 'paused') SND.rain(0);
+    runtime.keys[k] = 1;
+    return;                                   // A paused game must not also fire or start a district.
+  }
   runtime.keys[k] = 1;
-  if (runtime.state !== 'play' && (e.key === ' ' || e.key === 'Enter')) startBtn.click();
+  if (runtime.state !== 'play' && runtime.state !== 'paused' &&
+      (e.key === ' ' || e.key === 'Enter')) startBtn.click();
 });
 addEventListener('keyup', e => { runtime.keys[e.key.toLowerCase()] = 0; });
 

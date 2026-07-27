@@ -44,7 +44,8 @@ body {
 .hud__level { color: #9fe0ff; }
 .hud__parcels { color: var(--color-accent); }
 .hud__ammo { color: var(--color-copy); }
-.hud__lives { color: #ff9aa2; }
+.hud__health { color: #ff9aa2; }
+.hud__lives { color: #ffb877; }
 .hud__time { color: #b8f2a0; }
 .hud__best { color: #d9c2ff; }
 
@@ -116,6 +117,10 @@ canvas.aim {
 .legend--brute { color: #b5a4e8; }
 .legend--filth { color: #c6d85c; }
 .legend--battery { color: #8ee6a0; }
+.legend--health { color: #ff9aa2; }
+.legend--stealth { color: #b9d5ff; }
+.legend--tank { color: #cdd8e4; }
+.legend--life { color: #ffb877; }
 .legend--neutral { color: var(--color-copy); }
 .legend--car { color: #ff8b7a; }
 .legend--patrol { color: #8fb6ff; }

@@ -3,7 +3,7 @@
 'use strict';
 
 const {
-  cv, overlay, startBtn, runtime, clamp
+  cv, overlay, startBtn, runtime, clamp, LIVES_MAX
 } = window.TownGame.core;
 const SND = window.TownGame.audio;
 const { buildTown } = window.TownGame.world;
@@ -59,7 +59,10 @@ requestAnimationFrame(loop);
 
 startBtn.addEventListener('click', () => {
   SND.init();                                 // Audio can only start from a user gesture.
-  const next = runtime.state === 'win' ? runtime.game.level + 1 : 1;
+  // A win advances the district, a lost life replays it, anything else starts a fresh run.
+  const won = runtime.state === 'win', retry = runtime.state === 'retry';
+  if (!won && !retry) runtime.lives = LIVES_MAX;
+  const next = won ? runtime.game.level + 1 : retry ? runtime.game.level : 1;
   runtime.game = buildTown(next);
   const impactQa = qaMode === 'impact-compare';
   if (impactQa) prepareCarImpactComparison(runtime.game);

@@ -141,11 +141,28 @@ const car = (x, heading, speed, police = false) => ({
   env.damageCarWithZombie(g, c, z, firstContact);
   const centreFront = c.body.nodes.find(n => n.restX === 23 && n.restY === 0);
   assert.ok(centreFront.x < 20, 'one zombie impact should leave a visible physical dent');
-  for (let i = 1; i < 8; i++) env.damageCarWithZombie(g, c, z);
-  assert.equal(c.broken, true, 'a series of eight impacts should permanently disable a regular car');
+  // Bodies now load the front far harder, so a regular car gives out after five of them.
+  for (let i = 1; i < 4; i++) env.damageCarWithZombie(g, c, z);
+  assert.equal(c.broken, false, 'four bodies should batter a car without finishing it');
+  env.damageCarWithZombie(g, c, z);
+  assert.equal(c.broken, true, 'a series of five impacts should permanently disable a regular car');
   assert.equal(c.breakReason, 'zombies', 'the accumulated failure reason should be preserved');
-  assert.equal(c.zombieHits, 8, 'the car should remember its zombie impact count');
+  assert.equal(c.zombieHits, 5, 'the car should remember its zombie impact count');
   assert.equal(c.v, 0, 'a car disabled by bodies should remain in place');
+}
+
+{
+  // A tank is not roadkill: it costs the driver far more than an ordinary body.
+  const g = game(), c = car(0, 1, 150);
+  const tank = { x: 38, y: 0, kind: 'tank', dumb: true, r: 20.4 };
+  carPhysics.syncCarBody(c);
+  env.damageCarWithZombie(g, c, tank, carPhysics.circleCarContact(c, tank.x, tank.y, 16));
+  const afterOne = c.damage.integrity;
+  assert.ok(afterOne < 92, 'a single tank impact should visibly wreck the front of the car');
+  assert.equal(c.broken, false, 'one tank impact should not finish the car outright');
+  env.damageCarWithZombie(g, c, tank);
+  env.damageCarWithZombie(g, c, tank);
+  assert.equal(c.broken, true, 'three tank impacts should leave the vehicle disabled');
 }
 
 {

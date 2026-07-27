@@ -3,7 +3,7 @@ window.TownGame.world = (() => {
 'use strict';
 
 const {
-  W, H, WORLD, ROAD, CAR_L, CAR_W,
+  W, H, WORLD, ROAD, CAR_L, CAR_W, ZR, HP_MAX,
   clamp, rnd, pick, obb, setOBB, distOBB, roundRect,
   WALLS, ROOFS, CARCOL
 } = window.TownGame.core;
@@ -19,6 +19,12 @@ const CAR_BUILDS = Object.freeze([
   Object.freeze({ name: 'standard', mass: 1, stiffness: 1, durability: 1, speed: 1 }),
   Object.freeze({ name: 'heavy', mass: 1.38, stiffness: 1.36, durability: 1.32, speed: .88 })
 ]);
+// Everything below is tuned per unit of area rather than per district, so the density of
+// houses, trees, traffic, and the horde survives any change to the road grid. The
+// reference is the original 1530-pixel town.
+const AREA = (WORLD / 1530) ** 2;
+const per = n => Math.round(n * AREA);
+
 function applyCarBuild(c) {
   const build = CAR_BUILDS[c.model % CAR_BUILDS.length];
   c.build = build.name; c.mass = build.mass; c.stiffness = build.stiffness; c.durability = build.durability;
@@ -51,6 +57,15 @@ const ZOMBIE_TYPES = Object.freeze([
   })
 ]);
 
+// The tank is deliberately kept out of the cycled archetypes: it never guards a parcel and
+// never appears alone. It roams the map in packs, soaks ten hits, throws nothing, and has
+// no tactics at all — it simply walks at whatever it noticed. It is meant to be walked around.
+const TANK_TYPE = Object.freeze({
+  id: 'tank', hp: 10, speed: [44, 56], size: 1.7, dumb: true,
+  skin: '#7a8878', clothes: '#3d4753', eye: '#ff7a2f', trail: '#93a2ae', map: '#cdd8e4',
+  blood: ['#6f9c33', '#456f22', '#95c247'], stain: [56, 92, 26], shot: null
+});
+
 // ---------- district generation ----------
 function buildTown(level) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
@@ -70,8 +85,10 @@ function buildTown(level) {
   for (const e of R.edges) for (let s = 0; s <= e.len; s += 8) {
     const p = onEdge(e, s);
     const gx = (p.x / CELL) | 0, gy = (p.y / CELL) | 0;
-    for (let j = Math.max(0, gy - 9); j <= Math.min(gw - 1, gy + 9); j++)
-      for (let i = Math.max(0, gx - 9); i <= Math.min(gw - 1, gx + 9); i++) {
+    // The window must cover the whole strip where houses may stand, otherwise the
+    // field never measures those cells and every candidate there looks infinitely far.
+    for (let j = Math.max(0, gy - 13); j <= Math.min(gw - 1, gy + 13); j++)
+      for (let i = Math.max(0, gx - 13); i <= Math.min(gw - 1, gx + 13); i++) {
         const d = Math.hypot(i * CELL + 10 - p.x, j * CELL + 10 - p.y);
         if (d < rdist[j * gw + i]) rdist[j * gw + i] = d;
       }
@@ -82,10 +99,16 @@ function buildTown(level) {
 
   // ---------- houses along roads, facing the street ----------
   const CURB = ROAD / 2 + 30;
-  for (let tries = 0; tries < 1800 && houses.length < 32; tries++) {
-    const x = rnd(70, WORLD - 70), y = rnd(70, WORLD - 70);
+  for (let tries = 0; tries < per(2600) && houses.length < per(32); tries++) {
+    // Sample the strip along the road directly. Uniform sampling over the whole map
+    // spends almost every try deep inside a block where no house may stand anyway.
+    const e = pick(R.edges);
+    const q = onEdge(e, rnd(0, e.len));
+    const off = rnd(CURB + 40, CURB + 132) * (Math.random() < .5 ? 1 : -1);
+    const x = q.x - q.ty * off, y = q.y + q.tx * off;
+    if (x < 70 || y < 70 || x > WORLD - 70 || y > WORLD - 70) continue;
     const d = roadDist(x, y);
-    if (d < CURB + 34 || d > CURB + 215) continue;
+    if (d < CURB + 34 || d > CURB + 140) continue;   // A band of houses along each side of the street.
     const near = nearRoad(R, x, y);
     const ang = near.ang + rnd(-.1, .1);
     const hw = rnd(50, 78), hh = rnd(42, 62);
@@ -115,7 +138,7 @@ function buildTown(level) {
   }
 
   // ---------- hedges ----------
-  for (let tries = 0, k = 0; tries < 600 && k < 16; tries++) {
+  for (let tries = 0, k = 0; tries < per(1400) && k < per(16); tries++) {
     const x = rnd(60, WORLD - 60), y = rnd(60, WORLD - 60);
     if (roadDist(x, y) < CURB + 24) continue;
     const o = obb(x, y, rnd(0, 6.283), rnd(38, 78), 9, { t: 'hedge' });
@@ -125,7 +148,7 @@ function buildTown(level) {
   }
 
   // ---------- trees and bushes ----------
-  for (let tries = 0; tries < 2200 && trees.length < 62; tries++) {
+  for (let tries = 0; tries < per(4000) && trees.length < per(62); tries++) {
     const x = rnd(34, WORLD - 34), y = rnd(34, WORLD - 34), r = rnd(15, 22);
     if (!insideEdge(x, y, r)) continue;
     if (roadDist(x, y) < ROAD / 2 + 19) continue;
@@ -133,7 +156,7 @@ function buildTown(level) {
     if (trees.some(t => Math.hypot(t.x - x, t.y - y) < t.r + r + 20)) continue;
     trees.push({ x, y, r, seed: Math.random() });
   }
-  for (let tries = 0; tries < 1400 && soft.length < 46; tries++) {
+  for (let tries = 0; tries < per(2600) && soft.length < per(46); tries++) {
     const x = rnd(30, WORLD - 30), y = rnd(30, WORLD - 30), r = rnd(16, 26);
     if (roadDist(x, y) < ROAD / 2 + 14) continue;
     if (!farFrom(x, y, r + 8)) continue;
@@ -228,7 +251,7 @@ function buildTown(level) {
   const drop = yardCells.length > 24 ? yardCells : fallbackDrop.length ? fallbackDrop : spots;
 
   // ---------- parcels ----------
-  const need = Math.min(3 + (level - 1), 8);
+  const need = Math.min(4 + (level - 1), 12);
   const parcels = [];
   const parcelGuardPools = [];
   const usedParcelHouses = new Set();
@@ -300,7 +323,7 @@ function buildTown(level) {
 
   // ---------- moving cars: follow roads and turn at intersections ----------
   const cars = [];
-  const nCars = Math.min(7 + level, 14);       // More traffic turns the roads into a permanent jam.
+  const nCars = Math.min(11 + level, 22);           // More traffic than this turns the roads into a permanent jam.
   const spd = Math.min(1.34, 1 + (level - 1) * .08);   // Higher speeds prevent traffic from separating safely.
   for (let k = 0; k < nCars; k++) {
     for (let t = 0; t < 50; t++) {
@@ -309,7 +332,9 @@ function buildTown(level) {
       const c = { id: k, edge: e, dir: Math.random() < .5 ? 1 : -1, s: rnd(40, e.len - 40),
                   mode: 'edge', turn: null,
                   v: 0, max: rnd(115, 175) * spd, col: pick(CARCOL), honk: 0, honked: false,
-                  stall: 0, stuck: 0, cd: 0, dead: 0, creep: 0, hold: false, node: -1, jx: 0, jy: 0,
+                  stall: 0, stuck: 0, cd: 0, dead: 0, hold: false, node: -1, jx: 0, jy: 0,
+                  // Untangling a jam: back out, yield, and finally take another road.
+                  rev: 0, revCd: 0, yieldTo: null, yieldT: 0, jamTries: 0, freeT: 0,
                   broken: false, breakReason: '', hazard: 0, smokeCd: 0, zombieHits: 0, zombieLoad: 0,
                   damage: newCarDamage(), body: createCarBody(), seed: Math.random(), model: k % 3,
                   driverMode: 'traffic', driverTimer: 0, shotHits: 0, bulletDents: [], hitFlash: 0,
@@ -321,10 +346,11 @@ function buildTown(level) {
     }
   }
   // Patrol car: white with a beacon and noticeably faster than traffic.
-  for (let k = 0, want = level >= 4 ? 2 : 1; k < want && k < cars.length; k++) {
+  for (let k = 0, want = Math.min(3, cars.length); k < want; k++) {
     const c = cars[k];
     c.police = true; c.col = '#eef2f7'; c.max *= 1.35; c.beacon = rnd(0, 6.283);
     c.mass *= 1.12; c.stiffness *= 1.12; c.durability *= 1.18;
+    c.copCd = rnd(.3, 1.1); c.copFlash = 0; c.copSide = 1;   // Ammunition is unlimited; only the cadence is limited.
   }
   for (const c of cars) c.baseMax = c.max;
 
@@ -358,24 +384,31 @@ function buildTown(level) {
   const zombies = [];
   // The first district provides enough targets immediately, then the horde grows;
   // the upper limit keeps quadratic body-separation checks affordable.
-  const nz = Math.min(11 + level * 3, 32);
+  const nz = Math.min(per(11) + level * 4, 52);     // The cap keeps quadratic body separation affordable.
   const zspd = 1 + (level - 1) * .06;
   const typeOffset = (Math.random() * ZOMBIE_TYPES.length) | 0;
-  const addZombie = (s, guardParcel = -1) => {
+  const addZombie = (s, guardParcel = -1, forced = null) => {
     const k = zombies.length, parcel = guardParcel >= 0 ? parcels[guardParcel] : null;
-    const type = ZOMBIE_TYPES[(k + typeOffset) % ZOMBIE_TYPES.length];
+    const type = forced || ZOMBIE_TYPES[(k + typeOffset) % ZOMBIE_TYPES.length];
+    const size = type.size || 1;
     zombies.push({
       x: s.x, y: s.y, kind: type.id, hp: type.hp, maxHp: type.hp,
+      size, r: ZR * size, dumb: !!type.dumb,
       skin: type.skin, clothes: type.clothes, eye: type.eye, trail: type.trail, mapColor: type.map,
       blood: type.blood, stain: type.stain, shot: type.shot,
       ang: rnd(0, 6.283), wdir: rnd(0, 6.283), wander: rnd(0, 2.5),
       spd: rnd(type.speed[0], type.speed[1]) * zspd, walk: rnd(0, 6), hit: 0, kx: 0, ky: 0, seed: Math.random(),
       bleed: 0, bleedCd: 0,
       alert: 0, tx: 0, ty: 0, hunt: 0, moan: rnd(0, 3),
+      notice: 0, silent: false,                        // Awareness meter and the silent-kill flag.
       throwCd: rnd(1.8, 4.8), throwWind: 0, throwAimX: 0, throwAimY: 0,
       flankSide: k % 2 ? 1 : -1, flankBias: rnd(.78, 1.16), flankTimer: rnd(.6, 2.2), pressure: 0,
       dodgeTime: 0, dodgeDir: k % 2 ? 1 : -1, dodgeCd: rnd(.25, 1.35), recoil: 0,
       surge: 0, surgeCd: rnd(.8, 2.8), guardParcel,
+      mvx: 0, mvy: 0,                                  // Last frame's velocity: the patrol leads its shots with it.
+      foeCar: null, foeCd: rnd(0, 1.2), foeHitCd: 0,   // A nearby patrol car is an alternative target.
+      tankHitCd: 0,                                    // Spacing between vehicle impacts on a tank.
+      rival: null, rivalCd: 0,                         // Doom-style feud after being splattered by a neighbour.
       guardX: parcel ? parcel.x : 0, guardY: parcel ? parcel.y : 0, guardRadius: rnd(76, 112)
     });
   };
@@ -406,6 +439,28 @@ function buildTown(level) {
     }
     if (!s) s = pick(spots);
     addZombie(s);
+  }
+
+  // Tank packs: a few clusters of three or four, scattered far from the spawn and away
+  // from the parcels, so the player meets them as a place to avoid rather than a guard post.
+  const packs = Math.min(2 + Math.floor(level / 2), 5);
+  for (let n = 0; n < packs; n++) {
+    let anchor = null;
+    for (let t = 0; t < 120 && !anchor; t++) {
+      const c = pick(onFoot.length ? onFoot : spots);
+      if (Math.hypot(c.x - start.x, c.y - start.y) < 520) continue;
+      if (parcels.some(q => Math.hypot(c.x - q.x, c.y - q.y) < 230)) continue;
+      if (zombies.some(z => z.kind === 'tank' && Math.hypot(z.x - c.x, z.y - c.y) < 460)) continue;
+      anchor = c;
+    }
+    if (!anchor) continue;
+    const size = 3 + ((Math.random() * 2) | 0);
+    for (let i = 0; i < size; i++) {
+      const near = (onFoot.length ? onFoot : spots).filter(q =>
+        Math.hypot(q.x - anchor.x, q.y - anchor.y) < 90 &&
+        zombies.every(z => Math.hypot(z.x - q.x, z.y - q.y) > 40));
+      addZombie(near.length ? pick(near) : anchor, -1, TANK_TYPE);
+    }
   }
 
   // Deterministic target for visual checks of blood sprays and stains.
@@ -443,13 +498,15 @@ function buildTown(level) {
     p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
          tx: start.x, ty: start.y - 300,
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
-         torch: true, batt: 1, stam: 1, running: false, rest: 0, step: 0, flick: 1 },
+         torch: true, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
+         takedown: 0, finishHeld: false },
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], rings: [], splash: [], carSmoke: [],
     weather: newWeather(), ammo: 24, killed: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
-    carsBroken: carDamageQa ? 1 : 0, roadKills: 0,
+    carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
     fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
-    got: 0, lives: 3, time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
+    got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
+    time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false
   };
 }
@@ -462,7 +519,7 @@ function renderStatic(g) {
 
   // Grass across the entire world.
   c.fillStyle = '#78b859'; c.fillRect(0, 0, WORLD, WORLD);
-  for (let i = 0; i < 9000; i++) {
+  for (let i = 0; i < per(9000); i++) {
     c.fillStyle = Math.random() < .5 ? 'rgba(102,166,72,.6)' : 'rgba(150,210,114,.55)';
     c.fillRect(Math.random() * WORLD, Math.random() * WORLD, 3 + Math.random() * 5, 2);
   }
@@ -485,7 +542,7 @@ function renderStatic(g) {
   stroke(ROAD + 42, '#cfc9ba');                      // Sidewalk.
   stroke(ROAD + 10, '#b3ac9c');                      // Curb.
   stroke(ROAD, '#4d525b');                           // Asphalt.
-  for (let i = 0; i < 9000; i++) {                   // Asphalt texture noise.
+  for (let i = 0; i < per(9000); i++) {                   // Asphalt texture noise.
     const x = Math.random() * WORLD, y = Math.random() * WORLD;
     if (g.roadDist(x, y) > ROAD / 2 - 7) continue;
     c.fillStyle = Math.random() < .5 ? 'rgba(255,255,255,.035)' : 'rgba(0,0,0,.07)';
@@ -748,8 +805,10 @@ function drawCarShape(c, car) {
   };
   lamp(22, -7, d.lights.frontLeft, '#fff0a8', hazardOn);
   lamp(22, 7, d.lights.frontRight, '#fff0a8', hazardOn);
-  lamp(-22, -7, d.lights.rearLeft, '#d94b42', hazardOn);
-  lamp(-22, 7, d.lights.rearRight, '#d94b42', hazardOn);
+  // Reversing lights: white while the car backs out, so the manoeuvre is readable.
+  const reverseOn = car.rev > 0 && !car.broken;
+  lamp(-22, -7, d.lights.rearLeft, reverseOn ? '#f2f6ff' : '#d94b42', hazardOn);
+  lamp(-22, 7, d.lights.rearRight, reverseOn ? '#f2f6ff' : '#d94b42', hazardOn);
 
   if (car.broken) {                                             // Jammed hood and scorched grille.
     c.fillStyle = 'rgba(23,24,25,.55)'; polygon([[12,-9],[22,-7],[19,8],[11,9]]); c.fill();

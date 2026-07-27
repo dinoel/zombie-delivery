@@ -11,7 +11,8 @@
   <span class="hud__level">DISTRICT <b id="lvl">1</b></span>
   <span class="hud__parcels">PARCELS <b id="box">0/3</b></span>
   <span class="hud__ammo">AMMO <b id="ammo">12</b></span>
-  <span class="hud__lives">LIVES <b id="lives">♥♥♥</b></span>
+  <span class="hud__health">HEALTH <b id="hp">♥♥♥♥♥</b></span>
+  <span class="hud__lives">LIVES <b id="lives">●●●</b></span>
   <span class="hud__time">TIME <b id="time">0.0</b></span>
   <span class="hud__best">BEST <b id="best">1</b></span>
 </div>
@@ -27,9 +28,21 @@
       On a phone: the first finger moves, the second fires.<br>
       Collect the <span class="legend legend--parcel">parcels</span> and deliver them to the <span class="legend legend--door">green door</span>; three zombies guard each parcel.<br>
       You have 5 seconds to look around after spawning, but your first shot immediately ends the grace period.<br>
-      <span class="key">F</span> — flashlight · <span class="key">SHIFT</span> — sprint · <span class="key">M</span> — sound. Light, footsteps, and gunfire reveal your position.<br>
+      You take <span class="legend legend--health">5 hits</span> per district. Lose them all and the district is re-issued
+      at the cost of one of your <span class="legend legend--life">3 lives</span>; out of lives, the shift is over.<br>
+      <span class="key">F</span> — flashlight · <span class="key">SHIFT</span> — sprint · <span class="key">M</span> — sound ·
+      <span class="key">P</span> or <span class="key">ESC</span> — pause. Light, footsteps, and gunfire reveal your position.<br>
+      A zombie only watches its own front, and how far it notices you depends on what you are doing:
+      sprinting carries three times farther than standing still. Come up quietly from behind with the light off
+      and press <span class="key">E</span> for a <span class="legend legend--stealth">silent kill</span> —
+      the filling arc above a zombie shows it is starting to notice you.<br>
       <span class="legend legend--walker">Green zombies</span> are standard, <span class="legend legend--runner">orange runners</span> are fast and fragile,
       and <span class="legend legend--brute">purple brutes</span> are slow but survive four hits.<br>
+      <span class="legend legend--tank">Tanks</span> roam in packs of three or four, far from the parcels: huge, half as fast
+      as a walker, no tactics at all — they just walk straight at whatever they noticed. Ten hits each, and no silent kill
+      works on them. Traffic steers around a tank instead of flattening it: a car that hits one loses half the
+      tank's health but wrecks its own front, and a second collision leaves the vehicle barely driveable.
+      Walking around a pack costs far less than fighting it.<br>
       The horde flanks and dodges; every type throws a <span class="legend legend--filth">projectile with its own color and speed</span>.<br>
       <span class="legend legend--battery">Batteries</span> and <span class="legend legend--neutral">ammo</span> are scattered through the yards.<br>
       <span class="legend legend--car">Cars</span> run zombies down, but crashes crumple bodywork and smash windows and lights; a wrecked car smokes and becomes cover.<br>
@@ -50,19 +63,19 @@
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260726-20"></script>
-  <script src="src/core.js?v=20260726-20"></script>
-  <script src="src/quality.js?v=20260726-20"></script>
-  <script src="src/audio.js?v=20260726-20"></script>
-  <script src="src/car-physics.js?v=20260726-20"></script>
-  <script src="src/environment.js?v=20260726-20"></script>
-  <script src="src/world.js?v=20260726-20"></script>
-  <script src="src/physics.js?v=20260726-20"></script>
-  <script src="src/input.js?v=20260726-20"></script>
-  <script src="src/gameplay.js?v=20260726-20"></script>
-  <script src="src/lighting.js?v=20260726-20"></script>
-  <script src="src/entities.js?v=20260726-20"></script>
-  <script src="src/render.js?v=20260726-20"></script>
-  <script src="src/main.js?v=20260726-20"></script>
+  <script src="src/namespace.js?v=20260727-22"></script>
+  <script src="src/core.js?v=20260727-22"></script>
+  <script src="src/quality.js?v=20260727-22"></script>
+  <script src="src/audio.js?v=20260727-22"></script>
+  <script src="src/car-physics.js?v=20260727-22"></script>
+  <script src="src/environment.js?v=20260727-22"></script>
+  <script src="src/world.js?v=20260727-22"></script>
+  <script src="src/physics.js?v=20260727-22"></script>
+  <script src="src/input.js?v=20260727-22"></script>
+  <script src="src/gameplay.js?v=20260727-22"></script>
+  <script src="src/lighting.js?v=20260727-22"></script>
+  <script src="src/entities.js?v=20260727-22"></script>
+  <script src="src/render.js?v=20260727-22"></script>
+  <script src="src/main.js?v=20260727-22"></script>
 </body>
 </html>

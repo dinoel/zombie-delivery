@@ -314,9 +314,14 @@ const bezDir = (T, t) => {
   const d = Math.hypot(dx, dy) || 1;
   return { x: dx / d, y: dy / d };
 };
-function startTurn(g, c) {
+function startTurn(g, c, avoidId) {
   const at = c.dir > 0 ? c.edge.b : c.edge.a;     // Node the car has reached.
-  const opts = g.roads.nodes[at].e.filter(i => i !== c.edge.id);
+  let opts = g.roads.nodes[at].e.filter(i => i !== c.edge.id);
+  // After a jam the contested exit is skipped: repeating the same turn repeats the jam.
+  if (avoidId !== undefined && opts.length > 1) {
+    const free = opts.filter(i => i !== avoidId);
+    if (free.length) opts = free;
+  }
   let nextId = opts.length ? pick(opts) : c.edge.id;
   if (opts.length && c.driverTimer > 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) {
     let bestScore = c.driverMode === 'chase' ? Infinity : -Infinity;
@@ -341,10 +346,30 @@ function startTurn(g, c) {
     x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
     next, ndir, sIn, t: 0, len: 0
   };
+  measureArc(c, T);
+  c.turn = T; c.mode = 'turn'; c.node = at;         // The node remains occupied while the car is inside it.
+}
+
+function measureArc(c, T) {
   let px = c.x, py = c.y, L = 0;                  // Approximate arc length with eight segments.
   for (let i = 1; i <= 8; i++) { const q = bezAt(T, i / 8); L += Math.hypot(q.x - px, q.y - py); px = q.x; py = q.y; }
   T.len = Math.max(24, L);
-  c.turn = T; c.mode = 'turn'; c.node = at;         // The node remains occupied while the car is inside it.
+}
+
+// A turn in place onto the opposite lane of the same road. Used as the last resort in a
+// jam: the car stops fighting for the contested spot and simply drives the other way.
+function startUTurn(c) {
+  const ndir = -c.dir;
+  const sIn = clamp(c.s - c.dir * 46, 0, c.edge.len);
+  const end = lanePoint(c.edge, sIn, ndir);
+  const d = Math.max(74, Math.hypot(end.x - c.x, end.y - c.y) * .95);
+  const T = {
+    x0: c.x, y0: c.y, x1: c.x + c.hx * d, y1: c.y + c.hy * d,
+    x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
+    next: c.edge, ndir, sIn, t: 0, len: 0
+  };
+  measureArc(c, T);
+  c.turn = T; c.mode = 'turn'; c.node = -1;        // A U-turn never claims an intersection.
 }
 
 // Predict the car position after dist pixels along a lane or turn arc.
@@ -406,7 +431,7 @@ function disableCar(g, c, reason) {
   c.breakReason = reason;
   c.v = 0;
   c.stall = 0;
-  c.creep = 0;
+  c.rev = 0; c.yieldTo = null; c.jamTries = 0;
   c.hold = true;
   c.hazard = 18;
   c.smokeCd = 0;
@@ -510,8 +535,11 @@ function softBodyContact(c, body, radius, contact, mass, relativeSpeed = c.v, ba
 
 function damageCarWithZombie(g, c, z, contact) {
   if (c.broken) return;
-  const mass = z.kind === 'brute' ? 2.2 : z.kind === 'runner' ? .75 : 1;
-  const hit = softBodyContact(c, z, 10, contact, mass);
+  // A tank is a wall on legs: hitting one wrecks the front of the car rather than the tank.
+  // One collision leaves the car barely driveable; a second one finishes it.
+  const mass = z.dumb ? 3.4 : z.kind === 'brute' ? 3.2 : z.kind === 'runner' ? 1.1 : 1.6;
+  const hit = softBodyContact(c, z, z.r || 10, contact, mass, c.v,
+    z.dumb ? 96 : 76, z.dumb ? .6 : .52);
   c.zombieHits = (c.zombieHits || 0) + 1;
   c.zombieLoad = (c.zombieLoad || 0) + mass;
   damageCar(g, c, hit.impact, hit.nx, hit.ny, 'zombie', hit.x, hit.y);
@@ -558,7 +586,7 @@ function damageCarWithBullet(g, c, contact, bullet) {
     } else {
       const chaseChance = c.police ? .82 : clamp(.22 + c.shotHits * .12, .22, .58);
       c.driverMode = Math.random() < chaseChance ? 'chase' : 'flee';
-      c.driverTimer = rnd(9, 15); c.creep = 0;
+      c.driverTimer = rnd(9, 15); c.rev = 0; c.yieldTo = null; c.jamTries = 0;
       c.hold = false; c.stall = Math.min(c.stall || 0, .2); c.honk = 1;
       c.hazard = Math.max(c.hazard || 0, c.driverMode === 'flee' ? 4 : 1.2);
     }
@@ -677,7 +705,7 @@ return Object.freeze({
   FW, fogCv,
   updateFog, drawFog, fogAt,
   newWeather, updateWeather, drawRain, drawGlowThroughFog,
-  TURN_IN, makeRoads, onEdge, lanePoint, placeCar, steerCar, startTurn, ahead,
+  TURN_IN, makeRoads, onEdge, lanePoint, placeCar, steerCar, startTurn, startUTurn, ahead,
   newCarDamage, carSmokeProfile, damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   prepareCarImpactComparison,
   disableCar, crash, crashObstacle,

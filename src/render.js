@@ -9,7 +9,7 @@ const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
 const { drawCarShape } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
 const {
-  drawZombie, nearestParcel, drawPlayer, drawGauges, drawMinimap
+  drawZombie, drawNotice, nearestParcel, drawPlayer, drawGauges, drawMinimap
 } = window.TownGame.entities;
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
@@ -182,7 +182,21 @@ function draw(g) {
   }
 
   // Zombies.
-  for (const z of g.zombies) if (visible(z.x, z.y, 48)) drawZombie(ctx, z);
+  for (const z of g.zombies) if (visible(z.x, z.y, 48)) { drawZombie(ctx, z); drawNotice(ctx, z); }
+
+  // Prompt over a zombie that can be finished silently right now.
+  if (g.finishTarget) {
+    const z = g.finishTarget;
+    ctx.save();
+    ctx.globalAlpha = .55 + .45 * Math.sin(g.time * 7);
+    ctx.fillStyle = '#e8f0ff';
+    ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('E', z.x, z.y - 24);
+    ctx.strokeStyle = 'rgba(232,240,255,.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(z.x, z.y, 17, 0, 6.283); ctx.stroke();
+    ctx.restore();
+  }
 
   // Thrown filth: a bright outline and trail give the player time to spot the threat.
   for (const s of g.zombieShots) {
@@ -205,10 +219,19 @@ function draw(g) {
   drawPlayer(ctx, p, g);
 
   // Bullets.
-  ctx.strokeStyle = '#ffe9a0'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
-  for (const b of g.bullets) {
-    if (!segmentVisible(b.px, b.py, b.x, b.y, 3)) continue;
-    ctx.beginPath(); ctx.moveTo(b.px, b.py); ctx.lineTo(b.x, b.y); ctx.stroke();
+  // Two passes: the courier's tracer is warm, the patrol's is cold.
+  ctx.lineCap = 'round';
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.strokeStyle = pass ? '#cfe4ff' : '#ffe9a0';
+    ctx.lineWidth = pass ? 2 : 2.5;
+    ctx.beginPath();
+    let any = false;
+    for (const b of g.bullets) {
+      if (!!b.own !== !!pass) continue;
+      if (!segmentVisible(b.px, b.py, b.x, b.y, 3)) continue;
+      ctx.moveTo(b.px, b.py); ctx.lineTo(b.x, b.y); any = true;
+    }
+    if (any) ctx.stroke();
   }
   ctx.lineCap = 'butt';
   if (p.muzzle > 0) {                                  // Muzzle flash.
@@ -228,6 +251,15 @@ function draw(g) {
     ctx.translate(c.x, c.y);
     ctx.rotate(Math.atan2(c.hy, c.hx));
     drawCarShape(ctx, c);
+    if (c.copFlash > 0) {                              // Muzzle flash in the open side window.
+      const s = c.copSide, a = clamp(c.copFlash / .07, 0, 1);
+      ctx.fillStyle = `rgba(255,241,200,${.85 * a})`;
+      ctx.beginPath();
+      ctx.moveTo(0, s * (8.3 + 10 * a));
+      ctx.lineTo(-5.5, s * 8.3);
+      ctx.lineTo(5.5, s * 8.3);
+      ctx.closePath(); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -292,6 +324,20 @@ function draw(g) {
 
   drawGauges(g);
   drawMinimap(g);
+
+  // Paused: the frame stays on screen, dimmed, so the player keeps their bearings.
+  if (runtime.state === 'paused') {
+    ctx.fillStyle = 'rgba(8,12,22,.58)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd766';
+    ctx.font = 'bold 34px Trebuchet MS, sans-serif';
+    ctx.fillText('PAUSED', W / 2, H / 2 - 6);
+    ctx.fillStyle = 'rgba(207,224,242,.85)';
+    ctx.font = '14px Trebuchet MS, sans-serif';
+    ctx.fillText('P or ESC — resume', W / 2, H / 2 + 22);
+    ctx.textAlign = 'left';
+  }
 
   // Mobile fire hint.
   if ('ontouchstart' in window) {

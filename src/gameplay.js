@@ -5,14 +5,14 @@ window.TownGame.gameplay = (() => {
 const {
   cv, WORLD, PR, ZR, CAR_L, BV, FIRE_CD, WALK, RUN,
   BATT_DRAIN, STAM_DRAIN, STAM_REGEN,
-  clamp, rnd, pick, inOBB,
+  clamp, rnd, pick, inOBB, distOBB, LIVES_MAX,
   UI, STORAGE_KEYS, gameStorage, runtime,
   camOf, torchHand, gunHand, overlay, startBtn
 } = window.TownGame.core;
 const SND = window.TownGame.audio;
 const {
   TURN_IN, updateFog, updateWeather,
-  lanePoint, steerCar, startTurn, ahead, carSmokeProfile,
+  lanePoint, steerCar, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
   damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   crash, crashObstacle,
   bezAt, bezDir,
@@ -37,6 +37,7 @@ function warnZombiesOfShot(g, x, y, hx, hy) {
     if (z.gone || (z.hunt <= 0 && z.alert <= 0) || z.dodgeCd > 0) continue;
     const rx = z.x - x, ry = z.y - y;
     const along = rx * hx + ry * hy;
+    if (z.dumb) continue;                    // A tank has no tactics: it never sidesteps.
     if (along < 55 || along > DODGE_RANGE) continue;
     const lateral = -rx * hy + ry * hx;
     if (Math.abs(lateral) > 32 || Math.random() > .72 - along * .00045) continue;
@@ -78,7 +79,7 @@ function throwFilth(g, z) {
   const a = Math.atan2(dy, dx) + rnd(-.055, .055);
   const x = z.x + Math.cos(a) * 17, y = z.y + Math.sin(a) * 17;
   g.zombieShots.push({
-    x, y, px: x, py: y,
+    x, y, px: x, py: y, owner: z,                  // Whose throw it was: friendly fire starts feuds.
     vx: Math.cos(a) * spec.speed, vy: Math.sin(a) * spec.speed,
     r: spec.radius, l: spec.life, spin: rnd(0, 6.283), kind: z.kind,
     body: spec.body, edge: spec.edge, dark: spec.dark, trail: spec.trail,
@@ -156,18 +157,238 @@ function killZombie(g, z) {
     g.parts.push({ x: z.x, y: z.y, vx: rnd(-170, 170), vy: rnd(-170, 170), l: rnd(.3, .8), c: pick(z.blood), s: rnd(2, 5) });
   const drop = Math.random();
   if (drop < .48) g.ammoBoxes.push({ x: z.x, y: z.y, batt: drop < .14, n: 7, ph: Math.random() * 6.283 });
-  SND.play('die', z.x, z.y, z.seed);
+  SND.play(z.silent ? 'hit' : 'die', z.x, z.y, z.seed);
+}
+
+// ---------- patrol gunfire ----------
+const COP_RANGE = 330;            // Anything further is hopeless from a moving car.
+const COP_CD = [.42, .8];         // Cadence, not an ammunition count: the patrol never runs dry.
+const COP_DMG = .5;               // Half a hit, so a standard walker takes four.
+const COP_BV = 700;
+const COP_AGGRO = 250;            // A patrol closer than this becomes a target for the horde.
+const COP_DROP = 420;             // And is forgotten past this range.
+
+// The patrol does not fire through houses, hedges, or parked cars.
+function shotBlocked(g, x0, y0, x1, y1) {
+  for (let i = 1; i <= 7; i++) {
+    const t = i / 8, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+    for (const s of g.solids) if (inOBB(x, y, s)) return true;
+  }
+  return false;
+}
+
+// Nearest zombie in the clear; only the closest few are ray-checked.
+function policeTarget(g, c) {
+  const near = [];
+  for (const z of g.zombies) {
+    if (z.gone) continue;
+    const dx = z.x - c.x, dy = z.y - c.y, d2 = dx * dx + dy * dy;
+    if (d2 <= COP_RANGE * COP_RANGE) near.push({ z, d2 });
+  }
+  near.sort((a, b) => a.d2 - b.d2);
+  for (let i = 0; i < near.length && i < 4; i++)
+    if (!shotBlocked(g, c.x, c.y, near[i].z.x, near[i].z.y)) return near[i].z;
+  return null;
+}
+
+function policeFire(g, c, z) {
+  // Whichever side window faces the target; the muzzle follows the deformed body.
+  const side = ((z.x - c.x) * -c.hy + (z.y - c.y) * c.hx) > 0 ? 1 : -1;
+  const m = bodyPointWorld(c, 0, side * 8.3);
+  c.copSide = side; c.copFlash = .07;
+
+  // A shot from a moving car is a bad shot. The nominal figure runs a few points above
+  // the target band: some aimed shots are still eaten by hedges, traffic, and other bodies,
+  // so the measured rate lands at roughly 40 % standing still and 30 % at full speed.
+  const acc = .45 - .1 * clamp(c.v / (c.baseMax || c.max || 1), 0, 1);
+  const hitIntended = Math.random() < acc;
+  const range = Math.hypot(z.x - m.x, z.y - m.y) || 1;
+  const flight = range / COP_BV;
+  const aimX = z.x + z.mvx * flight, aimY = z.y + z.mvy * flight;   // Lead, or the target simply walks out of the shot.
+  let a = Math.atan2(aimY - m.y, aimX - m.x);
+  // The deflection is measured in pixels rather than degrees: a fixed angle still
+  // lands on the target at close range, and the miss rate would drift with distance.
+  if (!hitIntended) a += (Math.random() < .5 ? -1 : 1) * (z.r + 7 + rnd(6, 32)) / range;
+  else a += rnd(-4, 4) / range;
+
+  const ca = Math.cos(a), sa = Math.sin(a);
+  // A miss stays a miss: without this the deflection lands on a neighbour in the crowd
+  // and the patrol's real hit rate climbs far above the intended one.
+  g.bullets.push({
+    x: m.x + ca * 7, y: m.y + sa * 7, px: m.x + ca * 7, py: m.y + sa * 7,
+    vx: ca * COP_BV, vy: sa * COP_BV, l: .5, own: c, dmg: COP_DMG, whiff: !hitIntended
+  });
+  for (let k = 0; k < 3; k++)
+    g.parts.push({ x: m.x + ca * 8, y: m.y + sa * 8, vx: ca * rnd(30, 110) + rnd(-40, 40),
+      vy: sa * rnd(30, 110) + rnd(-40, 40), l: rnd(.08, .2), c: '#cfe4ff', s: rnd(2, 3) });
+  SND.play('copshot', m.x, m.y);
+  makeNoise(g, c.x, c.y, 300, 4);          // Gunfire draws the horde to the car, not to the courier.
+}
+
+function updatePoliceFire(g, c, dt) {
+  c.copFlash = Math.max(0, c.copFlash - dt);
+  if (c.broken || g.done) return;
+  c.copCd -= dt;
+  if (c.copCd > 0) return;
+  const z = policeTarget(g, c);
+  if (!z) { c.copCd = .18; return; }        // Nothing in sight: check again shortly.
+  c.copCd = rnd(COP_CD[0], COP_CD[1]);
+  policeFire(g, c, z);
+}
+
+// ---------- infighting ----------
+const FEUD_TIME = [8, 13];        // How long a grudge lasts before the horde re-focuses on the courier.
+const FILTH_DMG = 1;
+
+// Doom rules: whoever gets splattered by a neighbour turns on the thrower.
+function startFeud(a, b) {
+  const t = rnd(FEUD_TIME[0], FEUD_TIME[1]);
+  a.rival = b; a.rivalCd = t; a.foeCar = null;
+  b.rival = a; b.rivalCd = t; b.foeCar = null;
+}
+
+function hitByFilth(g, z, s) {
+  const speed = Math.hypot(s.vx, s.vy) || 1;
+  z.hp -= FILTH_DMG;
+  z.hit = .2;
+  z.kx += s.vx * .1; z.ky += s.vy * .1;
+  z.bleed = Math.min(7, (z.bleed || 0) + 2.4);
+  z.bleedCd = 0;
+  sprayZombieBlood(g, z, s.x, s.y, s.vx / speed, s.vy / speed, 13, 1);
+  splatFilth(g, s);
+  if (s.owner && !s.owner.gone) startFeud(z, s.owner);
+  if (z.hp <= 0) killZombie(g, z); else SND.play('splat', z.x, z.y);
+}
+
+// ---------- stealth ----------
+const FRONT_ARC = 1.75;           // A zombie watches roughly a 200-degree arc in front of itself.
+const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45;
+const BACK_FACTOR = .38;          // From behind everything shrinks: 57 / 34 / 17 steps.
+const NOTICE_FILL = 1 / .55;      // Full awareness in just over half a second in the open.
+const NOTICE_FILL_BEAM = 1 / .2;  // A beam in the face is almost instant.
+const NOTICE_FADE = 1 / 2.4;      // And it cools down slowly.
+const TAKEDOWN_RANGE = 26;
+const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
+const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
+
+// A silent finish is only available on an unaware zombie approached from behind.
+function takedownTarget(g) {
+  const p = g.p;
+  if (g.done || p.stagger > 0 || p.takedown > 0) return null;
+  let best = null, bd = TAKEDOWN_RANGE * TAKEDOWN_RANGE;
+  for (const z of g.zombies) {
+    if (z.gone || z.dumb || z.hunt > 0 || z.notice > .55) continue;   // Too big to finish quietly.
+    const dx = p.x - z.x, dy = p.y - z.y, d2 = dx * dx + dy * dy;
+    if (d2 > bd) continue;
+    const d = Math.sqrt(d2) || 1;
+    if ((dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(TAKEDOWN_ARC)) continue;
+    bd = d2; best = z;
+  }
+  return best;
+}
+
+// ---------- untangling traffic ----------
+const REV_SPEED = 62;             // Reversing is slow: this is a manoeuvre, not an escape.
+
+// Escalating jam resolution. Backing out alone changes nothing — the geometry stays the
+// same and the car drives straight back into the same conflict. Each repeat escalates.
+function resolveJam(g, c, blocker) {
+  c.jamTries++;
+  // Parked and disabled cars never move, so waiting or backing off buys nothing:
+  // skip straight to taking another road.
+  const willMove = blocker && !blocker.broken && blocker.id !== undefined;
+  if (!willMove) c.jamTries = 3;
+
+  if (c.jamTries === 1 && willMove && blocker.id > c.id) {
+    c.yieldTo = blocker; c.yieldT = 2.5;            // Lower id keeps priority; stand aside.
+    return;
+  }
+  if (c.jamTries <= 2 && !rearBlocked(g, c)) {
+    c.rev = rnd(.75, 1.35); c.revCd = c.rev + rnd(1.1, 1.9);
+    if (willMove) { c.yieldTo = blocker; c.yieldT = 2.5; } // Back out, then let them through.
+    return;
+  }
+  // Third attempt: give up on this exit and take another one out of the intersection.
+  c.rev = 0; c.yieldTo = null; c.hold = false;
+  if (c.jamTries === 3 && c.mode === 'turn' && c.turn) {
+    const avoid = c.turn.next.id;
+    c.mode = 'edge'; c.turn = null; c.node = -1;    // Release the intersection before retrying.
+    startTurn(g, c, avoid);
+    c.revCd = 2.5;
+    return;
+  }
+  // Fourth and beyond: the whole intersection is impassable — a wreck can sit right in
+  // it — so leave it behind entirely instead of picking yet another blocked exit.
+  if (c.mode === 'turn') { c.mode = 'edge'; c.turn = null; c.node = -1; }
+  startUTurn(c);
+  c.v = Math.min(c.v, 30);
+  c.revCd = 2.5;
+}
+
+// A car can end up physically boxed in with no legal way out: a wreck standing in the
+// intersection, another car behind. Rather than let it grind there forever, put it back
+// into traffic somewhere else — but only while the player cannot see it happen.
+function respawnCar(g, c) {
+  // In sight of the player nothing may teleport, so the caller falls back to the normal
+  // escalation instead. Swallowing the attempt here would starve it and freeze the car.
+  const cam = camOf(g), m = 90;
+  if (c.x > cam.x - m && c.x < cam.x + cv.width + m &&
+      c.y > cam.y - m && c.y < cam.y + cv.height + m) return false;
+  for (let t = 0; t < 30; t++) {
+    const e = pick(g.roads.edges);
+    if (e.len < 140) continue;
+    c.edge = e; c.dir = Math.random() < .5 ? 1 : -1; c.s = rnd(50, e.len - 50);
+    c.mode = 'edge'; c.turn = null; c.node = -1;
+    placeCar(c);
+    if (Math.hypot(c.x - g.p.x, c.y - g.p.y) < 420) continue;
+    if (g.cars.some(o => o !== c && Math.hypot(o.x - c.x, o.y - c.y) < 110)) continue;
+    break;
+  }
+  c.v = 0; c.rev = 0; c.revCd = 0; c.yieldTo = null; c.yieldT = 0;
+  c.jamTries = 0; c.stuck = 0; c.dead = 0; c.freeT = 0; c.hold = false;
+  return true;
+}
+
+// Is there room behind? The rear corridor is scanned exactly like the forward one.
+function rearBlocked(g, c) {
+  for (let i = 1; i <= 2; i++) {
+    const box = ahead(c, -(28 + i * 32));
+    for (const o of g.cars) if (o !== c && obbHit(box, o.box)) return true;
+    for (const q of g.parked) if (obbHit(box, q)) return true;
+  }
+  return false;
 }
 
 // Apply one player hit from a car or zombie.
 function hurt(g, dx, dy, power, stagger = .5) {
   const p = g.p;
-  g.lives--; p.inv = 1.9; p.stagger = stagger; g.shake = 1;
+  g.hp--; p.inv = 1.9; p.stagger = stagger; g.shake = 1;
   p.kx = dx * power; p.ky = dy * power;
   for (let k = 0; k < 16; k++)
     g.parts.push({ x: p.x, y: p.y, vx: rnd(-160, 160), vy: rnd(-160, 160), l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
   SND.play('hurt', p.x, p.y);
-  if (g.lives <= 0) gameOver(g);
+  if (g.hp <= 0) loseLife(g);
+}
+
+// Health runs out inside a district; a life is the right to walk that district again.
+function loseLife(g) {
+  g.dead = true;
+  runtime.lives = Math.max(0, runtime.lives - 1);
+  if (runtime.lives <= 0) { gameOver(g); return; }
+  runtime.state = 'retry';
+  SND.play('over'); SND.rain(0);
+  cv.classList.remove('aim');
+  drawHud(g);
+  overlay.classList.remove('hidden');
+  UI.overlayTitle.textContent = 'COURIER DOWN';
+  UI.overlaySubtitle.textContent =
+    `district ${g.level}, parcels ${g.got} of ${g.need}, lives left ${runtime.lives}`;
+  UI.overlayMessage.innerHTML =
+    `Zombies eliminated: <b>${g.killed}</b>; road kills: <b>${g.roadKills}</b>.<br>` +
+    `The district is dispatched again from the depot: a fresh street layout, ` +
+    `full health, and a full magazine.<br>` +
+    `Lives are not restored — <b>${runtime.lives}</b> of ${LIVES_MAX} left for the whole run.`;
+  startBtn.textContent = 'RETRY DISTRICT';
 }
 
 // Bodies must separate physically after a bite. Otherwise the pursuer remains inside
@@ -185,7 +406,7 @@ function resolveZombieContact(g, z) {
   const p = g.p;
   let dx = p.x - z.x, dy = p.y - z.y;
   let d = Math.hypot(dx, dy);
-  const contactDistance = PR + ZR + 2;
+  const contactDistance = PR + z.r + 2;
   if (d >= contactDistance) return;
 
   // Separate coincident centers along the zombie view direction to avoid NaN.
@@ -201,7 +422,7 @@ function resolveZombieContact(g, z) {
   z.x -= nx * overlap * (1 - playerShare);
   z.y -= ny * overlap * (1 - playerShare);
   settleCircleBody(g, p, PR);
-  settleCircleBody(g, z, ZR);
+  settleCircleBody(g, z, z.r);
 
   // While flashing, the player can slip out of the horde. The enemy is still pushed
   // away, but no repeat bite or additional movement lock occurs.
@@ -274,6 +495,7 @@ function update(g, dt) {
 
   // Sprinting consumes stamina and creates noise.
   p.running = dir.run && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
+  p.moving = dir.m > .2;                        // Standing still is what makes a zombie hard to alert.
   if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
   else {
     p.rest = Math.max(0, p.rest - dt);
@@ -324,6 +546,23 @@ function update(g, dt) {
     runtime.keys[' '] || runtime.keys['k'];
   if (wantFire && p.cool <= 0 && g.ammo > 0 && !g.done) fire(g);
 
+  // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
+  // moment — doing this in the middle of a crowd gets him bitten.
+  p.takedown = Math.max(0, p.takedown - dt);
+  g.finishTarget = takedownTarget(g);
+  const wantFinish = !!runtime.keys['e'];
+  if (wantFinish && !p.finishHeld && g.finishTarget) {
+    const z = g.finishTarget;
+    p.takedown = TAKEDOWN_LOCK;
+    p.stagger = Math.max(p.stagger, TAKEDOWN_LOCK);
+    z.silent = true;
+    killZombie(g, z);
+    makeNoise(g, z.x, z.y, 50, 1);
+    g.takedowns++;
+    g.finishTarget = null;
+  }
+  p.finishHeld = wantFinish;
+
   // Bullets.
   for (let i = g.bullets.length - 1; i >= 0; i--) {
     const b = g.bullets[i];
@@ -343,6 +582,7 @@ function update(g, dt) {
     if (!gone) {
       let carHit = null, hitCar = null;
       for (const c of g.cars) {
+        if (c === b.own) continue;                    // The muzzle sits on the body: never shoot your own car.
         const contact = segmentCarContact(c, b.px, b.py, b.x, b.y);
         if (contact && (!carHit || contact.t < carHit.t)) { carHit = contact; hitCar = c; }
       }
@@ -351,21 +591,23 @@ function update(g, dt) {
         damageCarWithBullet(g, hitCar, carHit, b); gone = 'c';
       }
     }
-    if (!gone) {
+    if (!gone && !b.whiff) {
       let zombieHit = null, zombieT = 2;
       for (const z of g.zombies) {
         if (z.gone) continue;
-        const t = segmentCircleT(b.px, b.py, b.x, b.y, z.x, z.y, ZR + 3);
+        const t = segmentCircleT(b.px, b.py, b.x, b.y, z.x, z.y, z.r + 3);
         if (t !== null && t < zombieT) { zombieHit = z; zombieT = t; }
       }
       if (zombieHit) {
       const z = zombieHit;
       b.x = b.px + (b.x - b.px) * zombieT; b.y = b.py + (b.y - b.py) * zombieT;
       const bulletSpeed = Math.hypot(b.vx, b.vy) || 1;
-      z.hp--; z.hit = .2; z.alert = 6;
-      z.kx += b.vx * .12; z.ky += b.vy * .12;
-      z.bleed = Math.min(7, (z.bleed || 0) + (z.kind === 'brute' ? 3.8 : 2.7));
+      const dmg = b.dmg || 1;
+      z.hp -= dmg; z.hit = .2; z.alert = 6;
+      z.kx += b.vx * .12 * dmg; z.ky += b.vy * .12 * dmg;
+      z.bleed = Math.min(7, (z.bleed || 0) + (z.kind === 'brute' ? 3.8 : 2.7) * dmg);
       z.bleedCd = 0;
+      if (b.own) { z.foeCar = b.own; z.foeCd = rnd(2.2, 3.6); }   // Being shot at makes the shooter the new target.
       sprayZombieBlood(g, z, b.x, b.y, b.vx / bulletSpeed, b.vy / bulletSpeed,
         z.kind === 'brute' ? 18 : 14, z.kind === 'brute' ? 1.08 : 1);
       if (z.hp <= 0) killZombie(g, z); else SND.play('hit', b.x, b.y);
@@ -406,27 +648,73 @@ function update(g, dt) {
     const dx = p.x - z.x, dy = p.y - z.y, d = Math.hypot(dx, dy) || 1;
 
     // During the opening seconds, the district ignores the spawn and starting beam.
-    // Afterward, zombies always notice at close range and at distance when illuminated.
     const canNotice = !g.done && g.spawnGrace <= 0;
     const lightRange = z.guardParcel >= 0 ? 275 : 400;
-    let sees = canNotice && d < 120;
-    if (!sees && canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
+
+    // What the courier is doing decides how far they carry, and a zombie only watches
+    // its own front: a quiet approach from behind stays unseen.
+    const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
+    const reach = (p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
+                  (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
+    let exposed = canNotice && d < reach;
+
+    // Light betrays regardless of facing: the beam lands on the ground around them.
+    let inBeam = false;
+    if (canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
       const h = torchHand(p), hx = z.x - h.x, hy = z.y - h.y, hd = Math.hypot(hx, hy) || 1;
       const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
-      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) sees = true;   // Zombie is inside the hand-held light cone.
+      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) inBeam = exposed = true;
     }
-    if (sees) { z.hunt = 3.2; z.tx = p.x; z.ty = p.y; }
+
+    // Awareness fills instead of flipping, so the player can read the danger and back off.
+    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) : 0;
+    z.notice = clamp(z.notice + (fill > 0 ? fill : -NOTICE_FADE) * dt, 0, 1);
+    const sees = z.notice >= 1;
+    // A tank is slow to catch on and slow to let go: it notices from closer, but once it
+    // has locked on it keeps walking long after a sharper zombie would have given up.
+    if (sees) { z.hunt = z.dumb ? 9 : 3.2; z.tx = p.x; z.ty = p.y; z.notice = 1; }
+
+    // A patrol car that comes close is a target in its own right. With both within reach
+    // the horde still prefers the courier: sixty against forty.
+    z.foeCd = Math.max(0, z.foeCd - dt);
+    z.foeHitCd = Math.max(0, z.foeHitCd - dt);
+    z.tankHitCd = Math.max(0, z.tankHitCd - dt);   // One car impact per tank, not one per frame.
+    // A grudge outranks everything else until it burns out or the rival dies.
+    z.rivalCd = Math.max(0, z.rivalCd - dt);
+    if (z.rival && (z.rival.gone || z.rivalCd <= 0)) { z.rival = null; z.rivalCd = 0; }
+    if (z.foeCar && (z.foeCar.broken || Math.hypot(z.foeCar.x - z.x, z.foeCar.y - z.y) > COP_DROP)) z.foeCar = null;
+    if (z.foeCd <= 0 && !z.dumb) {          // A tank never picks a vehicle as prey: it would follow it.
+      let cop = null, cd = COP_AGGRO * COP_AGGRO;
+      for (const c of g.cars) {
+        if (!c.police || c.broken) continue;
+        const cx = c.x - z.x, cy = c.y - z.y, c2 = cx * cx + cy * cy;
+        if (c2 < cd) { cd = c2; cop = c; }
+      }
+      if (cop) {
+        z.foeCd = rnd(1.5, 2.8);
+        const huntingPlayer = sees || z.hunt > 0;
+        z.foeCar = huntingPlayer && Math.random() < .6 ? null : cop;
+      }
+    }
 
     let ax, ay, chase = false;
-    if (z.hunt > 0) {
+    if (z.rival) {                                    // Settle the score with whoever splattered you.
+      const rx = z.rival.x - z.x, ry = z.rival.y - z.y, rd = Math.hypot(rx, ry) || 1;
+      ax = rx / rd; ay = ry / rd; chase = true;
+    }
+    else if (z.foeCar) {                              // Tear the patrol apart instead of chasing the courier.
+      const cx = z.foeCar.x - z.x, cy = z.foeCar.y - z.y, cd = Math.hypot(cx, cy) || 1;
+      ax = cx / cd; ay = cy / cd; chase = true;
+    }
+    else if (z.hunt > 0) {
       // Instead of chasing directly, the horde flanks from both sides and leads the courier's movement.
       z.flankTimer -= dt;
       if (z.flankTimer <= 0) {
         z.flankTimer = rnd(1.8, 3.3);
         if (Math.random() < .18) z.flankSide *= -1;
       }
-      const lead = d > 100 ? Math.min(.58, d / 520) : .12;
-      const flank = d > 82 ? Math.min(112, (d - 70) * .38) * z.flankSide * z.flankBias : 0;
+      const lead = z.dumb ? 0 : d > 100 ? Math.min(.58, d / 520) : .12;
+      const flank = !z.dumb && d > 82 ? Math.min(112, (d - 70) * .38) * z.flankSide * z.flankBias : 0;
       const gx = p.x + p.vx * lead - dy / d * flank;
       const gy = p.y + p.vy * lead + dx / d * flank;
       const nx = gx - z.x, ny = gy - z.y, nd = Math.hypot(nx, ny) || 1;
@@ -435,7 +723,7 @@ function update(g, dt) {
       // A long retreat charges a short surge. Sprinting can still create distance,
       // but walking backward while shooting is no longer free.
       const retreat = (p.vx * dx + p.vy * dy) / d;
-      z.pressure = clamp(z.pressure + dt * (retreat > 58 && d > 72 && d < 330 ? 1.35 : -2.1), 0, 1);
+      z.pressure = z.dumb ? 0 : clamp(z.pressure + dt * (retreat > 58 && d > 72 && d < 330 ? 1.35 : -2.1), 0, 1);
       if (z.pressure >= 1 && z.surgeCd <= 0 && activeSurges < 2) {
         z.surge = rnd(.46, .62);
         z.surgeCd = rnd(2.9, 4.6);
@@ -487,7 +775,7 @@ function update(g, dt) {
       if (z.throwWind <= 0) throwFilth(g, z);
     } else if (z.surge > 0) {
       moveScale = 1.55;
-    } else if (!g.done && g.spawnGrace <= 0 && (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&
+    } else if (!z.dumb && !g.done && g.spawnGrace <= 0 && (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&
                d > FILTH_MIN_RANGE && d < FILTH_MAX_RANGE && g.zombieShots.length < 5) {
       const lead = Math.min(.55, d / z.shot.speed * .45);
       z.throwAimX = clamp(p.x + p.vx * lead + rnd(-16, 16), 8, WORLD - 8);
@@ -507,36 +795,78 @@ function update(g, dt) {
 
     // Zombies also gain speed on asphalt, but far less than the courier.
     const sp = z.spd * (chase ? 1 : .34) * (1 + .07 * surfaceAt(g, z.x, z.y)) * moveScale;
+    z.mvx = ax * sp; z.mvy = ay * sp;                  // The patrol leads its shots with this.
     z.x += ax * sp * dt; z.y += ay * sp * dt;
     z.walk += dt * (chase ? 7 : 3);
     if (z.kx || z.ky) {
       z.x += z.kx * dt; z.y += z.ky * dt; z.kx *= .86; z.ky *= .86;
       if (Math.abs(z.kx) < 5 && Math.abs(z.ky) < 5) z.kx = z.ky = 0;
     }
-    z.x = clamp(z.x, ZR, WORLD - ZR); z.y = clamp(z.y, ZR, WORLD - ZR);
-    for (const s of g.solids) hitOBB(z, ZR, s);
-    for (const t of g.trees) hitCircle(z, ZR, t);
+    z.x = clamp(z.x, z.r, WORLD - z.r); z.y = clamp(z.y, z.r, WORLD - z.r);
+    for (const s of g.solids) hitOBB(z, z.r, s);
+    for (const t of g.trees) hitCircle(z, z.r, t);
     for (const o of g.zombies) {                       // Keep bodies from merging into one clump.
       if (o === z) continue;
       const ox = z.x - o.x, oy = z.y - o.y, od2 = ox * ox + oy * oy;
-      if (od2 > 0 && od2 < ZR * ZR * 4) {
-        const od = Math.sqrt(od2), k = (ZR * 2 - od) / od * .5;
+      const touch = z.r + o.r;
+      if (od2 > 0 && od2 < touch * touch) {
+        const od = Math.sqrt(od2), k = (touch - od) / od * .5;
         z.x += ox * k; z.y += oy * k;
       }
     }
+    // Rivals tear at each other on contact until one of them drops.
+    if (z.rival && !z.rival.gone && z.foeHitCd <= 0) {
+      const rx = z.rival.x - z.x, ry = z.rival.y - z.y, rd = Math.hypot(rx, ry) || 1;
+      if (rd < z.r + z.rival.r + 4) {
+        z.foeHitCd = rnd(.5, .85);
+        z.recoil = .18;
+        const o = z.rival;
+        o.hp -= z.kind === 'brute' ? 1.5 : z.kind === 'runner' ? .5 : 1;
+        o.hit = .2; o.rivalCd = Math.max(o.rivalCd, 4);
+        o.kx += rx / rd * 90; o.ky += ry / rd * 90;
+        o.bleed = Math.min(7, (o.bleed || 0) + 2);
+        sprayZombieBlood(g, o, o.x, o.y, rx / rd, ry / rd, 11, 1);
+        if (o.hp <= 0) killZombie(g, o); else SND.play('hit', o.x, o.y);
+      }
+    }
+
     // Moving cars run zombies down, while repeated bodies damage the radiator and suspension.
     for (const c of g.cars) {
-      const carContact = circleCarContact(c, z.x, z.y, ZR - 4);
-      if (c.broken) { if (carContact) resolveCircleCar(c, z, ZR); continue; }
+      const carContact = circleCarContact(c, z.x, z.y, z.r - 4);
+      if (c.broken) { if (carContact) resolveCircleCar(c, z, z.r); continue; }
       if (c.v > 40 && carContact) {
-        z.kx = c.hx * 260; z.ky = c.hy * 260; c.honk = 1;
+        c.honk = 1;
+        if (z.dumb) {
+          // A tank is not roadkill. It loses half its health, shrugs off the rest, and the
+          // car takes the worse end of it: the collision all but stops the vehicle.
+          if (z.tankHitCd > 0) { resolveCircleCar(c, z, z.r); continue; }
+          z.tankHitCd = .8;
+          z.hp -= z.maxHp * .5;
+          z.hit = .25;
+          z.kx = c.hx * 90; z.ky = c.hy * 90;          // Barely shifted by the impact.
+          damageCarWithZombie(g, c, z, carContact);
+          c.v *= .18; c.stall = Math.max(c.stall, rnd(.5, 1.1));
+          g.shake = Math.max(g.shake, clamp(1 - Math.hypot(g.p.x - z.x, g.p.y - z.y) / 520, 0, 1) * .8);
+          sprayZombieBlood(g, z, carContact.x, carContact.y, c.hx, c.hy, 16, 1.1);
+          if (z.hp <= 0) { g.roadKills++; killZombie(g, z); }
+          else resolveCircleCar(c, z, z.r);
+          break;
+        }
+        z.kx = c.hx * 260; z.ky = c.hy * 260;
         damageCarWithZombie(g, c, z, carContact);
         g.roadKills++;
         killZombie(g, z); break;
       }
+      // A slow or stationary patrol gets torn at by hand until the body gives way.
+      if (c === z.foeCar && carContact && z.foeHitCd <= 0) {
+        z.foeHitCd = rnd(.55, .95);
+        z.recoil = .22;
+        damageCarWithZombie(g, c, z, carContact);
+        resolveCircleCar(c, z, z.r);
+      }
     }
     if (!z.gone) resolveZombieContact(g, z);
-    if (g.lives <= 0) return;
+    if (g.dead) return;
   }
   for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
 
@@ -554,6 +884,16 @@ function update(g, dt) {
     if (!gone) for (const c of g.cars)
       if (circleCarContact(c, s.x, s.y, s.r)) { gone = true; break; }
 
+    // A throw that lands on another zombie starts a feud between the two of them.
+    if (!gone) for (const z of g.zombies) {
+      if (z.gone || z === s.owner) continue;
+      const zdx = z.x - s.x, zdy = z.y - s.y, zr = z.r + s.r;
+      if (zdx * zdx + zdy * zdy > zr * zr) continue;
+      hitByFilth(g, z, s);
+      gone = true;
+      break;
+    }
+
     const pdx = p.x - s.x, pdy = p.y - s.y, pr = PR + s.r;
     if (!gone && !g.done && pdx * pdx + pdy * pdy < pr * pr) {
       const speed = Math.hypot(s.vx, s.vy) || 1;
@@ -563,7 +903,7 @@ function update(g, dt) {
         g.filthHits++;
         hurt(g, s.vx / speed, s.vy / speed, 105);
       }
-      if (g.lives <= 0) return;
+      if (g.dead) return;
       continue;
     }
     if (gone) {
@@ -602,6 +942,11 @@ function update(g, dt) {
     emitCarSmoke(g, c, dt);
   }
 
+  // Tanks are wide enough and slow enough to be worth steering around, so traffic treats
+  // them as moving obstacles. The rest of the horde is still simply run over.
+  const tanks = [];
+  for (const z of g.zombies) if (!z.gone && z.dumb) tanks.push(z);
+
   // Cars.
   for (const c of g.cars) {
     c.hazard = Math.max(0, (c.hazard || 0) - dt);
@@ -629,7 +974,7 @@ function update(g, dt) {
     // Scan the full corridor ahead with overlapping boxes and no gaps.
     const look = Math.max(52, c.v * 1.05), nb = Math.min(10, Math.ceil(look / 42));
     const close = Math.max(46, c.v * .55);
-    let near = false, far = false;
+    let near = false, far = false, blocker = null;
     for (let li = 1; li <= nb && !near; li++) {
       const dist = look * li / nb, isNear = dist <= close;
       const box = ahead(c, dist);
@@ -639,22 +984,51 @@ function update(g, dt) {
         // Brake for anyone nearby; the higher id yields when approaching an intersection.
         const same = o.edge === c.edge && o.dir === c.dir;
         if (!isNear && !(same || o.id < c.id || o.stall > 0)) continue;
-        if (obbHit(box, o.box)) { hit = true; break; }
+        if (obbHit(box, o.box)) { hit = true; if (!blocker) blocker = o; break; }
       }
-      if (!hit && isNear) for (const q of g.parked) if (obbHit(box, q)) { hit = true; break; }
-      if (hit) { if (isNear) near = true; else far = true; }
+      if (!hit && isNear) for (const q of g.parked)
+        if (obbHit(box, q)) { hit = true; if (!blocker) blocker = q; break; }
+      let tankAhead = false;
+      if (!hit) for (const z of tanks)
+        if (distOBB(z.x, z.y, box) < z.r) { hit = tankAhead = true; if (!blocker) blocker = z; break; }
+      // A tank always counts as an immediate obstacle. A chasing patrol ignores the distant
+      // scan, and that is exactly how a police car used to drive straight into one.
+      if (hit) { if (isNear || tankAhead) near = true; else far = true; }
     }
     // Forced movement ignores waiting and distant scans, but still brakes for immediate obstacles.
     const reacting = c.driverTimer > 0 && (c.driverMode === 'chase' || c.driverMode === 'flee');
-    let brake = near || (!reacting && c.creep <= 0 && (far || c.hold));
+    let brake = near || (!reacting && (far || c.hold));
     if (reacting) c.hold = false;
-    c.stuck = brake && c.v < 14 ? c.stuck + dt : 0;
     if (c.stall > 0) c.stall -= dt;
-    c.dead = c.v < 8 ? c.dead + dt : 0;
-    // If nobody yields or cars face off, force movement until the intersection is clear.
-    const forcedCreep = c.creep > 0;
-    if (forcedCreep) { c.creep -= dt; brake = false; }
-    else if (c.stuck > 2.5 || c.dead > 4) { c.creep = 1.4; c.stall = c.stuck = c.dead = 0; brake = false; }
+    c.rev = Math.max(0, c.rev - dt);
+    c.revCd = Math.max(0, c.revCd - dt);
+
+    // Escalation resets only after the car has actually been driving for a while. Counting
+    // idle time here would reset the counter mid-jam and loop the first step forever.
+    c.freeT = Math.abs(c.v) > 40 ? c.freeT + dt : 0;
+    if (c.freeT > 2) c.jamTries = 0;
+
+    // Yielding ends when the corridor is actually free, not when a timer runs out.
+    if (c.yieldTo) {
+      c.yieldT = Math.max(0, c.yieldT - dt);
+      if (blocker !== c.yieldTo || c.yieldT <= 0) { c.yieldTo = null; c.yieldT = 0; }
+      else brake = true;
+    }
+
+    // While the car in front is actively backing out it is making room for us: we are not
+    // deadlocked, so the counters must not tick and drag us into a manoeuvre of our own.
+    const clearingForUs = !!(blocker && blocker.rev > 0);
+    c.stuck = !clearingForUs && brake && Math.abs(c.v) < 14 ? c.stuck + dt : 0;
+    c.dead = !clearingForUs && Math.abs(c.v) < 8 ? c.dead + dt : 0;
+
+    // Hopeless and out of sight: back into traffic elsewhere. Otherwise keep escalating.
+    if (!(c.dead > 8 && respawnCar(g, c)) &&
+        c.rev <= 0 && !c.yieldTo && c.revCd <= 0 && (c.stuck > 2.2 || c.dead > 3.2)) {
+      resolveJam(g, c, blocker);
+      c.stall = c.stuck = c.dead = 0;
+    }
+    const reversing = c.rev > 0 && c.stall <= 0;
+    if (reversing) brake = false;                     // Obstacles ahead no longer matter going backward.
     if (c.stall > 0) brake = true;                    // Traffic logic cannot push a stalled engine forward.
 
     // A badly damaged engine loses power and stalls; damaged suspension slows steering.
@@ -666,17 +1040,24 @@ function update(g, dt) {
       c.beacon += dt * 7;                                      // Rotate the beacon.
       c.siren = (c.siren || 0) - dt;                           // Zombies follow the audible siren.
       if (c.siren <= 0) { c.siren = 1.1; makeNoise(g, c.x, c.y, 250, 3.2); SND.play('siren', c.x, c.y); }
+      updatePoliceFire(g, c, dt);
     }
     const turning = c.mode === 'turn', wet = g.weather.wet;
     const condition = (.42 + .58 * engine / 100) * (1 - .28 * wheelDamage);
     const driverBoost = c.driverMode === 'chase' ? 1.32 : c.driverMode === 'flee' ? 1.2 : 1;
-    const wish = brake ? 0 : forcedCreep && near ? 18 :
+    const wish = reversing ? (rearBlocked(g, c) ? 0 : -REV_SPEED) :
+      brake ? 0 :
       c.baseMax * condition * driverBoost * (turning ? .58 - .1 * wet : 1);  // Slow down for turns, especially when wet.
-    c.v += (wish - c.v) * Math.min(1, (brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
+    c.v += (wish - c.v) * Math.min(1, (reversing ? 3.2 : brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
     if (turning) {
       const T = c.turn;
       T.t += c.v * dt / T.len;
-      if (T.t >= 1) {                                          // Entered a new road.
+      if (T.t <= 0 && c.v < 0) {                               // Backed out of the intersection: release it for others.
+        T.t = 0; c.mode = 'edge'; c.turn = null; c.node = -1;
+        const l = lanePoint(c.edge, c.s, c.dir);
+        steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
+      }
+      else if (T.t >= 1) {                                     // Entered a new road.
         c.edge = T.next; c.dir = T.ndir; c.s = T.sIn; c.mode = 'edge'; c.turn = null; c.node = -1;
         const l = lanePoint(c.edge, c.s, c.dir);
         steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
@@ -689,7 +1070,7 @@ function update(g, dt) {
       // Cars enter an intersection one at a time; waiting cars stop before the node.
       const at = c.dir > 0 ? c.edge.b : c.edge.a;
       let left = c.dir > 0 ? c.edge.len - c.s : c.s;
-      c.hold = !reacting && left <= TURN_IN + 46 + c.v * .55 &&
+      c.hold = !reversing && !reacting && left <= TURN_IN + 46 + c.v * .55 &&
                g.cars.some(o => o !== c && o.mode === 'turn' && o.node === at);
       if (c.hold) {
         const stop = c.dir > 0 ? c.edge.len - TURN_IN - 10 : TURN_IN + 10;
@@ -698,7 +1079,7 @@ function update(g, dt) {
       }
       const l = lanePoint(c.edge, c.s, c.dir);
       steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
-      if (left <= TURN_IN && !c.hold) startTurn(g, c);
+      if (!reversing && left <= TURN_IN && !c.hold) startTurn(g, c);
     }
 
     // Honk when the player is near the path.
@@ -721,7 +1102,7 @@ function update(g, dt) {
       }
       if (c.v > 35 && p.inv <= 0) {
         hurt(g, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
-        if (g.lives <= 0) return;
+        if (g.dead) return;
       }
       // Every car is a physical body rather than a pass-through sprite. After the
       // impulse is calculated, separate the player circle from the deformed outline.
@@ -791,7 +1172,7 @@ function update(g, dt) {
         `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
         `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
         `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
-        `Lives and ammunition reset.`;
+        `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`;
       startBtn.textContent = 'NEXT DISTRICT';
     }, 900);
   }
@@ -824,7 +1205,8 @@ function drawHud(g) {
   UI.level.textContent = g.level;
   UI.parcels.textContent = `${g.got}/${g.need}`;
   UI.ammo.textContent = g.ammo;
-  UI.lives.textContent = '♥'.repeat(Math.max(0, g.lives)) + '·'.repeat(clamp(3 - g.lives, 0, 3));
+  UI.hp.textContent = '♥'.repeat(Math.max(0, g.hp)) + '·'.repeat(clamp(g.hpMax - g.hp, 0, g.hpMax));
+  UI.lives.textContent = '●'.repeat(Math.max(0, runtime.lives)) + '·'.repeat(clamp(LIVES_MAX - runtime.lives, 0, LIVES_MAX));
   UI.time.textContent = g.time.toFixed(1);
   if (typeof location !== 'undefined' && location.search.includes('qa=zombie-blood')) {
     cv.dataset.bloodDrops = String((g.bloodDrops || []).length);

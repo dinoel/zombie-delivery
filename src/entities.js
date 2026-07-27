@@ -7,6 +7,20 @@ const SND = window.TownGame.audio;
 const { FW, fogCv, fogAt } = window.TownGame.environment;
 const { TORCH_BTN } = window.TownGame.input;
 
+// Awareness arc above a zombie that has started to notice the courier but has not
+// locked on yet. Without it stealth reads as random luck.
+function drawNotice(c, z) {
+  if (z.hunt > 0 || z.notice <= .04) return;
+  const S = z.size || 1, r = 15 * S, y = z.y - 21 * S;
+  c.save();
+  c.lineWidth = 2.6; c.lineCap = 'round';
+  c.strokeStyle = 'rgba(12,16,24,.55)';
+  c.beginPath(); c.arc(z.x, y, r, -2.35, -.79); c.stroke();
+  c.strokeStyle = z.notice > .7 ? '#ff9a5a' : '#ffd766';
+  c.beginPath(); c.arc(z.x, y, r, -2.35, -2.35 + 1.56 * z.notice); c.stroke();
+  c.restore();
+}
+
 function drawZombie(c, z) {
   const sw = Math.sin(z.walk) * 3.2;
   if (z.dodgeTime > 0 || z.surge > 0) {
@@ -19,9 +33,10 @@ function drawZombie(c, z) {
     }
     c.restore();
   }
+  const S = z.size || 1;
   c.fillStyle = 'rgba(0,0,0,.3)';
-  c.beginPath(); c.ellipse(z.x + 3, z.y + 8, 13, 7.5, 0, 0, 6.283); c.fill();
-  c.save(); c.translate(z.x, z.y); c.rotate(z.ang);
+  c.beginPath(); c.ellipse(z.x + 3 * S, z.y + 8 * S, 13 * S, 7.5 * S, 0, 0, 6.283); c.fill();
+  c.save(); c.translate(z.x, z.y); c.rotate(z.ang); if (S !== 1) c.scale(S, S);
   const skin = z.hit > 0 ? '#ffd2d2' : (z.skin || '#8fae63');
   // Outstretched arms.
   c.fillStyle = skin;
@@ -37,6 +52,13 @@ function drawZombie(c, z) {
   c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = 1.5; c.stroke();
   if (z.guardParcel >= 0) {
     c.fillStyle = '#e2b84e'; roundRect(c, -1, -10, 6, 4, 1); c.fill();
+  }
+  if (z.dumb) {                                  // Slab shoulders read as bulk, not as a blown-up walker.
+    c.fillStyle = '#2f3742';
+    roundRect(c, -7, -13, 13, 5, 2); c.fill();
+    roundRect(c, -7, 8, 13, 5, 2); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.08)';
+    roundRect(c, -8, -7, 7, 14, 3); c.fill();
   }
   c.fillStyle = 'rgba(0,0,0,.18)';
   c.beginPath(); c.arc(-2 + z.seed * 4, -3, 3.5, 0, 6.283); c.fill();
@@ -57,9 +79,9 @@ function drawZombie(c, z) {
   }
   c.restore();
   if (z.hit > 0 && z.hp > 0 && z.maxHp > 1) {
-    const w = 24;
-    c.fillStyle = 'rgba(10,14,24,.75)'; c.fillRect(z.x - w / 2, z.y - 24, w, 4);
-    c.fillStyle = z.mapColor || '#9fd36a'; c.fillRect(z.x - w / 2 + 1, z.y - 23, (w - 2) * z.hp / z.maxHp, 2);
+    const w = 24 * S, top = z.y - 24 * S;
+    c.fillStyle = 'rgba(10,14,24,.75)'; c.fillRect(z.x - w / 2, top, w, 4);
+    c.fillStyle = z.mapColor || '#9fd36a'; c.fillRect(z.x - w / 2 + 1, top + 1, (w - 2) * z.hp / z.maxHp, 2);
   }
 }
 
@@ -203,6 +225,6 @@ function drawMinimap(g) {
   ctx.restore();
 }
 
-return Object.freeze({ drawZombie, nearestParcel, drawPlayer, drawGauges, drawMinimap });
+return Object.freeze({ drawZombie, drawNotice, nearestParcel, drawPlayer, drawGauges, drawMinimap });
 })();
 

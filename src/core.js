@@ -13,6 +13,7 @@ const UI = Object.freeze({
   level: $('lvl'),
   parcels: $('box'),
   ammo: $('ammo'),
+  hp: $('hp'),
   lives: $('lives'),
   time: $('time'),
   best: $('best'),
@@ -37,8 +38,8 @@ const gameStorage = Object.freeze({
 
 // ---------- town dimensions ----------
 const ROAD  = 116;                   // Asphalt width.
-const GN    = 4;                     // Road nodes per side.
-const GS    = 400;                   // Node spacing.
+const GN    = 5;                     // Road nodes per side.
+const GS    = 530;                   // Node spacing: wide blocks leave room to build.
 const MRG   = 165;                   // Grid margin from the world edge.
 const WORLD = MRG * 2 + (GN - 1) * GS;
 const LANE  = 29;                    // Lane offset from the centerline.
@@ -48,6 +49,8 @@ const CAR_L = 46, CAR_W = 22;
 const BV    = 660;                   // Bullet speed.
 const FIRE_CD = .26;                 // Delay between shots.
 const WALK  = 166, RUN = 252;        // Walk and sprint speeds.
+const HP_MAX = 5;                    // Hits the courier survives inside one district.
+const LIVES_MAX = 3;                 // Districts may be retried this many times per run.
 const BATT_DRAIN = 1 / 52;           // The flashlight drains in about 52 seconds.
 const STAM_DRAIN = .42, STAM_REGEN = .3;
 
@@ -88,6 +91,7 @@ const runtime = {
   joyId: null,
   fireHeld: false,
   mouse: { sx: W / 2, sy: H / 2, down: 0, active: false },
+  lives: LIVES_MAX,                  // Survives district rebuilds: the budget belongs to the run, not the level.
   best: +(gameStorage.get(STORAGE_KEYS.best, '1')) || 1
 };
 UI.best.textContent = runtime.best;
@@ -122,7 +126,7 @@ return Object.freeze({
   cv, ctx, W, H, overlay, startBtn, UI,
   STORAGE_KEYS, gameStorage, runtime,
   ROAD, GN, GS, MRG, WORLD, LANE, PR, ZR, CAR_L, CAR_W,
-  BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN,
+  BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN, HP_MAX, LIVES_MAX,
   WALLS, ROOFS, CARCOL,
   clamp, rnd, pick,
   setOBB, obb, inOBB, distOBB,

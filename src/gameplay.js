@@ -447,11 +447,13 @@ function hitByFilth(g, z, s) {
 
 // ---------- stealth ----------
 const FRONT_ARC = 1.75;           // A zombie watches roughly a 200-degree arc in front of itself.
-const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45, NOTICE_SNEAK = 28;
+const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45, NOTICE_SNEAK = 38;
 const BACK_FACTOR = .38;          // From behind everything shrinks: 57 / 34 / 17 steps.
 const NOTICE_FILL = 1 / .55;      // Full awareness in just over half a second in the open.
 const NOTICE_FILL_BEAM = 1 / .2;  // A beam in the face is almost instant.
 const NOTICE_FADE = 1 / 2.4;      // And it cools down slowly.
+const NOTICE_SNEAK_FILL = .65;     // Crawling buys time, not invisibility at close range.
+const CONTACT_NOTICE_PAD = 2;      // Physical contact always defeats stealth from any direction.
 const TAKEDOWN_RANGE = 26;
 const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
@@ -602,8 +604,24 @@ function resolveZombieContact(g, z) {
   const p = g.p;
   let dx = p.x - z.x, dy = p.y - z.y;
   let d = Math.hypot(dx, dy);
-  const contactDistance = PR + z.r + 2;
-  if (d >= contactDistance) return;
+  const contactDistance = PR + z.r + CONTACT_NOTICE_PAD;
+  if (d >= contactDistance) return false;
+
+  // A body bump is impossible to hide. Wake even during post-hit invulnerability so the
+  // zombie keeps reacting instead of appearing oblivious while the courier slips through it.
+  const canWake = !g.done && g.spawnGrace <= 0;
+  const newlyAwake = canWake && z.hunt <= 0;
+  if (canWake) {
+    z.notice = 1;
+    z.hunt = Math.max(z.hunt, z.dumb ? 9 : 3.2);
+    z.tx = p.x; z.ty = p.y;
+    z.foeCar = null;
+    if (newlyAwake) {
+      z.moan = rnd(1.6, 2.8);
+      makeNoise(g, z.x, z.y, 145, 2.2, false, z);
+      SND.play('moan', z.x, z.y, z.seed);
+    }
+  }
 
   // Separate coincident centers along the zombie view direction to avoid NaN.
   const nx = d > .001 ? dx / d : -Math.cos(z.ang);
@@ -622,7 +640,7 @@ function resolveZombieContact(g, z) {
 
   // While flashing, the player can slip out of the horde. The enemy is still pushed
   // away, but no repeat bite or additional movement lock occurs.
-  if (protectedPlayer) return;
+  if (protectedPlayer) return canWake;
 
   z.recoil = .48;
   z.kx = -nx * 260;
@@ -633,6 +651,7 @@ function resolveZombieContact(g, z) {
   z.throwWind = 0;
   z.throwCd = Math.max(z.throwCd, .75);
   hurt(g, nx, ny, 190, .28);
+  return canWake;
 }
 
 function emitCarSmoke(g, c, dt) {
@@ -905,7 +924,8 @@ function update(g, dt) {
     const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
     const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
                   (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
-    let exposed = canNotice && d < reach;
+    const touching = canNotice && d < PR + z.r + CONTACT_NOTICE_PAD;
+    let exposed = canNotice && (touching || d < reach);
 
     // Light betrays regardless of facing: the beam lands on the ground around them.
     let inBeam = false;
@@ -916,12 +936,20 @@ function update(g, dt) {
     }
 
     // Awareness fills instead of flipping, so the player can read the danger and back off.
-    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) * (p.sneaking ? .48 : 1) : 0;
-    z.notice = clamp(z.notice + (fill > 0 ? fill : -NOTICE_FADE) * dt, 0, 1);
+    const bumpedUnaware = touching && z.notice < 1 && z.hunt <= 0;
+    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) *
+                 (p.sneaking ? NOTICE_SNEAK_FILL : 1) : 0;
+    z.notice = touching ? 1 : clamp(z.notice + (fill > 0 ? fill : -NOTICE_FADE) * dt, 0, 1);
     const sees = z.notice >= 1;
     // A tank is slow to catch on and slow to let go: it notices from closer, but once it
     // has locked on it keeps walking long after a sharper zombie would have given up.
     if (sees) { z.hunt = z.dumb ? 9 : 3.2; z.tx = p.x; z.ty = p.y; z.notice = 1; }
+    if (bumpedUnaware) {
+      z.foeCar = null;
+      z.moan = rnd(1.6, 2.8);
+      makeNoise(g, z.x, z.y, 145, 2.2, false, z);
+      SND.play('moan', z.x, z.y, z.seed);
+    }
     if (z.notice > .02) { stealthWatchers++; stealthNotice = Math.max(stealthNotice, z.notice); }
     if (z.hunt > 0) stealthDetected = true;
 
@@ -1117,7 +1145,10 @@ function update(g, dt) {
         resolveCircleCar(c, z, z.r);
       }
     }
-    if (!z.gone) resolveZombieContact(g, z);
+    if (!z.gone && resolveZombieContact(g, z)) {
+      stealthDetected = true;
+      stealthNotice = 1;
+    }
     if (g.dead) return;
   }
   g.stealthDetected = stealthDetected;

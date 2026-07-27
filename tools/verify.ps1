@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-45',
-  'src/core.js?v=20260727-45',
-  'src/quality.js?v=20260727-45',
-  'src/audio.js?v=20260727-45',
-  'src/car-physics.js?v=20260727-45',
-  'src/environment.js?v=20260727-45',
-  'src/world.js?v=20260727-45',
-  'src/physics.js?v=20260727-45',
-  'src/input.js?v=20260727-45',
-  'src/gameplay.js?v=20260727-45',
-  'src/lighting.js?v=20260727-45',
-  'src/entities.js?v=20260727-45',
-  'src/render.js?v=20260727-45',
-  'src/main.js?v=20260727-45'
+  'src/namespace.js?v=20260727-46',
+  'src/core.js?v=20260727-46',
+  'src/quality.js?v=20260727-46',
+  'src/audio.js?v=20260727-46',
+  'src/car-physics.js?v=20260727-46',
+  'src/environment.js?v=20260727-46',
+  'src/world.js?v=20260727-46',
+  'src/physics.js?v=20260727-46',
+  'src/input.js?v=20260727-46',
+  'src/gameplay.js?v=20260727-46',
+  'src/lighting.js?v=20260727-46',
+  'src/entities.js?v=20260727-46',
+  'src/render.js?v=20260727-46',
+  'src/main.js?v=20260727-46'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -101,7 +101,8 @@ foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
     $problems.Add("Physical gameplay action is missing: $actionCode")
   }
 }
-foreach ($stealthFeature in @('NOTICE_SNEAK', 'SNEAK_SPEED', 'p.sneaking', 'g.stealthNotice', 'stealthDetected')) {
+foreach ($stealthFeature in @('NOTICE_SNEAK', 'NOTICE_SNEAK_FILL', 'CONTACT_NOTICE_PAD',
+    'touching ? 1', 'resolveZombieContact(g, z)', 'SNEAK_SPEED', 'p.sneaking', 'g.stealthNotice', 'stealthDetected')) {
   if (-not $gameplaySource.Contains($stealthFeature)) {
     $problems.Add("Stealth crawling behavior is missing: $stealthFeature")
   }

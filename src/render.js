@@ -77,8 +77,67 @@ function drawZombiePart(part) {
     ctx.beginPath(); ctx.arc(4, 2.5, 1.6, 0, 6.283); ctx.fill();
     ctx.fillStyle = part.blood && part.blood[0] || '#8fd34f';
     ctx.beginPath(); ctx.arc(-6.4, 0, 2.2, 0, 6.283); ctx.fill();
+    if (part.explosive && part.heat > 0) {
+      const heat = clamp(part.heat, 0, 1), pulse = .5 + Math.sin(performance.now() * .018) * .5;
+      ctx.fillStyle = `rgba(255,35,24,${.08 + heat * .64})`;
+      ctx.beginPath(); ctx.arc(0, 0, 7.6, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = `rgba(255,180,72,${.3 + heat * .55 + pulse * heat * .12})`;
+      ctx.lineWidth = .7 + heat * 1.4;
+      ctx.beginPath(); ctx.arc(0, 0, 8.2 + pulse * heat * 1.4, 0, 6.283); ctx.stroke();
+      ctx.strokeStyle = `rgba(79,10,4,${.42 + heat * .48})`; ctx.lineWidth = .8;
+      for (let k = 0; k < (part.shotHits || 0); k++) {
+        const a = -.9 + k * 1.37;
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * 2, Math.sin(a) * 2);
+        ctx.lineTo(Math.cos(a + .16) * 5.2, Math.sin(a + .16) * 5.2);
+        ctx.lineTo(Math.cos(a - .12) * 7.3, Math.sin(a - .12) * 7.3); ctx.stroke();
+      }
+      ctx.fillStyle = `rgba(255,238,180,${.3 + heat * .68})`;
+      ctx.beginPath(); ctx.arc(4, -2.5, 1.25 + heat * .55, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc(4, 2.5, 1.25 + heat * .55, 0, 6.283); ctx.fill();
+      if (part.hitFlash > 0) {
+        ctx.fillStyle = `rgba(255,255,224,${clamp(part.hitFlash * 3.8, 0, .82)})`;
+        ctx.beginPath(); ctx.arc(0, 0, 8.1, 0, 6.283); ctx.fill();
+      }
+    }
   }
   ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+// The blast is composited above night lighting and fog so its flash and expanding
+// pressure ring stay readable even in bad weather.
+function drawBlastOverlays(g, camx, camy) {
+  for (const blast of (g.blasts || [])) {
+    const x = blast.x - camx, y = blast.y - camy;
+    if (x < -blast.maxR || y < -blast.maxR || x > W + blast.maxR || y > H + blast.maxR) continue;
+    const life = clamp(blast.l / blast.max, 0, 1), progress = 1 - life;
+    const flash = clamp(1 - progress * 2.4, 0, 1), glowRadius = 30 + blast.r * .72;
+    const glow = ctx.createRadialGradient(x, y, 2, x, y, glowRadius);
+    glow.addColorStop(0, `rgba(255,255,224,${.82 * flash + .12 * life})`);
+    glow.addColorStop(.16, `rgba(255,188,54,${.72 * life})`);
+    glow.addColorStop(.43, `rgba(255,65,32,${.4 * life})`);
+    glow.addColorStop(.7, `rgba(124,220,48,${.22 * life})`);
+    glow.addColorStop(1, 'rgba(64,145,30,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, glowRadius, 0, 6.283); ctx.fill();
+
+    ctx.globalAlpha = Math.pow(life, .55);
+    ctx.strokeStyle = '#fff2a0'; ctx.lineWidth = 2 + life * 8;
+    ctx.beginPath(); ctx.arc(x, y, blast.r, 0, 6.283); ctx.stroke();
+    ctx.globalAlpha = Math.pow(life, .8) * .72;
+    ctx.strokeStyle = '#82e444'; ctx.lineWidth = 1.5 + life * 5;
+    ctx.beginPath(); ctx.arc(x, y, blast.r * .68, 0, 6.283); ctx.stroke();
+
+    if (flash > 0) {
+      ctx.globalAlpha = flash;
+      ctx.fillStyle = '#fff8d2'; ctx.beginPath(); ctx.arc(x, y, 11 + flash * 28, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = '#ffb238'; ctx.lineWidth = 5;
+      for (let k = 0; k < 12; k++) {
+        const a = blast.seed * 31 + k * .524, inner = 18 + (k % 3) * 4, outer = 50 + flash * (26 + (k % 4) * 9);
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * inner, y + Math.sin(a) * inner);
+        ctx.lineTo(x + Math.cos(a) * outer, y + Math.sin(a) * outer); ctx.stroke();
+      }
+    }
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -342,6 +401,7 @@ function draw(g) {
   drawLight(g, camx, camy);
   drawFog(g, camx, camy);
   drawGlowThroughFog(g, camx, camy);
+  drawBlastOverlays(g, camx, camy);
   drawCarSmoke(g, camx, camy);
   if (g.weather.flash > 0) {                       // Lightning flashes above the fog layer.
     ctx.fillStyle = `rgba(226,238,255,${Math.min(.55, g.weather.flash * g.weather.flash * .7)})`;

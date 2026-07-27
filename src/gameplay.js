@@ -13,7 +13,7 @@ const SND = window.TownGame.audio;
 const {
   TURN_IN, updateFog, updateWeather,
   lanePoint, steerCar, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
-  damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
+  damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   crash, crashObstacle,
   bezAt, bezDir,
   makeNoise, surfaceAt
@@ -176,6 +176,84 @@ function bounceHeadFromCorrection(head, beforeX, beforeY, restitution = .48) {
   head.spin *= .72;
 }
 
+function explodeZombieHead(g, head) {
+  if (head.exploded) return false;
+  head.exploded = true;
+  const x = head.x, y = head.y, radius = 190;
+  const index = g.zombieParts.indexOf(head);
+  if (index >= 0) g.zombieParts.splice(index, 1);
+  g.headExplosions = (g.headExplosions || 0) + 1;
+  g.blasts.push({ x, y, l: 1.5, max: 1.5, r: 0, maxR: radius, seed: Math.random() });
+  if (g.blasts.length > 8) g.blasts.shift();
+  addGroundBlood(g, x, y, head.stain, 24, 0, 0);
+
+  for (let k = 0; k < 48; k++) {
+    const a = rnd(0, 6.283), speed = rnd(90, 370);
+    addBloodDrop(g, head, x, y, Math.cos(a) * speed, Math.sin(a) * speed,
+      rnd(70, 210), rnd(1.8, 4.8), rnd(5, 18));
+  }
+  for (let k = 0; k < 92; k++) {
+    const a = rnd(0, 6.283), speed = rnd(90, 430), hot = k < 28;
+    g.parts.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      l: rnd(.45, 1.35), c: hot ? pick(['#fff0a0', '#ffb14e', '#ff5b39']) : pick(head.blood), s: rnd(2, 7) });
+  }
+
+  for (const z of g.zombies) {
+    if (z.gone) continue;
+    const dx = z.x - x, dy = z.y - y, d = Math.hypot(dx, dy) || 1;
+    if (d >= radius + z.r) continue;
+    const force = clamp(1 - d / radius, .08, 1);
+    damageZombie(g, z, .65 + 3.5 * force, dx, dy);
+    z.hit = .35; z.alert = 6; z.kx += dx / d * (130 + force * 310); z.ky += dy / d * (130 + force * 310);
+    sprayZombieBlood(g, z, z.x, z.y, dx / d, dy / d, Math.round(6 + force * 14), .75 + force * .55);
+    if (z.hp <= 0) killZombie(g, z);
+  }
+
+  const pdx = g.p.x - x, pdy = g.p.y - y, playerDistance = Math.hypot(pdx, pdy) || 1;
+  if (!g.done && !g.dead && g.p.inv <= 0 && playerDistance < radius) {
+    const force = 1 - playerDistance / radius;
+    hurt(g, pdx / playerDistance, pdy / playerDistance, 210 + force * 260, .65, playerDistance < 72 ? 2 : 1);
+  }
+
+  for (const car of g.cars) {
+    const dx = car.x - x, dy = car.y - y, d = Math.hypot(dx, dy) || 1;
+    if (d >= radius + 34) continue;
+    const force = clamp(1 - d / (radius + 34), .08, 1), nx = dx / d, ny = dy / d;
+    damageCar(g, car, 58 + force * 145, nx, ny, 'explosion', car.x - nx * 22, car.y - ny * 11);
+    car.v += (car.hx * nx + car.hy * ny) * (35 + force * 95);
+    car.hitFlash = Math.max(car.hitFlash || 0, .28);
+  }
+
+  for (const part of g.zombieParts) {
+    const dx = part.x - x, dy = part.y - y, d = Math.hypot(dx, dy) || 1;
+    if (d >= radius) continue;
+    const force = 1 - d / radius;
+    if (part.kind === 'head') kickZombieHead(g, part, dx, dy, 110 + force * 250);
+    else { part.vx += dx / d * (90 + force * 280); part.vy += dy / d * (90 + force * 280); part.vh += 45 + force * 100; }
+  }
+
+  const near = clamp(1 - playerDistance / 560, 0, 1);
+  g.shake = Math.max(g.shake, .8 + near * 2.7);
+  makeNoise(g, x, y, 720, 14, true);
+  SND.play('headBlast', x, y);
+  return true;
+}
+
+function shootZombieHead(g, head, vx, vy) {
+  // A tank head is heavy enough to stay aimable through the five-shot sequence.
+  kickZombieHead(g, head, vx, vy, head.explosive ? 16 : 225);
+  if (!head.explosive) return false;
+  head.shotHits = (head.shotHits || 0) + 1;
+  g.explosiveHeadHits = (g.explosiveHeadHits || 0) + 1;
+  head.heat = clamp(head.shotHits / 5, 0, 1);
+  head.hitFlash = .22;
+  head.bleed = Math.max(head.bleed, 1.8 + head.heat);
+  for (let k = 0; k < 5 + head.shotHits; k++)
+    g.parts.push({ x: head.x, y: head.y, vx: rnd(-90, 90), vy: rnd(-105, 60), l: rnd(.18, .45),
+      c: pick(['#a4db58', '#ff5a3f', '#ffad54']), s: rnd(2, 4) });
+  return head.shotHits >= 5 ? explodeZombieHead(g, head) : false;
+}
+
 function severZombiePart(g, z, kind, side, dx, dy) {
   const len = Math.hypot(dx, dy) || 1, nx = dx / len, ny = dy / len;
   const point = zombieLocalPoint(z, kind === 'arm' ? 11 : 3, kind === 'arm' ? side * 10 : 0);
@@ -188,6 +266,7 @@ function severZombiePart(g, z, kind, side, dx, dy) {
     vy: ny * impulse + lateralY * rnd(25, 70) * quiet,
     vh: rnd(85, 145) * quiet, ang: z.ang, spin: rnd(-8, 8), size: z.size || 1,
     skin: z.skin || '#8fae63', eye: z.eye || '#ff5a45', blood: z.blood, stain: z.stain,
+    explosive: kind === 'head' && z.kind === 'tank', shotHits: 0, heat: 0, hitFlash: 0,
     bleed: kind === 'arm' ? 3.4 : 1.5, bleedCd: 0, kickCd: 0,
     l: kind === 'head' ? Infinity : 18
   };
@@ -466,11 +545,11 @@ function rearBlocked(g, c) {
 }
 
 // Apply one player hit from a car or zombie.
-function hurt(g, dx, dy, power, stagger = .5) {
+function hurt(g, dx, dy, power, stagger = .5, amount = 1) {
   const p = g.p;
-  g.hp--; p.inv = 1.9; p.stagger = stagger; g.shake = 1;
+  g.hp -= amount; p.inv = 1.9; p.stagger = stagger; g.shake = Math.max(g.shake, 1);
   p.kx = dx * power; p.ky = dy * power;
-  for (let k = 0; k < 16; k++)
+  for (let k = 0; k < 16 + (amount - 1) * 8; k++)
     g.parts.push({ x: p.x, y: p.y, vx: rnd(-160, 160), vy: rnd(-160, 160), l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
   SND.play('hurt', p.x, p.y);
   if (g.hp <= 0) loseLife(g);
@@ -600,6 +679,27 @@ function update(g, dt) {
     const head = g.zombieParts.find(part => part.kind === 'head');
     if (head) { g.headKickQaDone = true; kickZombieHead(g, head, 1, 0, 185); }
   }
+  if (g.headExplosionQa) {
+    if (g.headExplosionQaStep === 0 && g.time >= .25) {
+      const source = g.zombies.find(z => z.kind === 'tank' && !z.gone);
+      if (source) {
+        killZombie(g, source);
+        const qaHead = g.zombieParts.find(part => part.kind === 'head' && part.explosive);
+        if (qaHead) Object.assign(qaHead, { x: source.x, y: source.y, h: 0, vx: 0, vy: 0, vh: 0 });
+        g.headExplosionQaStep = 1;
+      }
+    }
+    const hitTimes = [.55, .85, 1.15, 1.45, 1.75];
+    const head = g.zombieParts.find(part => part.kind === 'head' && part.explosive);
+    while (head && g.headExplosionQaStep >= 1 && g.headExplosionQaStep <= 5 &&
+           g.time >= hitTimes[g.headExplosionQaStep - 1]) {
+      if (g.headExplosionQaStep === 5 && g.cars[0]) {
+        g.cars[0].x = head.x - 70; g.cars[0].y = head.y;
+      }
+      shootZombieHead(g, head, 1, 0);
+      g.headExplosionQaStep++;
+    }
+  }
   g.spawnGrace = Math.max(0, g.spawnGrace - dt);
   g.shake = Math.max(0, g.shake - dt * 3);
   const p = g.p;
@@ -728,8 +828,7 @@ function update(g, dt) {
       }
       if (headHit) {
         b.x = b.px + (b.x - b.px) * headT; b.y = b.py + (b.y - b.py) * headT;
-        const speed = Math.hypot(b.vx, b.vy) || 1;
-        kickZombieHead(g, headHit, b.vx, b.vy, 190 * (b.dmg || 1), b.vx / speed * 35, b.vy / speed * 35);
+        shootZombieHead(g, headHit, b.vx, b.vy);
         gone = 'h';
       }
     }
@@ -1341,10 +1440,19 @@ function update(g, dt) {
     }, 900);
   }
 
+  for (let i = g.blasts.length - 1; i >= 0; i--) {
+    const blast = g.blasts[i];
+    blast.l -= dt;
+    const progress = 1 - clamp(blast.l / blast.max, 0, 1);
+    blast.r = blast.maxR * (1 - Math.pow(1 - progress, 2.4));
+    if (blast.l <= 0) g.blasts.splice(i, 1);
+  }
+
   // Severed limbs tumble and bleed. Heads remain physical for the entire district.
   for (let i = g.zombieParts.length - 1; i >= 0; i--) {
     const part = g.zombieParts[i];
     part.l -= dt; part.kickCd = Math.max(0, part.kickCd - dt);
+    part.hitFlash = Math.max(0, (part.hitFlash || 0) - dt);
     part.x += part.vx * dt; part.y += part.vy * dt;
     if (part.h > 0 || part.vh > 0) {
       part.h += part.vh * dt;
@@ -1495,6 +1603,17 @@ function drawHud(g) {
     cv.dataset.headSpeed = String(head ? Math.hypot(head.vx, head.vy).toFixed(2) : 0);
     cv.dataset.headBleed = String(head ? head.bleed.toFixed(2) : 0);
     cv.dataset.headKicks = String(g.headKicks);
+  }
+  if (typeof location !== 'undefined' && location.search.includes('qa=zombie-head-explosion')) {
+    const head = g.zombieParts.find(part => part.kind === 'head' && part.explosive);
+    const victim = g.zombies.find(z => !z.gone);
+    cv.dataset.headHits = String(g.explosiveHeadHits || 0);
+    cv.dataset.headHeat = String(head ? head.heat.toFixed(2) : 0);
+    cv.dataset.headExplosions = String(g.headExplosions || 0);
+    cv.dataset.activeBlasts = String(g.blasts.length);
+    cv.dataset.victimHp = String(victim ? victim.hp.toFixed(2) : 0);
+    cv.dataset.playerHp = String(g.hp);
+    cv.dataset.carIntegrity = String(g.cars[0] && g.cars[0].damage ? g.cars[0].damage.integrity.toFixed(2) : 0);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=population')) {
     cv.dataset.zombies = String(g.zombies.length);

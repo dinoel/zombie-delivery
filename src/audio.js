@@ -178,6 +178,13 @@ const SND = (() => {
       case 'engineBreak': tone(104, 32, .72, 'sawtooth', .3 * v, P);
                           hiss(.75, 420, 70, .34 * v, P, .65, 'lowpass');
                           crack(.12, 1800, 360, .22 * v, P, 1.2, 'bandpass', .08); break;
+      case 'headBlast': crack(.055, 6200, 720, 1.15 * v, P, .45, 'highpass');
+                        hiss(.82, 520, 42, 1.05 * v, P, .5, 'lowpass');
+                        tone(88, 22, 1.15, 'sine', .92 * v, P, 0, .001);
+                        tone(190, 31, .55, 'sawtooth', .46 * v, P, .012, .001);
+                        crack(.16, 2600, 260, .38 * v, P, 1.1, 'bandpass', .08);
+                        crack(.19, 1900, 170, .3 * v, P, 1.2, 'bandpass', .19);
+                        hiss(1.1, 310, 55, .4 * v, P, .7, 'lowpass', .12); break;
       case 'thunder': tone(56, 22, 2.8, 'sine', .5, 0); hiss(2.6, 230, 55, .5, 0, .5, 'lowpass');
                       hiss(.6, 950, 190, .32, 0, .8, 'lowpass', .06); break;
       case 'win':   [523, 659, 784, 1047].forEach((f, i) => tone(f, f, .3, 'triangle', .22, 0, i * .11)); break;

@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260727-30',
-  'src/core.js?v=20260727-30',
-  'src/quality.js?v=20260727-30',
-  'src/audio.js?v=20260727-30',
-  'src/car-physics.js?v=20260727-30',
-  'src/environment.js?v=20260727-30',
-  'src/world.js?v=20260727-30',
-  'src/physics.js?v=20260727-30',
-  'src/input.js?v=20260727-30',
-  'src/gameplay.js?v=20260727-30',
-  'src/lighting.js?v=20260727-30',
-  'src/entities.js?v=20260727-30',
-  'src/render.js?v=20260727-30',
-  'src/main.js?v=20260727-30'
+  'src/namespace.js?v=20260727-33',
+  'src/core.js?v=20260727-33',
+  'src/quality.js?v=20260727-33',
+  'src/audio.js?v=20260727-33',
+  'src/car-physics.js?v=20260727-33',
+  'src/environment.js?v=20260727-33',
+  'src/world.js?v=20260727-33',
+  'src/physics.js?v=20260727-33',
+  'src/input.js?v=20260727-33',
+  'src/gameplay.js?v=20260727-33',
+  'src/lighting.js?v=20260727-33',
+  'src/entities.js?v=20260727-33',
+  'src/render.js?v=20260727-33',
+  'src/main.js?v=20260727-33'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -116,6 +116,15 @@ foreach ($headPhysicsFeature in @('kickZombieHead', "part.kind !== 'head'", 'cir
   if (-not $gameplaySource.Contains($headPhysicsFeature)) {
     $problems.Add("Persistent zombie-head physics is missing: $headPhysicsFeature")
   }
+}
+foreach ($explosiveHeadFeature in @('explodeZombieHead', 'shootZombieHead', 'head.shotHits', 'g.blasts', "SND.play('headBlast'", "z.kind === 'tank'")) {
+  if (-not $gameplaySource.Contains($explosiveHeadFeature)) {
+    $problems.Add("Explosive tank-head behavior is missing: $explosiveHeadFeature")
+  }
+}
+$audioSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\audio.js')
+if (-not $audioSource.Contains("case 'headBlast'")) {
+  $problems.Add('Explosive tank-head audio is missing.')
 }
 
 # The frozen reference HTML is guarded by version control, not by a pinned hash here:

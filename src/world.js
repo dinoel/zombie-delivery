@@ -537,6 +537,26 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
+  // A tank head, one victim, and one stationary car make the fifth-shot blast repeatable.
+  if (qaMode === 'zombie-head-explosion' && zombies.length) {
+    const source = zombies.find(o => o.kind === 'tank') || zombies[0];
+    const victim = zombies.find(o => o !== source && o.kind === 'brute') || zombies.find(o => o !== source);
+    zombies.splice(0, zombies.length, source, ...(victim ? [victim] : []));
+    source.x = start.x; source.y = start.y - 82; source.ang = Math.PI / 2;
+    source.spd = 0; source.wander = 999; source.guardParcel = -1; source.alert = source.hunt = 0;
+    if (victim) {
+      victim.x = start.x + 94; victim.y = start.y - 82; victim.ang = Math.PI;
+      victim.hp = victim.maxHp = 10; victim.spd = 0; victim.wander = 999; victim.guardParcel = -1;
+      victim.alert = victim.hunt = 0; victim.throwCd = victim.dodgeCd = victim.surgeCd = 999;
+    }
+    if (cars.length) {
+      const car = cars[0]; cars.splice(1);
+      car.x = start.x - 55; car.y = start.y - 82; car.hx = 1; car.hy = 0;
+      car.v = 0; car.max = 0; car.baseMax = 0; car.stall = 99; car.hold = true;
+      setOBB(car.box, car.x, car.y, 0, CAR_L / 2, CAR_W / 2); syncCarBody(car);
+    }
+  }
+
   // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
@@ -563,7 +583,7 @@ function buildTown(level) {
          walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
          torch: true, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
          takedown: 0, finishHeld: false },
-    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], rings: [], splash: [], carSmoke: [],
+    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather: newWeather(), ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     headKicks: 0,
@@ -573,7 +593,8 @@ function buildTown(level) {
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
     time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
-    dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false
+    dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false,
+    headExplosionQa: qaMode === 'zombie-head-explosion', headExplosionQaStep: 0
   };
 }
 

@@ -453,7 +453,7 @@ function buildTown(level) {
       bleed: 0, bleedCd: 0,
       alert: 0, tx: 0, ty: 0, hunt: 0, moan: rnd(0, 3),
       notice: 0, silent: false,                        // Awareness meter and the silent-kill flag.
-      throwCd: rnd(1.8, 4.8), throwWind: 0, throwRecover: 0, throwAimX: 0, throwAimY: 0,
+      throwCd: rnd(1.8, 4.8), throwWind: 0, throwAimX: 0, throwAimY: 0,
       flankSide: k % 2 ? 1 : -1, flankBias: rnd(.78, 1.16), flankTimer: rnd(.6, 2.2), pressure: 0,
       dodgeTime: 0, dodgeDir: k % 2 ? 1 : -1, dodgeCd: rnd(.25, 1.35), recoil: 0,
       surge: 0, surgeCd: rnd(.8, 2.8), guardParcel,
@@ -526,22 +526,6 @@ function buildTown(level) {
     z.alert = 0; z.hunt = 0; z.throwCd = 999; z.dodgeCd = 999; z.surgeCd = 999;
   }
 
-  // One isolated walker for repeatable visual checks of both sprite animations.
-  if (qaMode === 'zombie-animation' && zombies.length) {
-    const z = zombies.find(o => o.kind === 'walker') || zombies[0];
-    const candidates = onFoot.filter(q => {
-      const d = Math.hypot(q.x - start.x, q.y - start.y);
-      return d > 150 && d < 175 && q.y < start.y && Math.abs(q.x - start.x) < 48;
-    });
-    const anchor = candidates.length ? pick(candidates) : { x: start.x, y: start.y - 165 };
-    zombies.splice(0, zombies.length, z);
-    cars.splice(0, cars.length);
-    z.x = anchor.x; z.y = anchor.y; z.ang = Math.atan2(start.y - z.y, start.x - z.x);
-    z.spd = 34; z.guardParcel = -1; z.notice = 1; z.hunt = 99; z.alert = 0;
-    z.throwCd = .55; z.throwWind = 0; z.throwRecover = 0;
-    z.dodgeCd = 999; z.surgeCd = 999; z.flankBias = 0;
-  }
-
   // ---------- ammo and battery boxes ----------
   const ammoBoxes = [];
   for (let k = 0; k < 8; k++) {
@@ -575,8 +559,7 @@ function buildTown(level) {
     fog: new Float32Array(FW * FW), seen: new Uint8Array(FW * FW),   // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
-    time: 0, spawnGrace: qaMode === 'zombie-animation' ? 0 : 5,
-    done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
+    time: 0, spawnGrace: 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false
   };
 }

@@ -25,6 +25,48 @@ const CAR_BUILDS = Object.freeze([
 const AREA = (WORLD / 1530) ** 2;
 const per = n => Math.round(n * AREA);
 
+// Street furniture must stay inside the narrow visible sidewalk strip. Checking
+// the nearest road, rather than only offsetting from the current edge, keeps a
+// lamp beside an acute junction from landing on another branch of asphalt.
+const SIDEWALK_CENTER = ROAD / 2 + 14;
+const SIDEWALK_INNER = ROAD / 2 + 9;
+const SIDEWALK_OUTER = (ROAD + 42) / 2 - 4;
+const FURNITURE_NODE_CLEARANCE = ROAD * 1.15;
+const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
+const CROSSWALK_MIN_GAP = ROAD * .74;
+
+function sidewalkPoint(roads, edge, distance, side) {
+  const p = onEdge(edge, distance);
+  const x = p.x - p.ty * SIDEWALK_CENTER * side;
+  const y = p.y + p.tx * SIDEWALK_CENTER * side;
+  const d = nearRoad(roads, x, y).d;
+  if (d < SIDEWALK_INNER || d > SIDEWALK_OUTER) return null;
+  return { x, y, side, tx: p.tx, ty: p.ty };
+}
+
+// Acute approaches need different setbacks. Try several conventional positions
+// and accept a crossing only when its entire painted envelope has room. This also
+// protects both ends of an unusually short street from painting over each other.
+function layoutCrosswalks(roads) {
+  const marks = [];
+  for (const n of roads.nodes) {
+    if (n.e.length < 3) continue;
+    for (const ei of n.e) {
+      const e = roads.edges[ei];
+      const fromStart = e.a === n.i;
+      for (const setback of CROSSWALK_SETBACKS) {
+        const at = fromStart ? setback : e.len - setback;
+        if (at < 20 || at > e.len - 20) continue;
+        const p = onEdge(e, at);
+        if (marks.some(q => Math.hypot(q.x - p.x, q.y - p.y) < CROSSWALK_MIN_GAP)) continue;
+        marks.push({ x: p.x, y: p.y, tx: p.tx, ty: p.ty, edge: ei, node: n.i, setback });
+        break;
+      }
+    }
+  }
+  return marks;
+}
+
 function applyCarBuild(c) {
   const build = CAR_BUILDS[c.model % CAR_BUILDS.length];
   c.build = build.name; c.mass = build.mass; c.stiffness = build.stiffness; c.durability = build.durability;
@@ -167,14 +209,24 @@ function buildTown(level) {
   // ---------- lamps and benches along sidewalks ----------
   for (const e of R.edges) {
     let side = Math.random() < .5 ? 1 : -1;
-    for (let s = rnd(60, 120); s < e.len - 50; s += rnd(150, 210)) {
-      const p = onEdge(e, s), off = (ROAD / 2 + 17) * side;
-      props.push({ t: 'lamp', x: p.x - p.ty * off, y: p.y + p.tx * off });
-      if (Math.random() < .3) {
-        const b = off + 21 * side;
-        props.push({ t: 'bench', x: p.x - p.ty * b, y: p.y + p.tx * b, a: Math.atan2(p.ty, p.tx) });
+    for (let s = FURNITURE_NODE_CLEARANCE + rnd(0, 70);
+      s < e.len - FURNITURE_NODE_CLEARANCE; s += rnd(150, 210)) {
+      let p = null;
+      for (const candidateSide of [side, -side]) {
+        const q = sidewalkPoint(R, e, s, candidateSide);
+        if (!q || !insideEdge(q.x, q.y, 7)) continue;
+        if (trees.some(t => Math.hypot(t.x - q.x, t.y - q.y) < t.r + 10)) continue;
+        p = q; break;
       }
-      side = -side;
+      if (!p) { side = -side; continue; }
+      props.push({ t: 'lamp', x: p.x, y: p.y });
+      if (Math.random() < .3) {
+        const bx = p.x - p.ty * 23 * p.side, by = p.y + p.tx * 23 * p.side;
+        if (insideEdge(bx, by, 17) && nearRoad(R, bx, by).d > SIDEWALK_OUTER + 5 &&
+          !trees.some(t => Math.hypot(t.x - bx, t.y - by) < t.r + 18))
+          props.push({ t: 'bench', x: bx, y: by, a: Math.atan2(p.ty, p.tx) });
+      }
+      side = -p.side;
     }
   }
 
@@ -552,18 +604,11 @@ function renderStatic(g) {
   stroke(3, 'rgba(240,225,150,.75)', [22, 20]);      // Centerline.
 
   // Crosswalks near intersections.
-  for (const n of g.roads.nodes) {
-    if (n.e.length < 3) continue;
-    for (const ei of n.e) {
-      const e = g.roads.edges[ei];
-      const at = e.a === n.i ? ROAD * .85 : e.len - ROAD * .85;
-      if (at < 20 || at > e.len - 20) continue;
-      const p = onEdge(e, at);
-      c.save(); c.translate(p.x, p.y); c.rotate(Math.atan2(p.ty, p.tx));
-      c.fillStyle = 'rgba(235,235,228,.8)';
-      for (let k = -3; k <= 3; k++) c.fillRect(-6, k * 11 - 3, 12, 6);
-      c.restore();
-    }
+  for (const p of layoutCrosswalks(g.roads)) {
+    c.save(); c.translate(p.x, p.y); c.rotate(Math.atan2(p.ty, p.tx));
+    c.fillStyle = 'rgba(235,235,228,.8)';
+    for (let k = -3; k <= 3; k++) c.fillRect(-6, k * 11 - 3, 12, 6);
+    c.restore();
   }
 
   // Driveways and hedges.
@@ -843,6 +888,6 @@ function drawCarShape(c, car) {
   }
 }
 
-return Object.freeze({ buildTown, drawHouse, drawCarShape });
+return Object.freeze({ buildTown, drawHouse, drawCarShape, sidewalkPoint, layoutCrosswalks });
 })();
 

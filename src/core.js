@@ -52,6 +52,7 @@ const FIRE_CD = .26;                 // Delay between shots.
 const WALK  = 166, RUN = 252;        // Walk and sprint speeds.
 const HP_MAX = 5;                    // Hits the courier survives inside one district.
 const LIVES_MAX = 3;                 // Districts may be retried this many times per run.
+const CARRY_MAX = 2;                 // Parcels the courier can carry at once.
 const BATT_DRAIN = 1 / 52;           // The flashlight drains in about 52 seconds.
 const STAM_DRAIN = .42, STAM_REGEN = .3;
 
@@ -128,7 +129,7 @@ return Object.freeze({
   cv, ctx, W, H, overlay, startBtn, UI,
   STORAGE_KEYS, gameStorage, runtime,
   ROAD, GN, GS, MRG, WORLD, LANE, PR, ZR, CAR_L, CAR_W,
-  BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN, HP_MAX, LIVES_MAX,
+  BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN, HP_MAX, LIVES_MAX, CARRY_MAX,
   WALLS, ROOFS, CARCOL,
   clamp, rnd, pick,
   setOBB, obb, inOBB, distOBB,

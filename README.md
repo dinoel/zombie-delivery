@@ -97,7 +97,7 @@ The structural refactor and the first major gameplay pass are complete:
 - vehicles have separate tires, bumpers, hood, trunk, doors, four windows, mirrors, and independently breakable lights;
 - zombies wind up and throw dodgeable clumps of filth at medium range;
 - parcels are distributed across reachable yards near different homes;
-- the exit is selected from reachable interior homes, while a clear path remains around the map edge;
+- every parcel is addressed to its own house with a reachable, street-facing door, at least 300 pixels away from where the parcel lies;
 - a guaranteed clear zone surrounds the spawn point, and the starting light does not raise an alarm during the first five seconds;
 - `tools/verify.ps1` checks load order, API registration, JavaScript, resources, and English-only text;
 - direct `file://` startup is preserved;
@@ -124,5 +124,15 @@ The second gameplay pass adds survivability, stealth, and a livelier street:
 - most zombies drop cash and a tank always does; notes scatter out of the body, settle against whatever they meet, glow faintly in the dark, and show on the minimap;
 - a drop is worth $2–5 from a runner, $3–8 from a walker, $9–16 from a brute, and $26–42 from a tank;
 - the wallet is shown in the HUD, survives district rebuilds like lives do, and resets only on a fresh run. Nothing sells anything yet.
+
+The round is a delivery loop rather than a collection:
+
+- a parcel is picked up and carried to its own address; there is no single exit door;
+- the courier carries two parcels at a time, and walking over a third with full hands does nothing but show a `HANDS FULL` prompt;
+- carried parcels ride on the courier's back — one centred, two shoulder to shoulder — in both the standing and crawling poses;
+- an address is revealed only when its parcel is picked up: a green marker over the door, a lit doorway, a minimap dot that fog does not hide, and the off-screen arrow turning green;
+- a delivered address stops being marked immediately, so the map only ever shows work in hand;
+- the HUD counts delivered parcels and appends the number in hand, as in `2/5 +1`;
+- the district ends when the last parcel reaches its door.
 
 JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

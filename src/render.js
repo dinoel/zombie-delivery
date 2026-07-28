@@ -9,7 +9,7 @@ const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
 const { drawCarShape } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
 const {
-  drawZombie, drawNotice, nearestParcel, drawPlayer, drawGauges, drawMinimap
+  drawZombie, drawNotice, nearestParcel, nearestDrop, drawPlayer, drawGauges, drawMinimap
 } = window.TownGame.entities;
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
@@ -259,9 +259,9 @@ function draw(g) {
     ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.283); ctx.stroke();
   }
 
-  // Parcels.
+  // Parcels waiting on the ground.
   for (const b of g.parcels) {
-    if (b.got || !visible(b.x, b.y, 18)) continue;
+    if (b.state !== 'ground' || !visible(b.x, b.y, 18)) continue;
     const bob = Math.sin(b.ph) * 3;
     ctx.fillStyle = 'rgba(0,0,0,.25)';
     ctx.beginPath(); ctx.ellipse(b.x, b.y + 10, 11, 5, 0, 0, 6.283); ctx.fill();
@@ -273,15 +273,30 @@ function draw(g) {
     ctx.restore();
   }
 
-  // Goal marker above the door once every parcel has been collected.
-  if (g.got >= g.need && !g.done && visible(g.goal.x, g.goal.y, 40)) {
-    const bob = Math.sin(g.time * 5) * 4;
+  // The door each carried parcel is addressed to. Nothing is marked before the pickup and
+  // nothing stays marked after the delivery, so the street only ever shows live work.
+  if (!g.done) for (const b of g.parcels) {
+    if (b.state !== 'carried' || !visible(b.dest.x, b.dest.y, 40)) continue;
+    const bob = Math.sin(g.time * 5 + b.ph) * 4;
+    ctx.fillStyle = 'rgba(143,227,136,.22)';
+    ctx.beginPath(); ctx.ellipse(b.dest.x, b.dest.y, 26, 13, 0, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#8fe388';
     ctx.beginPath();
-    ctx.moveTo(g.goal.x, g.goal.y - 16 + bob);
-    ctx.lineTo(g.goal.x - 11, g.goal.y - 34 + bob);
-    ctx.lineTo(g.goal.x + 11, g.goal.y - 34 + bob);
+    ctx.moveTo(b.dest.x, b.dest.y - 16 + bob);
+    ctx.lineTo(b.dest.x - 11, b.dest.y - 34 + bob);
+    ctx.lineTo(b.dest.x + 11, b.dest.y - 34 + bob);
     ctx.closePath(); ctx.fill();
+  }
+
+  // A parcel the courier has no hand left for.
+  if (g.handsFull && visible(g.handsFull.x, g.handsFull.y, 30)) {
+    ctx.save();
+    ctx.globalAlpha = .55 + .45 * Math.sin(g.time * 7);
+    ctx.fillStyle = '#ffd766';
+    ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HANDS FULL', g.handsFull.x, g.handsFull.y - 22);
+    ctx.restore();
   }
 
   // Zombies.
@@ -415,8 +430,10 @@ function draw(g) {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // Off-screen pointer to the nearest objective.
-  const tgt = g.got >= g.need ? g.goal : nearestParcel(g);
+  // Off-screen pointer to the nearest objective: a door while carrying, otherwise the next
+  // parcel to pick up.
+  const drop = nearestDrop(g);
+  const tgt = drop || nearestParcel(g);
   if (tgt) {
     const sx = tgt.x - camx, sy = tgt.y - camy;
     if (sx < 20 || sy < 20 || sx > W - 20 || sy > H - 20) {
@@ -426,7 +443,7 @@ function draw(g) {
       const t = Math.min(Math.abs((W / 2 - 26) / (ca || 1e-6)), Math.abs((H / 2 - 26) / (sa || 1e-6)));
       const ex = W / 2 + ca * t, ey = H / 2 + sa * t;
       ctx.save(); ctx.translate(ex, ey); ctx.rotate(a);
-      ctx.fillStyle = g.got >= g.need ? 'rgba(143,227,136,.9)' : 'rgba(255,215,102,.9)';
+      ctx.fillStyle = drop ? 'rgba(143,227,136,.9)' : 'rgba(255,215,102,.9)';
       ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-9, -9); ctx.lineTo(-9, 9); ctx.closePath(); ctx.fill();
       ctx.restore();
     }

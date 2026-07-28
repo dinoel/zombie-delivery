@@ -229,13 +229,14 @@ function collectLights(g, camx, camy) {
   add(p.x, p.y, lit ? 74 : 52, RGB_WARM, lit ? .5 : .3, .1, lit ? .8 : .6, 0, 0, 0, 9); // Pool around the feet.
   if (p.muzzle > 0) { const h = gunHand(p); add(h.x, h.y, 190, RGB_MUZZLE, 1.7, .5, 1, 0, 0, 16, 10); }
   for (const s of g.zombieShots) add(s.x, s.y, 23 + s.r, s.light || RGB_FILTH, .75, .28, .62, 0, 0, 0, 8);
-  for (const b of g.parcels) if (!b.got) add(b.x, b.y, 46, RGB_PARCEL, .7, .24, .8, 0, 0, 0, 5);
+  for (const b of g.parcels) if (b.state === 'ground') add(b.x, b.y, 46, RGB_PARCEL, .7, .24, .8, 0, 0, 0, 5);
   for (const a of g.ammoBoxes) add(a.x, a.y, 42, RGB_AMMO, .6, .22, .78, 0, 0, 0, 5);
   // A note is small and there can be many of them, so it glows faintly and yields the
   // light budget to everything else on the street.
   for (const m of g.cash) add(m.x, m.y, 26, RGB_CASH, .38, .18, .6, 0, 0, 0, 4);
-  const near = g.got >= g.need;
-  add(g.goal.x, g.goal.y, 76, RGB_GOAL, near ? 1 : .5, near ? .32 : .15, near ? .95 : .6, 0, 0, 0, 5);
+  // Only the doors with something owed to them are lit.
+  if (!g.done) for (const b of g.parcels) if (b.state === 'carried')
+    add(b.dest.x, b.dest.y, 76, RGB_GOAL, 1, .32, .95, 0, 0, 0, 5);
   for (const z of g.zombies) add(z.x + Math.cos(z.ang) * 6, z.y + Math.sin(z.ang) * 6, 14, RGB_ZOMBIE, .7, .32, .3, 0, 0, 0, 0);
 
   const max = quality.current.maxLights;

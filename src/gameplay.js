@@ -5,7 +5,7 @@ window.TownGame.gameplay = (() => {
 const {
   cv, WORLD, PR, ZR, CAR_L, BV, FIRE_CD, WALK, RUN,
   BATT_DRAIN, STAM_DRAIN, STAM_REGEN,
-  clamp, rnd, pick, inOBB, distOBB, LIVES_MAX,
+  clamp, rnd, pick, inOBB, distOBB, LIVES_MAX, CARRY_MAX,
   UI, STORAGE_KEYS, gameStorage, runtime,
   camOf, torchHand, gunHand, overlay, startBtn
 } = window.TownGame.core;
@@ -570,6 +570,36 @@ function showResult(title, subtitle, html, button) {
   startBtn.textContent = button;
 }
 
+// The last parcel has been signed off. The celebration plays where the courier is standing,
+// which is the door they just walked up to.
+function finishDistrict(g) {
+  const p = g.p;
+  g.done = true;
+  SND.play('win');
+  for (let k = 0; k < 40; k++)
+    g.parts.push({ x: p.x, y: p.y, vx: rnd(-200, 200), vy: rnd(-260, -40), l: rnd(.6, 1.3),
+                   c: pick(['#8fe388', '#ffd766', '#ffffff']), s: rnd(2, 5) });
+  if (g.level + 1 > runtime.best) {
+    runtime.best = g.level + 1;
+    gameStorage.set(STORAGE_KEYS.best, runtime.best);
+    UI.best.textContent = runtime.best;
+  }
+  setTimeout(() => {
+    runtime.state = 'win';
+    showResult(
+      'DELIVERED!',
+      `district ${g.level} completed in ${g.time.toFixed(1)} s`,
+      `Parcels delivered: <b>${g.delivered}</b>, one address at a time.<br>` +
+      `Zombies eliminated: <b>${g.killed}</b>. Dodges / surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
+      `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
+      `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
+      `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
+      `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
+      `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`,
+      'NEXT DISTRICT');
+  }, 900);
+}
+
 // Health runs out inside a district; a life is the right to walk that district again.
 function loseLife(g) {
   g.dead = true;
@@ -580,7 +610,7 @@ function loseLife(g) {
   drawHud(g);
   showResult(
     'COURIER DOWN',
-    `district ${g.level}, parcels ${g.got} of ${g.need}, lives left ${runtime.lives}`,
+    `district ${g.level}, parcels ${g.delivered} of ${g.need}, lives left ${runtime.lives}`,
     `Zombies eliminated: <b>${g.killed}</b>; road kills: <b>${g.roadKills}</b>.<br>` +
     `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
     `The district is dispatched again from the depot: a fresh street layout, ` +
@@ -896,7 +926,7 @@ function update(g, dt) {
   for (const z of g.zombies) if (!z.gone && z.surge > 0) activeSurges++;
   for (const z of g.zombies) {
     if (z.gone) continue;
-    if (z.guardParcel >= 0 && g.parcels[z.guardParcel].got) z.guardParcel = -1;
+    if (z.guardParcel >= 0 && g.parcels[z.guardParcel].state !== 'ground') z.guardParcel = -1;
     z.hit = Math.max(0, z.hit - dt);
     z.alert = Math.max(0, z.alert - dt);
     z.hunt = Math.max(0, z.hunt - dt);
@@ -1446,42 +1476,30 @@ function update(g, dt) {
     if (s.l <= 0) g.carSmoke.splice(i, 1);
   }
 
-  // Parcels.
+  // Parcels. The courier carries two at a time, and a parcel's address is worth nothing
+  // until it is on their back: picking one up is what puts its door on the map.
+  g.handsFull = null;
   for (const b of g.parcels) {
-    if (b.got) continue;
+    if (b.state !== 'ground') continue;
     b.ph += dt * 3;
-    if (Math.hypot(b.x - p.x, b.y - p.y) < 22) {
-      b.got = true; g.got++;
-      SND.play('pick', b.x, b.y);
-      for (let k = 0; k < 14; k++)
-        g.parts.push({ x: b.x, y: b.y, vx: rnd(-90, 90), vy: rnd(-140, -20), l: rnd(.4, .8), c: '#ffd766', s: rnd(2, 4) });
-    }
+    if (Math.hypot(b.x - p.x, b.y - p.y) >= 22) continue;
+    if (g.carried >= CARRY_MAX) { g.handsFull = b; continue; }   // It stays where it is until a hand is free.
+    b.state = 'carried'; g.carried++;
+    SND.play('pick', b.x, b.y);
+    for (let k = 0; k < 14; k++)
+      g.parts.push({ x: b.x, y: b.y, vx: rnd(-90, 90), vy: rnd(-140, -20), l: rnd(.4, .8), c: '#ffd766', s: rnd(2, 4) });
   }
 
-  // Delivery.
-  if (g.got >= g.need && !g.done && Math.hypot(g.goal.x - p.x, g.goal.y - p.y) < 26) {
-    g.done = true;
-    SND.play('win');
-    for (let k = 0; k < 40; k++)
-      g.parts.push({ x: g.goal.x, y: g.goal.y, vx: rnd(-200, 200), vy: rnd(-260, -40), l: rnd(.6, 1.3), c: pick(['#8fe388', '#ffd766', '#ffffff']), s: rnd(2, 5) });
-    if (g.level + 1 > runtime.best) {
-      runtime.best = g.level + 1;
-      gameStorage.set(STORAGE_KEYS.best, runtime.best);
-      UI.best.textContent = runtime.best;
-    }
-    setTimeout(() => {
-      runtime.state = 'win';
-      showResult(
-        'DELIVERED!',
-        `district ${g.level} completed in ${g.time.toFixed(1)} s`,
-        `Zombies eliminated: <b>${g.killed}</b>. Dodges / surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
-        `Filth hits: <b>${g.filthHits}</b> of ${g.filthThrown}.<br>` +
-        `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
-        `Road kills: <b>${g.roadKills}</b>; vehicles disabled: <b>${g.carsBroken}</b>.<br>` +
-        `Next is district <b>${g.level + 1}</b>, with more parcels, cars, and zombies.<br>` +
-        `Health and ammunition reset; lives carry over — <b>${runtime.lives}</b> of ${LIVES_MAX} left.`,
-        'NEXT DISTRICT');
-    }, 900);
+  // Delivery. Each parcel is signed off at its own door, and the district ends when the
+  // last one is.
+  if (!g.done) for (const b of g.parcels) {
+    if (b.state !== 'carried' || Math.hypot(b.dest.x - p.x, b.dest.y - p.y) >= 26) continue;
+    b.state = 'done'; g.carried--; g.delivered++;
+    SND.play('deliver', b.dest.x, b.dest.y);
+    for (let k = 0; k < 18; k++)
+      g.parts.push({ x: b.dest.x, y: b.dest.y, vx: rnd(-120, 120), vy: rnd(-180, -30), l: rnd(.4, .9),
+                     c: pick(['#8fe388', '#ffd766']), s: rnd(2, 4) });
+    if (g.delivered >= g.need) finishDistrict(g);
   }
 
   for (let i = g.blasts.length - 1; i >= 0; i--) {
@@ -1623,7 +1641,7 @@ function update(g, dt) {
 
 function drawHud(g) {
   UI.level.textContent = g.level;
-  UI.parcels.textContent = `${g.got}/${g.need}`;
+  UI.parcels.textContent = g.carried ? `${g.delivered}/${g.need} +${g.carried}` : `${g.delivered}/${g.need}`;
   UI.ammo.textContent = g.ammo;
   UI.hp.textContent = '♥'.repeat(Math.max(0, g.hp)) + '·'.repeat(clamp(g.hpMax - g.hp, 0, g.hpMax));
   UI.lives.textContent = '●'.repeat(Math.max(0, runtime.lives)) + '·'.repeat(clamp(LIVES_MAX - runtime.lives, 0, LIVES_MAX));
@@ -1683,7 +1701,7 @@ function gameOver(g) {
   drawHud(g);
   showResult(
     'SHIFT OVER',
-    `district ${g.level}, parcels ${g.got} of ${g.need}, zombies eliminated ${g.killed}`,
+    `district ${g.level}, parcels ${g.delivered} of ${g.need}, zombies eliminated ${g.killed}`,
     `Filth thrown: <b>${g.filthThrown}</b>; hits taken: <b>${g.filthHits}</b>.<br>` +
     `Dodges / pursuing surges: <b>${g.dodges}</b> / <b>${g.surges}</b>.<br>` +
     `Cash picked up over the shift: <b>$${runtime.cash}</b>.<br>` +

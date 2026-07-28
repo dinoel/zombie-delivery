@@ -350,12 +350,12 @@ function buildTown(level) {
       Math.hypot(q.x - start.x, q.y - start.y) > START_GUARD_GAP)
       .sort((a, b) => Math.hypot(a.x - bestSpot.x, a.y - bestSpot.y) - Math.hypot(b.x - bestSpot.x, b.y - bestSpot.y))
       .slice(0, 16);
-    parcels.push({ x: bestSpot.x, y: bestSpot.y, got: false, ph: Math.random() * 6.283 });
+    parcels.push({ x: bestSpot.x, y: bestSpot.y, state: 'ground', dest: null, ph: Math.random() * 6.283 });
     parcelGuardPools.push(guards);
     if (bestSpot.house) usedParcelHouses.add(bestSpot.house);
   }
 
-  // ---------- destination house: street-facing door with a reachable approach ----------
+  // ---------- destinations: one street-facing door per parcel ----------
   const doorOf = h => {
     const L = h.face * (h.hh + 17);
     return { x: h.cx - L * Math.sin(h.ang), y: h.cy + L * Math.cos(h.ang) };
@@ -369,19 +369,25 @@ function buildTown(level) {
     }
     return true;
   };
-  let goal = null;
-  let cand = houses.filter(h => {
-    const d = doorOf(h);
+  // Every parcel is addressed to its own house. No door is marked in the static layer:
+  // an address is worth nothing until the parcel is on the courier's back, and twelve
+  // green doors would give the whole district away from the start.
+  const DEST_TRIP = 300;               // A delivery should be a walk, not a step aside.
+  let destHouses = houses.filter(h => {
     const edge = Math.min(h.cx, h.cy, WORLD - h.cx, WORLD - h.cy);
-    return edge > 185 && Math.hypot(h.cx - start.x, h.cy - start.y) > 210 &&
-           !usedParcelHouses.has(h) && parcels.every(p => Math.hypot(h.cx - p.x, h.cy - p.y) > 135) && doorOpen(h, d);
+    return edge > 150 && !usedParcelHouses.has(h) && doorOpen(h, doorOf(h));
   });
-  if (!cand.length) cand = houses.filter(h => doorOpen(h, doorOf(h)));
-  if (cand.length) {
-    const h = pick(cand), d = doorOf(h);
-    h.target = true; goal = { house: h, ...d };
+  if (destHouses.length < parcels.length) destHouses = houses.filter(h => doorOpen(h, doorOf(h)));
+  if (!destHouses.length) destHouses = houses.slice();
+  const takenDest = new Set();
+  for (const b of parcels) {
+    let choices = destHouses.filter(h => !takenDest.has(h) && Math.hypot(h.cx - b.x, h.cy - b.y) > DEST_TRIP);
+    if (!choices.length) choices = destHouses.filter(h => !takenDest.has(h));
+    if (!choices.length) choices = destHouses;          // A small district may address two parcels to one house.
+    const h = pick(choices);
+    takenDest.add(h);
+    b.dest = { house: h, ...doorOf(h) };
   }
-  if (!goal) { const h = houses[0]; h.target = true; goal = { house: h, ...doorOf(h) }; }
 
   // ---------- moving cars: follow roads and turn at intersections ----------
   const cars = [];
@@ -632,7 +638,7 @@ function buildTown(level) {
   }
 
   return {
-    level, solids, trees, soft, houses, props, parcels, cars, goal, need, zombies, ammoBoxes,
+    level, solids, trees, soft, houses, props, parcels, cars, need, zombies, ammoBoxes,
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
     stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
     p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
@@ -647,7 +653,8 @@ function buildTown(level) {
     carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
     fog, seen,                                                    // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
-    got: 0, hp: HP_MAX, hpMax: HP_MAX, dead: false,
+    delivered: 0, carried: 0, handsFull: null,      // Signed off, on the back, and the parcel that would not fit.
+    hp: HP_MAX, hpMax: HP_MAX, dead: false,
     time: 0, spawnGrace: stealthQa ? 0 : 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
     dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false,

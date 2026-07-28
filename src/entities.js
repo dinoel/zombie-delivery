@@ -111,11 +111,37 @@ function drawZombie(c, z) {
 function nearestParcel(g) {
   let bestP = null, bd = 1e9;
   for (const b of g.parcels) {
-    if (b.got) continue;
+    if (b.state !== 'ground') continue;
     const dx = b.x - g.p.x, dy = b.y - g.p.y, d = dx * dx + dy * dy;
     if (d < bd) { bd = d; bestP = b; }
   }
   return bestP;
+}
+
+// The nearest door the courier is currently carrying something for. A parcel on the back
+// outranks one still lying in a yard: it is already committed work.
+function nearestDrop(g) {
+  let best = null, bd = 1e9;
+  for (const b of g.parcels) {
+    if (b.state !== 'carried') continue;
+    const dx = b.dest.x - g.p.x, dy = b.dest.y - g.p.y, d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = b.dest; }
+  }
+  return best;
+}
+
+// Parcels ride on the courier's back, behind the torso: one sits centred, two sit shoulder
+// to shoulder. The count is readable at a glance, which is the whole point of putting them
+// on the sprite rather than only in the HUD.
+function drawCarriedParcels(c, carried, x, w, h) {
+  if (carried <= 0) return;
+  const offsets = carried === 1 ? [0] : [-h * .55, h * .55];
+  const bh = carried === 1 ? h : h * .82;
+  for (const oy of offsets) {
+    c.fillStyle = '#c9a26a'; roundRect(c, x, oy - bh / 2, w, bh, 2); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.32)'; c.lineWidth = 1; c.stroke();
+    c.fillStyle = '#e8d3a8'; c.fillRect(x, oy - .9, w, 1.8);      // Tape across the box.
+  }
 }
 
 function drawPlayer(c, p, g) {
@@ -144,7 +170,7 @@ function drawPlayer(c, p, g) {
 
     // Backpack and torso retain their full width; nothing is globally squashed.
     c.fillStyle = '#b7452c'; roundRect(c, -12, -6.5, 8, 13, 3); c.fill();
-    if (g.got > 0) { c.fillStyle = '#c9a26a'; roundRect(c, -14, -5, 5, 10, 2); c.fill(); }
+    drawCarriedParcels(c, g.carried, -14, 5, 9);
     c.fillStyle = '#e0603f'; roundRect(c, -8, -8, 19, 16, 6); c.fill();
     c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
 
@@ -186,7 +212,7 @@ function drawPlayer(c, p, g) {
   c.fillStyle = '#e0603f'; roundRect(c, -10, -9, 20, 18, 6); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
   c.fillStyle = '#b7452c'; roundRect(c, -11, -7, 8, 14, 3); c.fill();
-  if (g.got > 0) { c.fillStyle = '#c9a26a'; roundRect(c, -12, -5, 5, 10, 2); c.fill(); }
+  drawCarriedParcels(c, g.carried, -12.5, 5.5, 9.5);
   // Head.
   c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
@@ -289,10 +315,12 @@ function drawMinimap(g) {
   for (const m of g.cash) if (fogAt(g, m.x, m.y) > 0)
     ctx.fillRect(mx + m.x * k - 1, my + m.y * k - 1, 2, 2);
   ctx.fillStyle = '#ffd766';
-  for (const b of g.parcels) if (!b.got) { ctx.beginPath(); ctx.arc(mx + b.x * k, my + b.y * k, 2.6, 0, 6.283); ctx.fill(); }
-  if (g.got >= g.need) {
-    ctx.fillStyle = '#8fe388';
-    ctx.beginPath(); ctx.arc(mx + g.goal.x * k, my + g.goal.y * k, 3.4, 0, 6.283); ctx.fill();
+  for (const b of g.parcels) if (b.state === 'ground') { ctx.beginPath(); ctx.arc(mx + b.x * k, my + b.y * k, 2.6, 0, 6.283); ctx.fill(); }
+  // An address shows on the map only while its parcel is on the courier's back. Fog does
+  // not hide it: the courier knows where they are going, they just have to get there.
+  ctx.fillStyle = '#8fe388';
+  for (const b of g.parcels) if (b.state === 'carried') {
+    ctx.beginPath(); ctx.arc(mx + b.dest.x * k, my + b.dest.y * k, 3.4, 0, 6.283); ctx.fill();
   }
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.arc(mx + g.p.x * k, my + g.p.y * k, 3, 0, 6.283); ctx.fill();
@@ -301,6 +329,6 @@ function drawMinimap(g) {
   ctx.restore();
 }
 
-return Object.freeze({ drawZombie, drawNotice, nearestParcel, drawPlayer, drawGauges, drawMinimap });
+return Object.freeze({ drawZombie, drawNotice, nearestParcel, nearestDrop, drawPlayer, drawGauges, drawMinimap });
 })();
 

@@ -163,6 +163,9 @@ const SND = (() => {
       case 'pick':  tone(660, 660, .09, 'triangle', .26 * v, P);
                     tone(880, 880, .09, 'triangle', .26 * v, P, .07);
                     tone(1320, 1320, .17, 'triangle', .22 * v, P, .14); break;
+      // One parcel signed off: a short rising pair, well short of the district fanfare.
+      case 'deliver': tone(587, 587, .12, 'triangle', .26 * v, P);
+                      tone(880, 880, .2, 'triangle', .22 * v, P, .1); break;
       // Paper and coins: drier and lower than a supply box, so the two never sound alike.
       case 'cash':  hiss(.06, 5200, 2600, .16 * v, P, 2.6, 'highpass');
                     tone(988, 988, .07, 'triangle', .2 * v, P, .03);

@@ -170,9 +170,11 @@ function drawPlayer(c, p, g) {
 
     // Backpack and torso retain their full width; nothing is globally squashed.
     c.fillStyle = '#b7452c'; roundRect(c, -12, -6.5, 8, 13, 3); c.fill();
-    drawCarriedParcels(c, g.carried, -14, 5, 9);
     c.fillStyle = '#e0603f'; roundRect(c, -8, -8, 19, 16, 6); c.fill();
     c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
+    // Prone, the back faces the camera: the load sits on top of the torso, not behind the
+    // hips, and is drawn after the torso for the same reason.
+    drawCarriedParcels(c, g.carried, -7.5, 9, 8);
 
     // Head and cap point forward, making the facing direction obvious from above.
     c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(10, 0, 7.2, 0, 6.283); c.fill();

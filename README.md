@@ -28,6 +28,22 @@ node .\tools\test-car-damage.js
 
 It covers plastic body-node displacement, replacement of the original collision outline with the deformed outline, moderate and catastrophic frontal crashes, side-part damage, and final failure after repeated zombie impacts. Visual states can be compared in `tools/car-damage-preview.html`. To inspect smoke and the crumpled physical wreck in the game, open `index.html?2d&qa=car-damage`; a test vehicle will appear in the starting beam. Normal gameplay never enables this mode.
 
+## Building a single file
+
+The game is developed and played from source; the bundle is only for handing it to someone as one file.
+
+```powershell
+node .\tools\build.js
+```
+
+The script reads the load order out of `index.html`, so a new subsystem is picked up without editing the build. It inlines the stylesheet, minifies the JavaScript with terser, and writes `dist/courier.html` — one self-contained file with no external references, which still opens over `file://`. Property names are never mangled, since they reach the DOM and the subsystem registry by name.
+
+terser is fetched on demand through `npx` and pinned to one version, so the build needs a network connection the first time and produces the same output on every run afterwards. Without terser the bundle is still written, unminified, and the script says so. Nothing about this is required to play the game.
+
+Current output: 267 kB of JavaScript compresses to 139 kB, and the whole page is 152 kB — 54 kB gzipped.
+
+`dist/` is generated and is not tracked.
+
 ## Project structure
 
 - `index.html` — markup and subsystem load order.
@@ -46,6 +62,7 @@ It covers plastic body-node displacement, replacement of the original collision 
 - `src/lighting.js` — Canvas 2D and WebGL lighting.
 - `src/entities.js` — characters, gauges, and the minimap.
 - `src/main.js` — game loop and district startup.
+- `tools/build.js` — bundles everything into one minified `dist/courier.html`.
 - `docs/architecture.md` — subsystem boundaries and dependency graph.
 
 ## Current state

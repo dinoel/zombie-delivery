@@ -18,7 +18,7 @@ const {
   bezAt, bezDir,
   makeNoise, surfaceAt
 } = window.TownGame.environment;
-const { hitOBB, obbHit, hitCircle } = window.TownGame.physics;
+const { hitOBB, obbHit, hitCircle, solidsNear, treesNear, parkedNear } = window.TownGame.physics;
 const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
 } = window.TownGame.carPhysics;
@@ -357,7 +357,7 @@ const COP_DROP = 420;             // And is forgotten past this range.
 function shotBlocked(g, x0, y0, x1, y1) {
   for (let i = 1; i <= 7; i++) {
     const t = i / 8, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-    for (const s of g.solids) if (inOBB(x, y, s)) return true;
+    for (const s of solidsNear(g, x, y, 0)) if (inOBB(x, y, s)) return true;
   }
   return false;
 }
@@ -542,7 +542,7 @@ function rearBlocked(g, c) {
   for (let i = 1; i <= 2; i++) {
     const box = ahead(c, -(28 + i * 32));
     for (const o of g.cars) if (o !== c && obbHit(box, o.box)) return true;
-    for (const q of g.parked) if (obbHit(box, q)) return true;
+    for (const q of parkedNear(g, box.cx, box.cy, box.rad)) if (obbHit(box, q)) return true;
   }
   return false;
 }
@@ -624,8 +624,8 @@ function loseLife(g) {
 function settleCircleBody(g, body, radius) {
   body.x = clamp(body.x, radius, WORLD - radius);
   body.y = clamp(body.y, radius, WORLD - radius);
-  for (const s of g.solids) hitOBB(body, radius, s);
-  for (const t of g.trees) hitCircle(body, radius, t);
+  for (const s of solidsNear(g, body.x, body.y, radius)) hitOBB(body, radius, s);
+  for (const t of treesNear(g, body.x, body.y, radius)) hitCircle(body, radius, t);
   body.x = clamp(body.x, radius, WORLD - radius);
   body.y = clamp(body.y, radius, WORLD - radius);
 }
@@ -811,8 +811,8 @@ function update(g, dt) {
   else p.walk += dt * 1.5;
 
   p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
-  for (const s of g.solids) hitOBB(p, PR, s);
-  for (const t of g.trees) hitCircle(p, PR, t);
+  for (const s of solidsNear(g, p.x, p.y, PR)) hitOBB(p, PR, s);
+  for (const t of treesNear(g, p.x, p.y, PR)) hitCircle(p, PR, t);
   g.cam = camOf(g);
 
   // Aim with the mouse, or fall back to the movement direction.
@@ -854,14 +854,16 @@ function update(g, dt) {
     b.l -= dt; b.px = b.x; b.py = b.y;
     b.x += b.vx * dt; b.y += b.vy * dt;
     let gone = b.l <= 0 || b.x < 0 || b.y < 0 || b.x > WORLD || b.y > WORLD;
-    if (!gone) for (const c of g.parked) {
+    // The flight path of one frame is short, so only the parked cars along it are tested.
+    if (!gone) for (const c of parkedNear(g, (b.px + b.x) * .5, (b.py + b.y) * .5,
+                                          Math.max(Math.abs(b.x - b.px), Math.abs(b.y - b.py)) * .5)) {
       const contact = segmentCarContact(c, b.px, b.py, b.x, b.y);
       if (!contact) continue;
       b.x = contact.x; b.y = contact.y; damageCarWithBullet(g, c, contact, b); gone = 'c'; break;
     }
-    if (!gone) for (const s of g.solids)
+    if (!gone) for (const s of solidsNear(g, b.x, b.y, 0))
       if (s.t !== 'parked' && inOBB(b.x, b.y, s)) { gone = 'w'; break; }
-    if (!gone) for (const t of g.trees)
+    if (!gone) for (const t of treesNear(g, b.x, b.y, 0))
       { const dx = t.x - b.x, dy = t.y - b.y;
         if (dx * dx + dy * dy < t.r * t.r) { gone = 'w'; break; } }
     if (!gone) {
@@ -1113,8 +1115,8 @@ function update(g, dt) {
       if (Math.abs(z.kx) < 5 && Math.abs(z.ky) < 5) z.kx = z.ky = 0;
     }
     z.x = clamp(z.x, z.r, WORLD - z.r); z.y = clamp(z.y, z.r, WORLD - z.r);
-    for (const s of g.solids) hitOBB(z, z.r, s);
-    for (const t of g.trees) hitCircle(z, z.r, t);
+    for (const s of solidsNear(g, z.x, z.y, z.r)) hitOBB(z, z.r, s);
+    for (const t of treesNear(g, z.x, z.y, z.r)) hitCircle(z, z.r, t);
     for (const o of g.zombies) {                       // Keep bodies from merging into one clump.
       if (o === z) continue;
       const ox = z.x - o.x, oy = z.y - o.y, od2 = ox * ox + oy * oy;
@@ -1192,9 +1194,9 @@ function update(g, dt) {
     s.l -= dt; s.px = s.x; s.py = s.y; s.spin += dt * 8;
     s.x += s.vx * dt; s.y += s.vy * dt;
     let gone = s.l <= 0 || s.x < 0 || s.y < 0 || s.x > WORLD || s.y > WORLD;
-    if (!gone) for (const o of g.solids)
+    if (!gone) for (const o of solidsNear(g, s.x, s.y, s.r))
       if (inOBB(s.x, s.y, o)) { gone = true; break; }
-    if (!gone) for (const t of g.trees)
+    if (!gone) for (const t of treesNear(g, s.x, s.y, s.r))
       { const dx = t.x - s.x, dy = t.y - s.y, r = t.r + s.r;
         if (dx * dx + dy * dy < r * r) { gone = true; break; } }
     if (!gone) for (const c of g.cars)
@@ -1324,7 +1326,7 @@ function update(g, dt) {
         if (!isNear && !(same || o.id < c.id || o.stall > 0)) continue;
         if (obbHit(box, o.box)) { hit = true; if (!blocker) blocker = o; break; }
       }
-      if (!hit && isNear) for (const q of g.parked)
+      if (!hit && isNear) for (const q of parkedNear(g, box.cx, box.cy, box.rad))
         if (obbHit(box, q)) { hit = true; if (!blocker) blocker = q; break; }
       let tankAhead = false;
       if (!hit) for (const z of tanks)

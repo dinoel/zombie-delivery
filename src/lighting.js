@@ -2,9 +2,10 @@
 window.TownGame.lighting = (() => {
 'use strict';
 
-const { ctx, W, H, torchHand, gunHand } = window.TownGame.core;
+const { ctx, W, H, len, torchHand, gunHand } = window.TownGame.core;
 const quality = window.TownGame.quality;
 const { bodyPointWorld } = window.TownGame.carPhysics;
+const { solidsNear, treesNear, softNear } = window.TownGame.physics;
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
 
@@ -57,16 +58,19 @@ function forEachFoliageLobe(o, visit) {
 
 const isFoliageOccluder = o => o.r !== undefined || o.t === 'hedge';
 
-// Occluders near a point: houses, hedges, trees, and cars.
+// Occluders near a point: houses, hedges, trees, and cars. The static furniture comes out
+// of the district's broad-phase grid; only the traffic is still walked in full, and there
+// is never much of it.
+const occSolids = [], occTrees = [], occSoft = [];
 function occNear(g, x, y, r, skip, detailedFoliage = false) {
   const out = [];
-  for (const s of g.solids) {
+  for (const s of solidsNear(g, x, y, r, occSolids, 0)) {
     const dx = s.cx - x, dy = s.cy - y, reach = r + s.rad;
     if (dx * dx + dy * dy < reach * reach) out.push(s);
   }
-  for (const t of g.trees)
+  for (const t of treesNear(g, x, y, r, occTrees, 0))
     if (Math.abs(t.x - x) < r + t.r && Math.abs(t.y - y) < r + t.r) out.push(t);
-  if (detailedFoliage) for (const b of g.soft)
+  if (detailedFoliage) for (const b of softNear(g, x, y, r, occSoft, 0))
     if (Math.abs(b.x - x) < r + b.r && Math.abs(b.y - y) < r + b.r) out.push(b);
   for (const c of g.cars) {
     const dx = c.x - x, dy = c.y - y, reach = r + c.box.rad;
@@ -80,13 +84,13 @@ function castShadows(c, lx, ly, occ, detailedFoliage) {
   c.globalCompositeOperation = 'destination-out';
   c.fillStyle = '#000';
   const circleShadow = (x, y, r, startPad = 0) => {
-    const dx = x - lx, dy = y - ly, d = Math.hypot(dx, dy);
+    const dx = x - lx, dy = y - ly, d = len(dx, dy);
     if (d < r) return;
     const px = -dy / d * r, py = dx / d * r;
     const ux = dx / d, uy = dy / d;
     const ax = x + px + ux * startPad, ay = y + py + uy * startPad;
     const bx = x - px + ux * startPad, by = y - py + uy * startPad;
-    const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+    const da = len(ax - lx, ay - ly) || 1, db = len(bx - lx, by - ly) || 1;
     c.beginPath();
     c.moveTo(ax, ay); c.lineTo(bx, by);
     c.lineTo(bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN);
@@ -109,7 +113,7 @@ function castShadows(c, lx, ly, occ, detailedFoliage) {
         const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % 4];
         const nx = y2 - y1, ny = x1 - x2;             // Outward face normal.
         if ((x1 - lx) * nx + (y1 - ly) * ny <= 0) continue;   // A face looking at the light casts no shadow.
-        const d1 = Math.hypot(x1 - lx, y1 - ly) || 1, d2 = Math.hypot(x2 - lx, y2 - ly) || 1;
+        const d1 = len(x1 - lx, y1 - ly) || 1, d2 = len(x2 - lx, y2 - ly) || 1;
         c.beginPath();
         c.moveTo(x1, y1); c.lineTo(x2, y2);
         c.lineTo(x2 + (x2 - lx) / d2 * SHADOW_LEN, y2 + (y2 - ly) / d2 * SHADOW_LEN);
@@ -399,28 +403,50 @@ const GLR = gl && (() => { try {
   const shadowBuf = gl.createBuffer();
   const verts = new Float32Array(60000);              // Enough for about 5,000 wedges.
   const foliageData = new Float32Array(MAX_FOLIAGE_LOBES * 4);
+  // The store is allocated once and refilled in place. Every light, every penumbra sample,
+  // and the roof pass write through the same buffer, so a frame no longer asks the driver
+  // for a few hundred fresh allocations.
+  const gl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+  gl.bindBuffer(gl.ARRAY_BUFFER, shadowBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, verts.byteLength, gl.DYNAMIC_DRAW);
+  const uploadVerts = count => {
+    gl.bindBuffer(gl.ARRAY_BUFFER, shadowBuf);
+    if (gl2) gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts, 0, count);
+    else gl.bufferSubData(gl.ARRAY_BUFFER, 0, verts.subarray(0, count));
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  };
 
   const U = (p, n) => gl.getUniformLocation(p, n);
+  // The canvas never resizes, and uniforms belong to the program rather than to the draw
+  // call, so the resolution is uploaded once instead of a few hundred times per frame.
+  for (const p of [litP, shadP, roofP]) { gl.useProgram(p); gl.uniform2f(U(p, 'u_res'), W, H); }
   return {
-    litP, shadP, roofP, quad, shadowBuf, verts,
-    lit: { res: U(litP, 'u_res'), light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
+    litP, shadP, roofP, quad, shadowBuf, verts, uploadVerts,
+    lit: { light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
            cam: U(litP, 'u_cam'), color: U(litP, 'u_color'), ang: U(litP, 'u_ang'),
            spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount'),
            foliageCount: U(litP, 'u_foliageCount'), foliage: U(litP, 'u_foliage[0]') },
-    foliageData,
-    shad: { res: U(shadP, 'u_res') }, roof: { res: U(roofP, 'u_res') }
+    foliageData
   };
 } catch (e) { console.warn('WebGL lighting failed; using Canvas 2D:', e.message); gl = null; return null; } })();
 
 quality.setRenderer(gl ? 'webgl' : 'canvas2d');
 
+// Sorting by squared distance orders the clusters exactly as the true distance would,
+// and the scratch list keeps one array allocation out of every light in the frame.
+const foliageSort = [];
 function buildFoliageData(occ, lightX, lightY, camx, camy, out) {
   out.fill(0);
-  const foliage = occ.filter(isFoliageOccluder).sort((a, b) => {
-    const ax = a.r !== undefined ? a.x : a.cx, ay = a.r !== undefined ? a.y : a.cy;
-    const bx = b.r !== undefined ? b.x : b.cx, by = b.r !== undefined ? b.y : b.cy;
-    return Math.hypot(ax - lightX, ay - lightY) - Math.hypot(bx - lightX, by - lightY);
-  });
+  const foliage = foliageSort;
+  foliage.length = 0;
+  for (const o of occ) {
+    if (!isFoliageOccluder(o)) continue;
+    const ox = o.r !== undefined ? o.x : o.cx, oy = o.r !== undefined ? o.y : o.cy;
+    const dx = ox - lightX, dy = oy - lightY;
+    o.lightDist2 = dx * dx + dy * dy;
+    foliage.push(o);
+  }
+  foliage.sort((a, b) => a.lightDist2 - b.lightDist2);
   let count = 0;
   for (const o of foliage) {
     const pad = o.r !== undefined ? o.r * .68 : o.hh * .75;
@@ -443,11 +469,11 @@ function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
   };
   const circleShadow = (worldX, worldY, radius) => {
     const ox = worldX - camx, oy = worldY - camy;
-    const dx = ox - lx, dy = oy - ly, d = Math.hypot(dx, dy);
+    const dx = ox - lx, dy = oy - ly, d = len(dx, dy);
     if (d < radius || n > arr.length - 12) return;
     const px = -dy / d * radius, py = dx / d * radius;
     const ax = ox + px, ay = oy + py, bx = ox - px, by = oy - py;
-    const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+    const da = len(ax - lx, ay - ly) || 1, db = len(bx - lx, by - ly) || 1;
     push(ax, ay, bx, by,
       bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
       ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
@@ -461,7 +487,7 @@ function buildShadowVerts(occ, lx, ly, camx, camy, arr) {
         const ax = pts[i][0] - camx, ay = pts[i][1] - camy;
         const bx = pts[(i + 1) % 4][0] - camx, by = pts[(i + 1) % 4][1] - camy;
         if ((ax - lx) * (by - ay) + (ay - ly) * (ax - bx) <= 0) continue;   // Face points toward the light.
-        const da = Math.hypot(ax - lx, ay - ly) || 1, db = Math.hypot(bx - lx, by - ly) || 1;
+        const da = len(ax - lx, ay - ly) || 1, db = len(bx - lx, by - ly) || 1;
         push(ax, ay, bx, by,
              bx + (bx - lx) / db * SHADOW_LEN, by + (by - ly) / db * SHADOW_LEN,
              ax + (ax - lx) / da * SHADOW_LEN, ay + (ay - ly) / da * SHADOW_LEN);
@@ -522,10 +548,7 @@ function drawLightGL(g, camx, camy) {
           gl.stencilFunc(gl.ALWAYS, 1, 0xff);
           gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
           gl.useProgram(R.shadP);
-          gl.uniform2f(R.shad.res, W, H);
-          gl.bindBuffer(gl.ARRAY_BUFFER, R.shadowBuf);
-          gl.bufferData(gl.ARRAY_BUFFER, R.verts.subarray(0, cnt), gl.DYNAMIC_DRAW);
-          gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+          R.uploadVerts(cnt);
           gl.drawArrays(gl.TRIANGLES, 0, cnt / 2);
           gl.colorMask(true, true, true, true);
         }
@@ -534,7 +557,6 @@ function drawLightGL(g, camx, camy) {
       gl.stencilFunc(gl.EQUAL, 0, 0xff);               // 2) Light where no shadow exists.
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
       gl.useProgram(R.litP);
-      gl.uniform2f(R.lit.res, W, H);
       gl.uniform2f(R.lit.light, lx, ly);
       gl.uniform1f(R.lit.radius, r);
       gl.uniform2f(R.lit.cam, camx, camy);
@@ -543,7 +565,8 @@ function drawLightGL(g, camx, camy) {
       gl.uniform1f(R.lit.spread, L.spread);
       gl.uniform1f(R.lit.amount, L.int / n);
       gl.uniform1f(R.lit.foliageCount, foliageCount);
-      gl.uniform4fv(R.lit.foliage, R.foliageData);
+      // With no leaf clusters the shader never reads the array, so it is not uploaded.
+      if (foliageCount) gl.uniform4fv(R.lit.foliage, R.foliageData);
       gl.bindBuffer(gl.ARRAY_BUFFER, R.quad);
       gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -560,10 +583,8 @@ function drawLightGL(g, camx, camy) {
   const roofCount = buildRoofVerts(g.houses, camx, camy, R.verts);
   if (roofCount) {
     gl.disable(gl.STENCIL_TEST); gl.disable(gl.BLEND);
-    gl.useProgram(R.roofP); gl.uniform2f(R.roof.res, W, H);
-    gl.bindBuffer(gl.ARRAY_BUFFER, R.shadowBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, R.verts.subarray(0, roofCount), gl.DYNAMIC_DRAW);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.useProgram(R.roofP);
+    R.uploadVerts(roofCount);
     gl.drawArrays(gl.TRIANGLES, 0, roofCount / 2);
   }
 

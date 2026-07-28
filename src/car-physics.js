@@ -2,7 +2,7 @@
 window.TownGame.carPhysics = (() => {
 'use strict';
 
-const { CAR_L, CAR_W, clamp } = window.TownGame.core;
+const { CAR_L, CAR_W, clamp, len } = window.TownGame.core;
 const X = [-CAR_L / 2, -16, -8, 0, 8, 16, CAR_L / 2];
 const Y = [-CAR_W / 2, -6, 0, 6, CAR_W / 2];
 const COLS = X.length, ROWS = Y.length;
@@ -43,16 +43,17 @@ function syncCarBody(car) {
   const body = car.body || (car.body = createCarBody());
   if (body.syncedRevision === body.revision && body.syncedX === car.x && body.syncedY === car.y &&
       body.syncedHx === car.hx && body.syncedHy === car.hy) return body;
-  let radius = 0;
+  let radius2 = 0;
   for (let i = 0; i < body.outline.length; i++) {
     const n = body.nodes[body.outline[i]];
     const wx = car.x + car.hx * n.x - car.hy * n.y;
     const wy = car.y + car.hy * n.x + car.hx * n.y;
     const p = body.worldOutline[i]; p.x = wx; p.y = wy;
     const q = body.collider.pts[i]; q[0] = wx; q[1] = wy;
-    radius = Math.max(radius, Math.hypot(n.x, n.y));
+    const d2 = n.x * n.x + n.y * n.y;
+    if (d2 > radius2) radius2 = d2;
   }
-  body.collider.cx = car.x; body.collider.cy = car.y; body.collider.rad = radius;
+  body.collider.cx = car.x; body.collider.cy = car.y; body.collider.rad = Math.sqrt(radius2);
   body.syncedRevision = body.revision;
   body.syncedX = car.x; body.syncedY = car.y; body.syncedHx = car.hx; body.syncedHy = car.hy;
   return body;
@@ -220,8 +221,8 @@ function segmentCarContact(car, x0, y0, x1, y1) {
     const a = poly[i], b = poly[(i + 1) % poly.length];
     const hit = segmentIntersection(from, to, a, b);
     if (!hit || (best && hit.t >= best.t)) continue;
-    const ex = b.x - a.x, ey = b.y - a.y, len = Math.hypot(ex, ey) || 1;
-    let nx = ey / len, ny = -ex / len;             // Outward normal of the clockwise outline.
+    const ex = b.x - a.x, ey = b.y - a.y, edge = len(ex, ey) || 1;
+    let nx = ey / edge, ny = -ex / edge;           // Outward normal of the clockwise outline.
     if (nx * (x0 - hit.x) + ny * (y0 - hit.y) < 0) { nx = -nx; ny = -ny; }
     best = { x: hit.x, y: hit.y, nx, ny, t: hit.t, edge: i };
   }
@@ -235,7 +236,8 @@ function segmentCarContact(car, x0, y0, x1, y1) {
 
 function carCollisionManifold(a, b) {
   const A = syncCarBody(a).worldOutline, B = syncCarBody(b).worldOutline;
-  if (Math.hypot(a.x - b.x, a.y - b.y) > 62) return null;
+  const gapX = a.x - b.x, gapY = a.y - b.y;
+  if (gapX * gapX + gapY * gapY > 62 * 62) return null;
   const contacts = [];
   for (let i = 0; i < A.length; i++) for (let j = 0; j < B.length; j++) {
     const p = segmentIntersection(A[i], A[(i + 1) % A.length], B[j], B[(j + 1) % B.length]);
@@ -272,22 +274,34 @@ function carCollisionManifold(a, b) {
 }
 
 function circleCarContact(car, x, y, radius) {
-  const poly = syncCarBody(car).worldOutline;
-  if (Math.hypot(x - car.x, y - car.y) > CAR_L / 2 + radius + 14) return null;
-  let nearest = null, best = Infinity;
+  // Most of the horde is nowhere near any given car, so the cheap rejection runs before
+  // the body is synchronized and before the outline is walked.
+  const cx = x - car.x, cy = y - car.y, gap2 = cx * cx + cy * cy;
+  const reach = CAR_L / 2 + radius + 14;
+  if (gap2 > reach * reach) return null;
+  const body = syncCarBody(car), poly = body.worldOutline;
+  let nearestX = 0, nearestY = 0, best2 = Infinity;
   for (let i = 0; i < poly.length; i++) {
-    const p = closestOnSegment(x, y, poly[i], poly[(i + 1) % poly.length]);
-    const dist = Math.hypot(x - p.x, y - p.y);
-    if (dist < best) { best = dist; nearest = p; }
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const ex = b.x - a.x, ey = b.y - a.y, len2 = ex * ex + ey * ey || 1;
+    const t = clamp(((x - a.x) * ex + (y - a.y) * ey) / len2, 0, 1);
+    const px = a.x + ex * t, py = a.y + ey * t;
+    const ox = x - px, oy = y - py, d2 = ox * ox + oy * oy;
+    if (d2 < best2) { best2 = d2; nearestX = px; nearestY = py; }
   }
+  const best = Math.sqrt(best2);
+  // A point inside the outline is always inside its bounding circle, so a distant point
+  // out of contact range needs no polygon test at all.
+  const rad = body.collider.rad;
+  if (best >= radius && gap2 > rad * rad) return null;
   const inside = pointInPolygon(x, y, poly);
   if (!inside && best >= radius) return null;
-  let nx = inside ? nearest.x - x : x - nearest.x;
-  let ny = inside ? nearest.y - y : y - nearest.y;
-  let len = Math.hypot(nx, ny);
-  if (len < 1e-5) { nx = x - car.x; ny = y - car.y; len = Math.hypot(nx, ny) || 1; }
-  nx /= len; ny /= len;
-  return { x: nearest.x, y: nearest.y, nx, ny, penetration: inside ? radius + best : radius - best, inside };
+  let nx = inside ? nearestX - x : x - nearestX;
+  let ny = inside ? nearestY - y : y - nearestY;
+  let d = len(nx, ny);
+  if (d < 1e-5) { nx = cx; ny = cy; d = len(nx, ny) || 1; }
+  nx /= d; ny /= d;
+  return { x: nearestX, y: nearestY, nx, ny, penetration: inside ? radius + best : radius - best, inside };
 }
 
 function resolveCircleCar(car, object, radius) {

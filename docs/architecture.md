@@ -19,6 +19,7 @@ flowchart TD
   C --> L["lighting"]
   Q --> L
   D --> L
+  P --> L
   C --> W["world"]
   E --> W
   D --> W
@@ -43,6 +44,8 @@ flowchart TD
   G --> M
   R --> M
 ```
+
+`physics` also owns the district's static broad phase. Houses, hedges, parked cars, trees, and bushes never move once a town is built, so they are indexed into one uniform grid on first use and rebuilt only when a district replaces its furniture. `solidsNear`, `treesNear`, `softNear`, and `parkedNear` return candidates in list order, which keeps collision resolution identical to walking the full array — the grid narrows the search, it never decides the outcome.
 
 ## Change rules
 

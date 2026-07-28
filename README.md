@@ -40,7 +40,7 @@ The script reads the load order out of `index.html`, so a new subsystem is picke
 
 terser is fetched on demand through `npx` and pinned to one version, so the build needs a network connection the first time and produces the same output on every run afterwards. Without terser the bundle is still written, unminified, and the script says so. Nothing about this is required to play the game.
 
-Current output: 267 kB of JavaScript compresses to 139 kB, and the whole page is 152 kB — 54 kB gzipped.
+Current output: 279 kB of JavaScript compresses to 143 kB, and the whole page is 156 kB — 56 kB gzipped.
 
 `dist/` is generated and is not tracked.
 
@@ -55,7 +55,7 @@ Current output: 267 kB of JavaScript compresses to 139 kB, and the whole page is
 - `src/car-physics.js` — deformable body mesh, plastic constraints, and contacts against the changed outline.
 - `src/environment.js` — fog of war, weather, the road graph, and mechanical crash consequences.
 - `src/world.js` — district generation and static environment rendering.
-- `src/physics.js` — collision resolution.
+- `src/physics.js` — collision resolution and the static broad-phase grid.
 - `src/input.js` — keyboard, mouse, and touch controls.
 - `src/gameplay.js` — shooting, damage, AI, and game-state updates.
 - `src/render.js` — main rendering pass.
@@ -134,5 +134,21 @@ The round is a delivery loop rather than a collection:
 - a delivered address stops being marked immediately, so the map only ever shows work in hand;
 - the HUD counts delivered parcels and appends the number in hand, as in `2/5 +1`;
 - the district ends when the last parcel reaches its door.
+
+A speed pass follows, with no change to the rules or to a single pixel of the picture:
+
+- houses, hedges, parked cars, trees, and bushes are indexed into one uniform grid when a
+  district starts, so a body, a bullet, or a light asks only its own neighbourhood instead of
+  the whole map; candidates arrive in list order, so every collision resolves exactly as before;
+- broad-phase tests compare squared distances, and the frame loops use `Math.sqrt` in place of
+  `Math.hypot`, whose overflow guard costs more than a town 2,450 pixels wide can ever need;
+- a contact against a car body rejects distant points before synchronizing the mesh, and walks
+  the outline without allocating a point object per edge;
+- the fog layer rewrites only the cells the courier has already touched, roughly two thousand
+  of thirty thousand, instead of the entire grid every frame;
+- the WebGL pass refills one preallocated vertex buffer rather than asking the driver for a new
+  allocation per light and per penumbra sample, and uploads constant uniforms once;
+- on a level-3 district with about fifty zombies the simulation step drops from roughly 4.9 ms
+  to 2.7 ms per frame, and the whole frame from 9.3 ms to 7.7 ms.
 
 JavaScript is loaded through ordered classic `<script>` tags. This keeps double-click `file://` startup working while subsystem variables remain outside the global scope.

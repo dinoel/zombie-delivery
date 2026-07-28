@@ -59,6 +59,10 @@ const STAM_DRAIN = .42, STAM_REGEN = .3;
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rnd  = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[(Math.random() * a.length) | 0];
+// Math.hypot protects against overflow at magnitudes this town never reaches and pays for
+// that on every call. Distances here are pixels inside a 2450-pixel district, so the plain
+// formula is exact for the same inputs and several times cheaper in the frame loops.
+const len = (x, y) => Math.sqrt(x * x + y * y);
 
 // ---------- oriented boxes: houses, hedges, cars ----------
 const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];   // Clockwise, matching the shadow code.
@@ -131,7 +135,7 @@ return Object.freeze({
   ROAD, GN, GS, MRG, WORLD, LANE, PR, ZR, CAR_L, CAR_W,
   BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN, HP_MAX, LIVES_MAX, CARRY_MAX,
   WALLS, ROOFS, CARCOL,
-  clamp, rnd, pick,
+  clamp, rnd, pick, len,
   setOBB, obb, inOBB, distOBB,
   camOf, torchHand, gunHand, roundRect
 });

@@ -12,6 +12,7 @@ const context2d = {
 };
 const canvas = { width: 0, height: 0, getContext: () => context2d };
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const len = (x, y) => Math.sqrt(x * x + y * y);
 const rnd = (a, b) => a + (b - a) * .5;
 const pick = a => a[0];
 const setOBB = (o, cx, cy, ang, hw, hh) => {
@@ -30,7 +31,7 @@ const sandbox = {
   window: { TownGame: {
     core: {
       ctx: context2d, W: 720, H: 540, WORLD: 1530, ROAD: 116, GN: 4, GS: 400, MRG: 165, LANE: 29,
-      CAR_L: 46, CAR_W: 22, clamp, rnd, pick, obb, setOBB, torchHand: p => p
+      CAR_L: 46, CAR_W: 22, clamp, len, rnd, pick, obb, setOBB, torchHand: p => p
     },
     audio: { play: name => played.push(name), rain: noop },
     quality: { current: { fogEvery: 1, rainDensity: 0 } }

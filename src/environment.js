@@ -35,6 +35,10 @@ const fogCv = document.createElement('canvas');
 fogCv.width = fogCv.height = FW;
 const fctx = fogCv.getContext('2d');
 const fogImg = fctx.createImageData(FW, FW);
+// The colour of the unexplored layer never changes, so only alpha is ever rewritten.
+for (let j = 0; j < fogImg.data.length; j += 4) {
+  fogImg.data[j] = 3; fogImg.data[j + 1] = 5; fogImg.data[j + 2] = 13; fogImg.data[j + 3] = 255;
+}
 
 function updateFog(g, dt) {
   const p = g.p, lit = p.torch && p.batt > 0, w = g.weather;
@@ -73,9 +77,17 @@ function drawFog(g, camx, camy) {
   g.fogRenderFrame = (g.fogRenderFrame || 0) + 1;
   if (!g.fogRendered || g.fogRenderFrame >= quality.current.fogEvery) {
     const d = fogImg.data;
-    for (let i = 0, j = 0; i < g.fog.length; i++, j += 4) {
-      d[j] = 3; d[j + 1] = 5; d[j + 2] = 13;
-      d[j + 3] = (1 - g.fog[i]) * 255;
+    if (g.fogImageOwner !== g) {                   // A district arrives with its own starting map.
+      for (let i = 0, j = 3; i < g.fog.length; i++, j += 4) d[j] = (1 - g.fog[i]) * 255;
+      g.fogImageOwner = g;
+    } else {
+      // Only cells the courier has already touched ever change brightness; the rest of the
+      // map keeps the value written above, so the whole grid does not have to be rewritten.
+      const active = g.fogActive;
+      for (let n = 0; n < active.length; n++) {
+        const i = active[n];
+        d[i * 4 + 3] = (1 - g.fog[i]) * 255;
+      }
     }
     fctx.putImageData(fogImg, 0, 0);
     g.fogRenderFrame = 0;

@@ -46,9 +46,11 @@ vm.runInNewContext(source, sandbox, { filename: 'environment.js' });
 const env = sandbox.window.TownGame.environment;
 const carPhysics = sandbox.window.TownGame.carPhysics;
 
-const game = () => ({
-  p: { x: 1000, y: 1000 }, zombies: [], weather: { rain: 0 }, rings: [], parts: [], shake: 0, carsBroken: 0
-});
+const game = () => {
+  const p = { x: 1000, y: 1000 };
+  // Traffic reacts to whichever courier is nearest, so even a one-courier stub carries a roster.
+  return { p, players: [p], zombies: [], weather: { rain: 0 }, rings: [], parts: [], shake: 0, carsBroken: 0 };
+};
 const car = (x, heading, speed, police = false) => ({
   x, y: 0, hx: heading, hy: 0, v: speed, max: speed, baseMax: speed, police,
   jx: 0, jy: 0, cd: 0, stall: 0, creep: 0, hold: false, honk: 0, hazard: 0,
@@ -228,7 +230,8 @@ const car = (x, heading, speed, police = false) => ({
     { x: -180, y: 0, e: [2] }, { x: 0, y: 80, e: [0] }
   ];
   const edges = [edge(0, 3, 0, 0, 80, 0, 0), edge(1, 0, 1, 0, 0, 40, 0), edge(2, 0, 2, 0, 0, -180, 0)];
-  const g = { roads: { nodes, edges }, p: { x: 55, y: 0 } };
+  const chased = { x: 55, y: 0 };
+  const g = { roads: { nodes, edges }, p: chased, players: [chased] };
   const c = { edge: edges[0], dir: 1, x: 0, y: 0, hx: 0, hy: -1, driverTimer: 10, driverMode: 'chase' };
   env.startTurn(g, c);
   assert.equal(c.turn.next.id, 1, 'a pursuing driver should choose the road leading closer to the player');

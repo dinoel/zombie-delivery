@@ -334,6 +334,9 @@ function draw(g) {
   ctx.lineCap = 'butt';
 
   // Player.
+  // Everyone on the shift is drawn; the local courier last, so they are never hidden under a
+  // partner standing on the same doorstep.
+  for (const courier of g.players) if (courier !== p && visible(courier.x, courier.y, 30)) drawPlayer(ctx, courier, g);
   drawPlayer(ctx, p, g);
 
   // Bullets.
@@ -435,8 +438,8 @@ function draw(g) {
 
   // Off-screen pointer to the nearest objective: a door while carrying, otherwise the next
   // parcel to pick up.
-  const drop = nearestDrop(g);
-  const tgt = drop || nearestParcel(g);
+  const drop = nearestDrop(g, p);
+  const tgt = drop || nearestParcel(g, p);
   if (tgt) {
     const sx = tgt.x - camx, sy = tgt.y - camy;
     if (sx < 20 || sy < 20 || sx > W - 20 || sy > H - 20) {

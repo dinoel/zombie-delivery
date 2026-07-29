@@ -34,6 +34,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Simulation determinism test failed:`n$simDeterminismTest")
   }
+
+  $coopRulesTest = & node (Join-Path $PSScriptRoot 'test-coop-rules.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Co-op rules test failed:`n$coopRulesTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -42,20 +47,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-59',
-  'src/core.js?v=20260729-59',
-  'src/quality.js?v=20260729-59',
-  'src/audio.js?v=20260729-59',
-  'src/car-physics.js?v=20260729-59',
-  'src/environment.js?v=20260729-59',
-  'src/world.js?v=20260729-59',
-  'src/physics.js?v=20260729-59',
-  'src/input.js?v=20260729-59',
-  'src/gameplay.js?v=20260729-59',
-  'src/lighting.js?v=20260729-59',
-  'src/entities.js?v=20260729-59',
-  'src/render.js?v=20260729-59',
-  'src/main.js?v=20260729-59'
+  'src/namespace.js?v=20260729-60',
+  'src/core.js?v=20260729-60',
+  'src/quality.js?v=20260729-60',
+  'src/audio.js?v=20260729-60',
+  'src/car-physics.js?v=20260729-60',
+  'src/environment.js?v=20260729-60',
+  'src/world.js?v=20260729-60',
+  'src/physics.js?v=20260729-60',
+  'src/input.js?v=20260729-60',
+  'src/gameplay.js?v=20260729-60',
+  'src/lighting.js?v=20260729-60',
+  'src/entities.js?v=20260729-60',
+  'src/render.js?v=20260729-60',
+  'src/main.js?v=20260729-60'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -124,7 +129,7 @@ foreach ($stepField in @('function stepCourier(', 'p.in', 'inp.torchSeq !== p.to
   }
 }
 foreach ($stealthFeature in @('NOTICE_SNEAK', 'NOTICE_SNEAK_FILL', 'CONTACT_NOTICE_PAD',
-    'touching ? 1', 'resolveZombieContact(g, z)', 'SNEAK_SPEED', 'p.sneaking', 'p.stealthNotice', 'stealthDetected')) {
+    'touching ? 1', 'resolveZombieContact(g, z, courier)', 'SNEAK_SPEED', 'p.sneaking', 'p.stealthNotice', 'stealthDetected')) {
   if (-not $gameplaySource.Contains($stealthFeature)) {
     $problems.Add("Stealth crawling behavior is missing: $stealthFeature")
   }
@@ -142,6 +147,28 @@ $worldSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\world.js')
 if (-not $worldSource.Contains('function makeCourier(') -or
     -not $worldSource.Contains('players, p: players[0]')) {
   $problems.Add('Couriers must be built by makeCourier into a roster the district holds.')
+}
+
+# The horde, the traffic, the weather and the light all have to cope with more than one courier,
+# and a courier on the ground has to be worth walking back for.
+foreach ($coopFeature in @('function noticeFor(', 'function nearestCourier(', 'z.prey = prey',
+    'function pickerAt(', 'function reviveCouriers(', 'REVIVE_TIME', 'function actCourier(',
+    'b.carrier = taker.id')) {
+  if (-not $gameplaySource.Contains($coopFeature)) {
+    $problems.Add("Two-courier behavior is missing: $coopFeature")
+  }
+}
+$environmentSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\environment.js')
+if (-not $environmentSource.Contains('function revealAround(') -or
+    -not $environmentSource.Contains('for (const p of g.players) revealAround(')) {
+  $problems.Add('Fog of war must be revealed by every courier on the shift.')
+}
+if (-not $environmentSource.Contains('function nearestPlayer(')) {
+  $problems.Add('Traffic and weather must react to the nearest courier, not to a fixed one.')
+}
+$lightingCouriers = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
+if (-not $lightingCouriers.Contains('for (const courier of g.players)')) {
+  $problems.Add('Every courier must contribute their own flashlight, footing and muzzle flash.')
 }
 if (-not $inputSource.Contains('sneakPresses++') -or
     -not $gameplaySource.Contains('p.sneakToggle = !p.sneakToggle')) {

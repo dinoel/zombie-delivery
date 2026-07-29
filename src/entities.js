@@ -108,11 +108,11 @@ function drawZombie(c, z) {
   }
 }
 
-function nearestParcel(g) {
+function nearestParcel(g, p) {
   let bestP = null, bd = 1e9;
   for (const b of g.parcels) {
     if (b.state !== 'ground') continue;
-    const dx = b.x - g.p.x, dy = b.y - g.p.y, d = dx * dx + dy * dy;
+    const dx = b.x - p.x, dy = b.y - p.y, d = dx * dx + dy * dy;
     if (d < bd) { bd = d; bestP = b; }
   }
   return bestP;
@@ -120,11 +120,11 @@ function nearestParcel(g) {
 
 // The nearest door the courier is currently carrying something for. A parcel on the back
 // outranks one still lying in a yard: it is already committed work.
-function nearestDrop(g) {
+function nearestDrop(g, p) {
   let best = null, bd = 1e9;
   for (const b of g.parcels) {
-    if (b.state !== 'carried') continue;
-    const dx = b.dest.x - g.p.x, dy = b.dest.y - g.p.y, d = dx * dx + dy * dy;
+    if (b.state !== 'carried' || (b.carrier >= 0 && b.carrier !== p.id)) continue;
+    const dx = b.dest.x - p.x, dy = b.dest.y - p.y, d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = b.dest; }
   }
   return best;
@@ -146,7 +146,19 @@ function drawCarriedParcels(c, carried, x, w, h) {
 
 function drawPlayer(c, p, g) {
   if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // Flash after an impact.
-  const crawling = p.sneaking, sw = Math.sin(p.walk) * 3.4;
+  // A courier who is down is flat on the street, which is the crawl pose holding still, with a
+  // ring underneath that fills as their partner gets them back up.
+  if (p.down) {
+    c.save(); c.translate(p.x, p.y);
+    c.strokeStyle = 'rgba(255,91,77,.85)'; c.lineWidth = 2.4;
+    c.beginPath(); c.arc(0, 0, 17, 0, 6.283); c.stroke();
+    if (p.reviveT > 0) {
+      c.strokeStyle = '#8fe388'; c.lineWidth = 3.2;
+      c.beginPath(); c.arc(0, 0, 17, -1.5708, -1.5708 + 6.283 * Math.min(1, p.reviveT / 3)); c.stroke();
+    }
+    c.restore();
+  }
+  const crawling = p.sneaking || p.down, sw = Math.sin(p.walk) * 3.4;
 
   if (crawling) {
     const stride = Math.sin(p.walk) * 1.8, sway = Math.cos(p.walk) * .7;
@@ -323,6 +335,15 @@ function drawMinimap(g) {
   ctx.fillStyle = '#8fe388';
   for (const b of g.parcels) if (b.state === 'carried') {
     ctx.beginPath(); ctx.arc(mx + b.dest.x * k, my + b.dest.y * k, 3.4, 0, 6.283); ctx.fill();
+  }
+  // A partner is drawn wherever they are, fog or no fog: on a shift you always know roughly
+  // where the other one is, and losing them on the map helps nobody.
+  for (const courier of g.players) {
+    if (courier === g.p) continue;
+    ctx.fillStyle = courier.down ? '#ff5b4d' : '#57c7ff';
+    ctx.beginPath(); ctx.arc(mx + courier.x * k, my + courier.y * k, 3, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = 'rgba(87,199,255,.9)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(mx + courier.x * k, my + courier.y * k, 5.5, 0, 6.283); ctx.stroke();
   }
   ctx.fillStyle = '#ffffff';
   ctx.beginPath(); ctx.arc(mx + g.p.x * k, my + g.p.y * k, 3, 0, 6.283); ctx.fill();

@@ -24,7 +24,7 @@ const {
 const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
 } = window.TownGame.carPhysics;
-const { readLocalInput } = window.TownGame.input;
+const { readLocalInput, readSecondInput } = window.TownGame.input;
 
 const FILTH_MIN_RANGE = 145;
 const FILTH_MAX_RANGE = 360;
@@ -479,6 +479,51 @@ const NOTICE_FILL_BEAM = 1 / .2;  // A beam in the face is almost instant.
 const NOTICE_FADE = 1 / 2.4;      // And it cools down slowly.
 const NOTICE_SNEAK_FILL = .65;     // Crawling buys time, not invisibility at close range.
 const CONTACT_NOTICE_PAD = 2;      // Physical contact always defeats stealth from any direction.
+
+// Whoever is standing close enough to pick something up off the ground. Reaching in list order
+// means that when two couriers arrive on the same frame the same one gets it every time, which
+// matters rather more once one of them is deciding it on a different machine.
+const PICKUP_REACH = 22;
+function pickerAt(g, x, y) {
+  for (const p of g.players) {
+    if (p.down) continue;
+    if (Math.hypot(p.x - x, p.y - y) < PICKUP_REACH) return p;
+  }
+  return null;
+}
+
+// The nearest courier still on their feet. A courier who is down is nobody's target: the horde
+// loses interest in a body, which is what leaves their partner a chance to reach them.
+function nearestCourier(g, x, y) {
+  let best = null, bd = Infinity;
+  for (const p of g.players) {
+    if (p.down) continue;
+    const dx = p.x - x, dy = p.y - y, d2 = dx * dx + dy * dy;
+    if (d2 < bd) { bd = d2; best = p; }
+  }
+  return best;
+}
+
+// What one courier is giving away to one zombie this frame. Sprinting in the open carries much
+// further than crawling behind it, a zombie only watches its own front, and a flashlight lands
+// on the ground regardless of which way it happens to be facing.
+function noticeFor(g, z, p, canNotice, lightRange) {
+  const dx = p.x - z.x, dy = p.y - z.y, d = Math.hypot(dx, dy) || 1;
+  const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
+  const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
+                (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
+  const touching = canNotice && d < PR + z.r + CONTACT_NOTICE_PAD;
+  let exposed = canNotice && (touching || d < reach);
+  let inBeam = false;
+  if (canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
+    const h = torchHand(p), hx = z.x - h.x, hy = z.y - h.y, hd = Math.hypot(hx, hy) || 1;
+    const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
+    if ((hx * ca + hy * sa) > hd * Math.cos(.62)) inBeam = exposed = true;
+  }
+  const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) *
+               (p.sneaking ? NOTICE_SNEAK_FILL : 1) : 0;
+  return { p, dx, dy, d, front, touching, exposed, inBeam, fill };
+}
 const TAKEDOWN_RANGE = 26;
 const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
@@ -490,6 +535,13 @@ const SNEAK_SPEED = 68;
 // replay its own moves ahead of the host without a second implementation to keep honest.
 function stepCourier(g, p, dt) {
   const inp = p.in;
+  if (p.down) {                                 // Lying in the street: no walking, no torch, no aim.
+    p.vx = p.vy = 0;
+    p.moving = p.running = p.sneaking = false;
+    p.inv = Math.max(0, p.inv - dt);
+    p.stagger = Math.max(0, p.stagger - dt);
+    return;
+  }
   // A courier stepping into a district adopts whatever the counters already read. They keep
   // climbing across districts, and presses made before this shift are not theirs to act on.
   if (p.torchSeen === null) { p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; }
@@ -571,6 +623,55 @@ function stepCourier(g, p, dt) {
   else if (inp.aimScreen) { p.tx = inp.tx; p.ty = inp.ty; }
   else { p.tx = p.x + Math.cos(p.ang) * 300; p.ty = p.y + Math.sin(p.ang) * 300; }
   p.aim = Math.atan2(p.ty - p.y, p.tx - p.x);
+}
+
+// What a courier does with their hands: the pistol and the knife. Kept apart from stepCourier
+// because a guest predicts where its own body goes but never predicts a shot — the shot is the
+// host's to allow, and a bullet that appears and then unfires would be worse than one that waits.
+function actCourier(g, p, dt) {
+  p.cool = Math.max(0, p.cool - dt);
+  p.muzzle = Math.max(0, p.muzzle - dt);
+  if (p.down) { p.finishTarget = null; return; }
+  const wantFire = p.in.fire;
+  if (wantFire && p.cool <= 0 && p.ammo > 0 && !g.done) fire(g, p);
+
+  // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
+  // moment — doing this in the middle of a crowd gets him bitten.
+  p.takedown = Math.max(0, p.takedown - dt);
+  p.finishTarget = takedownTarget(g, p);
+  const wantFinish = p.in.finish;
+  if (wantFinish && !p.finishHeld && p.finishTarget) {
+    const z = p.finishTarget;
+    p.takedown = TAKEDOWN_LOCK;
+    p.stagger = Math.max(p.stagger, TAKEDOWN_LOCK);
+    z.silent = true;
+    killZombie(g, z);
+    makeNoise(g, z.x, z.y, 50, 1);
+    g.takedowns++;
+    p.finishTarget = null;
+  }
+  p.finishHeld = wantFinish;
+}
+
+// A courier who is down can be brought back by their partner kneeling over them. It is the one
+// thing on a shift that either of them can do for the other, and it is deliberately slow enough
+// to be a decision: three seconds standing still beside a body, in a district that has noticed.
+const REVIVE_REACH = 28, REVIVE_TIME = 3;
+function reviveCouriers(g, dt) {
+  for (const p of g.players) {
+    if (!p.down) continue;
+    let helper = null;
+    for (const q of g.players) {
+      if (q === p || q.down || q.stagger > 0) continue;
+      if (Math.hypot(q.x - p.x, q.y - p.y) < REVIVE_REACH) { helper = q; break; }
+    }
+    p.reviveT = helper ? p.reviveT + dt : Math.max(0, p.reviveT - dt * 1.6);
+    if (p.reviveT < REVIVE_TIME) continue;
+    p.down = false; p.reviveT = 0;
+    p.hp = Math.max(1, Math.round(p.hpMax * .4));   // Back on their feet, not back to full.
+    p.inv = 2.2; p.vx = p.vy = p.kx = p.ky = 0;
+    SND.play('pick', p.x, p.y);
+  }
 }
 
 // A silent finish is only available on an unaware zombie approached from behind.
@@ -749,8 +850,7 @@ function settleCircleBody(g, body, radius) {
   body.y = clamp(body.y, radius, WORLD - radius);
 }
 
-function resolveZombieContact(g, z) {
-  const p = g.p;
+function resolveZombieContact(g, z, p) {
   let dx = p.x - z.x, dy = p.y - z.y;
   let d = Math.hypot(dx, dy);
   const contactDistance = PR + z.r + CONTACT_NOTICE_PAD;
@@ -876,33 +976,15 @@ function update(g, dt) {
   // The courier in front of this screen reads their own devices; anyone else on the shift
   // arrives with their record already filled in from the wire.
   readLocalInput(g, g.p);
+  if (g.coopLocal) for (const courier of g.players) if (courier !== g.p) readSecondInput(g, courier);
   for (const courier of g.players) stepCourier(g, courier, dt);
 
   updateWeather(g, dt);
   updateFog(g, dt);
 
-  // Fire.
-  p.cool = Math.max(0, p.cool - dt);
-  p.muzzle = Math.max(0, p.muzzle - dt);
-  const wantFire = p.in.fire;
-  if (wantFire && p.cool <= 0 && p.ammo > 0 && !g.done) fire(g, p);
-
-  // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
-  // moment — doing this in the middle of a crowd gets him bitten.
-  p.takedown = Math.max(0, p.takedown - dt);
-  p.finishTarget = takedownTarget(g, p);
-  const wantFinish = p.in.finish;
-  if (wantFinish && !p.finishHeld && p.finishTarget) {
-    const z = p.finishTarget;
-    p.takedown = TAKEDOWN_LOCK;
-    p.stagger = Math.max(p.stagger, TAKEDOWN_LOCK);
-    z.silent = true;
-    killZombie(g, z);
-    makeNoise(g, z.x, z.y, 50, 1);
-    g.takedowns++;
-    p.finishTarget = null;
-  }
-  p.finishHeld = wantFinish;
+  // Firing, finishing, and helping a partner back to their feet.
+  for (const courier of g.players) actCourier(g, courier, dt);
+  reviveCouriers(g, dt);
 
   // Bullets.
   for (let i = g.bullets.length - 1; i >= 0; i--) {
@@ -992,8 +1074,12 @@ function update(g, dt) {
     }
   }
 
-  // Zombies.
-  let activeSurges = 0, stealthNotice = 0, stealthWatchers = 0, stealthDetected = false;
+  // Zombies. Stealth is gathered per courier — two of them working opposite ends of a street
+  // are in quite different amounts of trouble, and each gauge should say so.
+  let activeSurges = 0;
+  const noticeBy = g.players.map(() => 0);
+  const watchersBy = g.players.map(() => 0);
+  const detectedBy = g.players.map(() => false);
   for (const z of g.zombies) if (!z.gone && z.surge > 0) activeSurges++;
   for (const z of g.zombies) {
     if (z.gone) continue;
@@ -1014,45 +1100,48 @@ function update(g, dt) {
       addBloodDrop(g, z, z.x + rnd(-4, 4), z.y + rnd(-4, 4),
         rnd(-18, 18), rnd(-18, 18), rnd(18, 42), rnd(1.2, 2.6), rnd(1, 4));
     }
-    const dx = p.x - z.x, dy = p.y - z.y, d = Math.hypot(dx, dy) || 1;
-
     // During the opening seconds, the district ignores the spawn and starting beam.
     const canNotice = !g.done && g.spawnGrace <= 0;
     const lightRange = z.guardParcel >= 0 ? 275 : 400;
 
-    // What the courier is doing decides how far they carry, and a zombie only watches
-    // its own front: a quiet approach from behind stays unseen.
-    const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
-    const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
-                  (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
-    const touching = canNotice && d < PR + z.r + CONTACT_NOTICE_PAD;
-    let exposed = canNotice && (touching || d < reach);
-
-    // Light betrays regardless of facing: the beam lands on the ground around them.
-    let inBeam = false;
-    if (canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
-      const h = torchHand(p), hx = z.x - h.x, hy = z.y - h.y, hd = Math.hypot(hx, hy) || 1;
-      const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
-      if ((hx * ca + hy * sa) > hd * Math.cos(.62)) inBeam = exposed = true;
+    // A zombie works out whoever is giving themselves away hardest, and settles ties by which
+    // of them is closer. It has one head, so it can only be watching one courier at a time.
+    let look = null;
+    for (const courier of g.players) {
+      if (courier.down) continue;
+      const cand = noticeFor(g, z, courier, canNotice, lightRange);
+      if (!look || cand.fill > look.fill || (cand.fill === look.fill && cand.d < look.d)) look = cand;
     }
+    // Steering still needs somebody to steer at even when nobody has been noticed, and after a
+    // shot or a shout that is simply whoever is nearest.
+    const prey = look ? look.p : nearestCourier(g, z.x, z.y) || g.players[0];
+    z.prey = prey;
+    const dx = look ? look.dx : prey.x - z.x;
+    const dy = look ? look.dy : prey.y - z.y;
+    const d = look ? look.d : Math.hypot(dx, dy) || 1;
+    const touching = look ? look.touching : false;
+    const fill = look ? look.fill : 0;
+    const front = look ? look.front : true;
 
     // Awareness fills instead of flipping, so the player can read the danger and back off.
     const bumpedUnaware = touching && z.notice < 1 && z.hunt <= 0;
-    const fill = inBeam ? NOTICE_FILL_BEAM : exposed ? NOTICE_FILL * (front ? 1 : .55) *
-                 (p.sneaking ? NOTICE_SNEAK_FILL : 1) : 0;
     z.notice = touching ? 1 : clamp(z.notice + (fill > 0 ? fill : -NOTICE_FADE) * dt, 0, 1);
     const sees = z.notice >= 1;
     // A tank is slow to catch on and slow to let go: it notices from closer, but once it
     // has locked on it keeps walking long after a sharper zombie would have given up.
-    if (sees) { z.hunt = z.dumb ? 9 : 3.2; z.tx = p.x; z.ty = p.y; z.notice = 1; }
+    if (sees && look) { z.hunt = z.dumb ? 9 : 3.2; z.tx = prey.x; z.ty = prey.y; z.notice = 1; }
     if (bumpedUnaware) {
       z.foeCar = null;
       z.moan = rnd(1.6, 2.8);
       makeNoise(g, z.x, z.y, 145, 2.2, false, z);
       SND.play('moan', z.x, z.y, z.seed);
     }
-    if (z.notice > .02) { stealthWatchers++; stealthNotice = Math.max(stealthNotice, z.notice); }
-    if (z.hunt > 0) stealthDetected = true;
+    // The gauge belongs to the courier being watched: each of them reads their own danger.
+    if (z.notice > .02) {
+      watchersBy[prey.id]++;
+      noticeBy[prey.id] = Math.max(noticeBy[prey.id], z.notice);
+    }
+    if (z.hunt > 0) detectedBy[prey.id] = true;
 
     // A patrol car that comes close is a target in its own right. With both within reach
     // the horde still prefers the courier: sixty against forty.
@@ -1095,14 +1184,14 @@ function update(g, dt) {
       }
       const lead = z.dumb ? 0 : d > 100 ? Math.min(.58, d / 520) : .12;
       const flank = !z.dumb && d > 82 ? Math.min(112, (d - 70) * .38) * z.flankSide * z.flankBias : 0;
-      const gx = p.x + p.vx * lead - dy / d * flank;
-      const gy = p.y + p.vy * lead + dx / d * flank;
+      const gx = prey.x + prey.vx * lead - dy / d * flank;
+      const gy = prey.y + prey.vy * lead + dx / d * flank;
       const nx = gx - z.x, ny = gy - z.y, nd = Math.hypot(nx, ny) || 1;
       ax = nx / nd; ay = ny / nd; chase = true;
 
       // A long retreat charges a short surge. Sprinting can still create distance,
       // but walking backward while shooting is no longer free.
-      const retreat = (p.vx * dx + p.vy * dy) / d;
+      const retreat = (prey.vx * dx + prey.vy * dy) / d;
       z.pressure = z.dumb ? 0 : clamp(z.pressure + dt * (retreat > 58 && d > 72 && d < 330 ? 1.35 : -2.1), 0, 1);
       if (z.pressure >= 1 && z.surgeCd <= 0 && activeSurges < 2) {
         z.surge = rnd(.46, .62);
@@ -1156,11 +1245,11 @@ function update(g, dt) {
     } else if (z.surge > 0) {
       moveScale = 1.55;
     } else if (!z.dumb && z.lostArms < 2 && !z.headless && !g.done && g.spawnGrace <= 0 &&
-               (z.hunt > 0 || (z.alert > 0 && (z.tx - p.x) ** 2 + (z.ty - p.y) ** 2 < 4900)) && z.throwCd <= 0 &&
+               (z.hunt > 0 || (z.alert > 0 && (z.tx - prey.x) ** 2 + (z.ty - prey.y) ** 2 < 4900)) && z.throwCd <= 0 &&
                d > FILTH_MIN_RANGE && d < FILTH_MAX_RANGE && g.zombieShots.length < 5) {
       const lead = Math.min(.55, d / z.shot.speed * .45);
-      z.throwAimX = clamp(p.x + p.vx * lead + rnd(-16, 16), 8, WORLD - 8);
-      z.throwAimY = clamp(p.y + p.vy * lead + rnd(-16, 16), 8, WORLD - 8);
+      z.throwAimX = clamp(prey.x + prey.vx * lead + rnd(-16, 16), 8, WORLD - 8);
+      z.throwAimY = clamp(prey.y + prey.vy * lead + rnd(-16, 16), 8, WORLD - 8);
       z.throwWind = z.shot.windup;
       z.ang = Math.atan2(z.throwAimY - z.y, z.throwAimX - z.x);
       moveScale = .16;
@@ -1246,15 +1335,22 @@ function update(g, dt) {
         resolveCircleCar(c, z, z.r);
       }
     }
-    if (!z.gone && resolveZombieContact(g, z)) {
-      stealthDetected = true;
-      stealthNotice = 1;
+    // A body bump is impossible to hide from, and it is the courier who walked into it who
+    // finds that out.
+    if (!z.gone) for (const courier of g.players) {
+      if (courier.down) continue;
+      if (resolveZombieContact(g, z, courier)) {
+        detectedBy[courier.id] = true;
+        noticeBy[courier.id] = 1;
+      }
     }
     if (g.dead) return;
   }
-  p.stealthDetected = stealthDetected;
-  p.stealthNotice = stealthDetected ? 1 : stealthNotice;
-  p.stealthWatchers = stealthWatchers;
+  for (const courier of g.players) {
+    courier.stealthDetected = detectedBy[courier.id];
+    courier.stealthNotice = detectedBy[courier.id] ? 1 : noticeBy[courier.id];
+    courier.stealthWatchers = watchersBy[courier.id];
+  }
   for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
 
   // Filth projectiles move slowly, break on the environment, and remain dodgeable.
@@ -1281,14 +1377,21 @@ function update(g, dt) {
       break;
     }
 
-    const pdx = p.x - s.x, pdy = p.y - s.y, pr = PR + s.r;
-    if (!gone && !g.done && pdx * pdx + pdy * pdy < pr * pr) {
+    // A throw is not aimed at anyone in particular once it is in the air: it lands on whoever
+    // is standing where it comes down.
+    let struck = null;
+    if (!gone && !g.done) for (const courier of g.players) {
+      if (courier.down) continue;
+      const pdx = courier.x - s.x, pdy = courier.y - s.y, pr = PR + s.r;
+      if (pdx * pdx + pdy * pdy < pr * pr) { struck = courier; break; }
+    }
+    if (struck) {
       const speed = Math.hypot(s.vx, s.vy) || 1;
       splatFilth(g, s);
       g.zombieShots.splice(i, 1);
-      if (p.inv <= 0) {
+      if (struck.inv <= 0) {
         g.filthHits++;
-        hurt(g, p, s.vx / speed, s.vy / speed, 105);
+        hurt(g, struck, s.vx / speed, s.vy / speed, 105);
       }
       if (g.dead) return;
       continue;
@@ -1303,8 +1406,9 @@ function update(g, dt) {
   for (let i = g.ammoBoxes.length - 1; i >= 0; i--) {
     const a = g.ammoBoxes[i];
     a.ph += dt * 3;
-    if (Math.hypot(a.x - p.x, a.y - p.y) < 22) {
-      if (a.batt) p.batt = Math.min(1, p.batt + .5); else p.ammo += a.n;
+    const taker = pickerAt(g, a.x, a.y);
+    if (taker) {
+      if (a.batt) taker.batt = Math.min(1, taker.batt + .5); else taker.ammo += a.n;
       g.ammoBoxes.splice(i, 1);
       SND.play('pick', a.x, a.y);
       for (let k = 0; k < 10; k++)
@@ -1325,7 +1429,7 @@ function update(g, dt) {
       settleCircleBody(g, m, 6);                 // Never comes to rest inside a wall or a hedge.
       if (Math.abs(m.vx) < 4 && Math.abs(m.vy) < 4) { m.vx = 0; m.vy = 0; }
     }
-    if (Math.hypot(m.x - p.x, m.y - p.y) < 22) {
+    if (pickerAt(g, m.x, m.y)) {                 // The wallet is shared; the walking is not.
       runtime.cash += m.n; g.earned += m.n;
       g.cash.splice(i, 1);
       SND.play('cash', m.x, m.y);
@@ -1491,31 +1595,34 @@ function update(g, dt) {
       if (!reversing && left <= TURN_IN && !c.hold) startTurn(g, c);
     }
 
-    // Honk when the player is near the path.
-    const dx = p.x - c.x, dy = p.y - c.y;
+    // Honk when a courier is near the path — whichever of them the driver can see coming.
+    const honkAt = nearestCourier(g, c.x, c.y) || g.p;
+    const dx = honkAt.x - c.x, dy = honkAt.y - c.y;
     const rel = dx * c.hx + dy * c.hy, side = Math.abs(dy * c.hx - dx * c.hy);
     const angryHonk = c.driverMode === 'chase' && Math.hypot(dx, dy) < 260;
     c.honk = angryHonk || (rel > 0 && rel < 130 && side < 26) ? Math.min(1, c.honk + dt * 4) : Math.max(0, c.honk - dt * 3);
     if (c.honk > .5 && !c.honked) { c.honked = true; SND.play('honk', c.x, c.y); }
     else if (c.honk < .1) c.honked = false;
 
-    // Player impact.
-    const playerCarContact = !g.done ? circleCarContact(c, p.x, p.y, PR) : null;
-    if (playerCarContact) {
+    // Courier impact. A bumper does not check who it is about to hit.
+    for (const courier of g.players) {
+      const playerCarContact = !g.done ? circleCarContact(c, courier.x, courier.y, PR) : null;
+      if (!playerCarContact) continue;
       const carVx = c.hx * c.v, carVy = c.hy * c.v;
-      const closing = Math.max(0, (carVx - p.vx) * playerCarContact.nx + (carVy - p.vy) * playerCarContact.ny);
-      const sgn = (dy * c.hx - dx * c.hy) > 0 ? 1 : -1;      // Choose which side to throw the player toward.
+      const closing = Math.max(0, (carVx - courier.vx) * playerCarContact.nx + (carVy - courier.vy) * playerCarContact.ny);
+      const cdx = courier.x - c.x, cdy = courier.y - c.y;
+      const sgn = (cdy * c.hx - cdx * c.hy) > 0 ? 1 : -1;    // Choose which side to throw the courier toward.
       if (closing > 24 && c.playerBodyCd <= 0) {
-        damageCarWithPlayer(g, c, p, playerCarContact, closing);
+        damageCarWithPlayer(g, c, courier, playerCarContact, closing);
         c.playerBodyCd = .55;
       }
-      if (c.v > 35 && p.inv <= 0) {
-        hurt(g, p, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
+      if (c.v > 35 && courier.inv <= 0) {
+        hurt(g, courier, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
         if (g.dead) return;
       }
       // Every car is a physical body rather than a pass-through sprite. After the
-      // impulse is calculated, separate the player circle from the deformed outline.
-      resolveCircleCar(c, p, PR);
+      // impulse is calculated, separate the courier circle from the deformed outline.
+      resolveCircleCar(c, courier, PR);
     }
   }
 
@@ -1549,28 +1656,31 @@ function update(g, dt) {
 
   // Parcels. The courier carries two at a time, and a parcel's address is worth nothing
   // until it is on their back: picking one up is what puts its door on the map.
-  p.handsFull = null;
+  for (const courier of g.players) courier.handsFull = null;
   for (const b of g.parcels) {
     if (b.state !== 'ground') continue;
     b.ph += dt * 3;
-    if (Math.hypot(b.x - p.x, b.y - p.y) >= 22) continue;
-    if (p.carried >= CARRY_MAX) { p.handsFull = b; continue; }   // It stays where it is until a hand is free.
-    b.state = 'carried'; p.carried++;
+    const taker = pickerAt(g, b.x, b.y);
+    if (!taker) continue;
+    if (taker.carried >= CARRY_MAX) { taker.handsFull = b; continue; }   // It stays where it is until a hand is free.
+    b.state = 'carried'; b.carrier = taker.id; taker.carried++;
     SND.play('pick', b.x, b.y);
     for (let k = 0; k < 14; k++)
       g.parts.push({ x: b.x, y: b.y, vx: rnd(-90, 90), vy: rnd(-140, -20), l: rnd(.4, .8), c: '#ffd766', s: rnd(2, 4) });
   }
 
-  // Delivery. Each parcel is signed off at its own door, and the district ends when the
-  // last one is.
+  // Delivery. Each parcel is signed off at its own door, by the courier whose back it is on —
+  // a partner standing at the right door with the wrong parcel signs nothing.
   if (!g.done) for (const b of g.parcels) {
-    if (b.state !== 'carried' || Math.hypot(b.dest.x - p.x, b.dest.y - p.y) >= 26) continue;
-    b.state = 'done'; p.carried--; g.delivered++;
+    if (b.state !== 'carried') continue;
+    const carrier = g.players[b.carrier] || g.p;
+    if (carrier.down || Math.hypot(b.dest.x - carrier.x, b.dest.y - carrier.y) >= 26) continue;
+    b.state = 'done'; carrier.carried--; g.delivered++;
     SND.play('deliver', b.dest.x, b.dest.y);
     for (let k = 0; k < 18; k++)
       g.parts.push({ x: b.dest.x, y: b.dest.y, vx: rnd(-120, 120), vy: rnd(-180, -30), l: rnd(.4, .9),
                      c: pick(['#8fe388', '#ffd766']), s: rnd(2, 4) });
-    if (g.delivered >= g.need) finishDistrict(g, p);
+    if (g.delivered >= g.need) finishDistrict(g, carrier);
   }
 
   for (let i = g.blasts.length - 1; i >= 0; i--) {
@@ -1625,14 +1735,15 @@ function update(g, dt) {
       }
 
       if (part.h < 9) {
-        const pdx = part.x - p.x, pdy = part.y - p.y, pd = Math.hypot(pdx, pdy) || 1;
-        const touch = radius + PR;
-        if (pd < touch) {
+        for (const courier of g.players) {
+          const pdx = part.x - courier.x, pdy = part.y - courier.y, pd = Math.hypot(pdx, pdy) || 1;
+          const touch = radius + PR;
+          if (pd >= touch) continue;
           const nx = pdx / pd, ny = pdy / pd;
-          part.x = p.x + nx * (touch + .5); part.y = p.y + ny * (touch + .5);
-          const approach = (p.vx - part.vx) * nx + (p.vy - part.vy) * ny;
+          part.x = courier.x + nx * (touch + .5); part.y = courier.y + ny * (touch + .5);
+          const approach = (courier.vx - part.vx) * nx + (courier.vy - part.vy) * ny;
           if (approach > 12 && part.kickCd <= 0) {
-            kickZombieHead(g, part, nx, ny, 58 + approach * .9, p.vx * .32, p.vy * .32);
+            kickZombieHead(g, part, nx, ny, 58 + approach * .9, courier.vx * .32, courier.vy * .32);
           }
         }
 

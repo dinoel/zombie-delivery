@@ -36,6 +36,11 @@ if (hashQa) {
   // thing that decides what a profile means.
   UI.quality.value = 'low';
   UI.quality.dispatchEvent(new Event('change'));
+  // Sound is muted for the same reason, and it is not about sound. Several voices draw from the
+  // same random stream as the town, and a muted engine returns before it draws — so the mute
+  // setting silently decides where every later draw lands. Two runs are only comparable if they
+  // agree about it, and muted is the one state that also holds when audio never started.
+  if (!SND.muted) SND.toggle();
 }
 
 // A district drawn from a fixed seed on a fixed input script must produce a fixed picture.

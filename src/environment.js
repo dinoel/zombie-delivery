@@ -24,6 +24,18 @@ function makeNoise(g, x, y, r, strength, ring, skip) {
   if (ring) g.rings.push({ x, y, r: 10, max: r, l: .55 });
 }
 
+// The courier nearest a point. Traffic, thunder and crash shake all used to mean the only
+// courier there was; with a shift of two they mean whichever of them the event is actually
+// happening to.
+function nearestPlayer(g, x, y) {
+  let best = g.players[0], bd = Infinity;
+  for (const p of g.players) {
+    const dx = p.x - x, dy = p.y - y, d2 = dx * dx + dy * dy;
+    if (d2 < bd) { bd = d2; best = p; }
+  }
+  return best;
+}
+
 // Pavement factor at a point: 1 at the road center, 0 on grass.
 const surfaceAt = (g, x, y) => clamp((ROAD / 2 + 8 - g.roadDist(x, y)) / 22, 0, 1);
 
@@ -41,12 +53,6 @@ for (let j = 0; j < fogImg.data.length; j += 4) {
 }
 
 function updateFog(g, dt) {
-  const p = g.p, lit = p.torch && p.batt > 0, w = g.weather;
-  const o = torchHand(p);                          // Vision starts at the hand, not the body center.
-  // Rain shortens the beam, while lightning briefly reveals the whole block.
-  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6), R2 = R * R;
-  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6)) ** 2;
-  const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
   const fade = Math.min(1, dt * 6), rise = Math.min(1, dt * 9);
 
   // Cells the player has never seen are already zero. Iterate only the explored
@@ -58,6 +64,20 @@ function updateFog(g, dt) {
     const tgt = g.seen[i] ? REMEMBER : 0;
     if (g.fog[i] > tgt) g.fog[i] += (tgt - g.fog[i]) * fade;
   }
+  // The map is one map, and a shift shares what it has walked: a street lit by a partner two
+  // blocks away is a street this courier no longer has to open up themselves. The fade runs
+  // once over the whole explored set, and each courier then writes back what they can see.
+  for (const p of g.players) revealAround(g, p, rise);
+}
+
+function revealAround(g, p, rise) {
+  const lit = p.torch && p.batt > 0, w = g.weather;
+  const o = torchHand(p);                          // Vision starts at the hand, not the body center.
+  // Rain shortens the beam, while lightning briefly reveals the whole block.
+  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6), R2 = R * R;
+  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6)) ** 2;
+  const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
+  const active = g.fogActive, activeMark = g.fogActiveMark;
   const gx0 = Math.max(0, ((o.x - R) / FCELL) | 0), gx1 = Math.min(FW - 1, ((o.x + R) / FCELL) | 0);
   const gy0 = Math.max(0, ((o.y - R) / FCELL) | 0), gy1 = Math.min(FW - 1, ((o.y + R) / FCELL) | 0);
   for (let gy = gy0; gy <= gy1; gy++) for (let gx = gx0; gx <= gx1; gx++) {
@@ -135,8 +155,11 @@ function updateWeather(g, dt) {
       w.strike = rnd(7, 22);
       w.flash = 1; w.reflash = .11;
       const a = rnd(0, 6.283), d = rnd(300, 700);
-      w.boomX = clamp(g.p.x + Math.cos(a) * d, 40, WORLD - 40);
-      w.boomY = clamp(g.p.y + Math.sin(a) * d, 40, WORLD - 40);
+      // Which courier it lands near is taken from the angle already drawn rather than from a
+      // new one, so adding a second courier does not lengthen the random stream.
+      const under = g.players[((a / 6.284) * g.players.length) | 0] || g.players[0];
+      w.boomX = clamp(under.x + Math.cos(a) * d, 40, WORLD - 40);
+      w.boomY = clamp(under.y + Math.sin(a) * d, 40, WORLD - 40);
       w.boom = rnd(.4, 2.2);
     }
   }
@@ -336,11 +359,13 @@ function startTurn(g, c, avoidId) {
   }
   let nextId = opts.length ? pick(opts) : c.edge.id;
   if (opts.length && c.driverTimer > 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) {
+    // A rattled driver steers by the courier they can see, which is the nearest one.
+    const chased = nearestPlayer(g, c.x, c.y);
     let bestScore = c.driverMode === 'chase' ? Infinity : -Infinity;
     for (const id of opts) {
       const candidate = g.roads.edges[id];
       const farNode = g.roads.nodes[candidate.a === at ? candidate.b : candidate.a];
-      const score = Math.hypot(farNode.x - g.p.x, farNode.y - g.p.y);
+      const score = Math.hypot(farNode.x - chased.x, farNode.y - chased.y);
       if ((c.driverMode === 'chase' && score < bestScore) || (c.driverMode === 'flee' && score > bestScore)) {
         bestScore = score; nextId = id;
       }
@@ -636,7 +661,8 @@ function crashEffects(g, x, y, impactSpeed) {
   if (impactSpeed < 28) return;
   SND.play('crash', x, y);
   makeNoise(g, x, y, clamp(190 + impactSpeed * 1.25, 220, 520), clamp(2.5 + impactSpeed / 65, 3, 7), true);
-  g.shake = Math.max(g.shake, clamp(impactSpeed / 170, .25, 1.25) * clamp(1 - Math.hypot(g.p.x - x, g.p.y - y) / 540, 0, 1));
+  const felt = nearestPlayer(g, x, y);
+  g.shake = Math.max(g.shake, clamp(impactSpeed / 170, .25, 1.25) * clamp(1 - Math.hypot(felt.x - x, felt.y - y) / 540, 0, 1));
   const count = Math.round(clamp(8 + impactSpeed * .09, 10, 34));
   for (let i = 0; i < count; i++)
     g.parts.push({ x, y, vx: rnd(-170, 170) * (1 + impactSpeed / 260), vy: rnd(-190, 110) * (1 + impactSpeed / 320),

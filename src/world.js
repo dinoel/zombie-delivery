@@ -142,6 +142,7 @@ function makeCourier(start, index, torch) {
     torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
     takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
     torchSeen: null, sneakSeen: null,             // Adopted from the press counters on the first frame.
+    reviveT: 0,                                   // How long a partner has been kneeling over them.
     hp: HP_MAX, hpMax: HP_MAX, ammo: 24, down: false,
     carried: 0, handsFull: null, finishTarget: null,
     stealthNotice: 0, stealthWatchers: 0, stealthDetected: false, stealthCrawlTime: 0
@@ -383,7 +384,8 @@ function buildTown(level) {
       Math.hypot(q.x - start.x, q.y - start.y) > START_GUARD_GAP)
       .sort((a, b) => Math.hypot(a.x - bestSpot.x, a.y - bestSpot.y) - Math.hypot(b.x - bestSpot.x, b.y - bestSpot.y))
       .slice(0, 16);
-    parcels.push({ x: bestSpot.x, y: bestSpot.y, state: 'ground', dest: null, ph: Math.random() * 6.283 });
+    // carrier is the courier whose back it is on, so a parcel is signed off by whoever picked it up.
+    parcels.push({ x: bestSpot.x, y: bestSpot.y, state: 'ground', dest: null, carrier: -1, ph: Math.random() * 6.283 });
     parcelGuardPools.push(guards);
     if (bestSpot.house) usedParcelHouses.add(bestSpot.house);
   }
@@ -670,13 +672,18 @@ function buildTown(level) {
 
   // Building the roster before the literal keeps every courier made in one place. It draws no
   // randomness, so the static layer below still meets the stream exactly where it always did.
-  const players = [makeCourier(start, 0, qaMode !== 'foliage-lighting' && !stealthQa)];
+  const torchOn = qaMode !== 'foliage-lighting' && !stealthQa;
+  const coopLocal = qaMode === 'coop-local';
+  const players = [makeCourier(start, 0, torchOn)];
+  // Two couriers on one keyboard is not a way to play, but it is the only way to exercise the
+  // rules that exist because there are two of them without a network standing in the way.
+  if (coopLocal) players.push(makeCourier({ x: start.x + 34, y: start.y }, 1, torchOn));
 
   return {
     level, solids, trees, soft, houses, props, parcels, cars, need, zombies, ammoBoxes,
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
     stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
-    players, p: players[0],                         // The local courier; the rest of the shift is alongside.
+    players, p: players[0], coopLocal,              // The local courier; the rest of the shift is alongside.
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,

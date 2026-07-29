@@ -90,13 +90,15 @@ addEventListener('mouseup', () => { runtime.mouse.down = 0; });
 cv.addEventListener('mouseleave', () => { runtime.mouse.down = 0; });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 
-function inputDir() {
+// The arrows double for WASD alone in a district, and become the partner's controls in the
+// local two-courier harness, which is the only time this is asked to leave them out.
+function inputDir(arrowsToo = true) {
   const { keys, touch } = runtime;
   let dx = 0, dy = 0, run = !!(keys.ShiftLeft || keys.ShiftRight);
-  if (keys.ArrowLeft || keys.KeyA) dx -= 1;
-  if (keys.ArrowRight || keys.KeyD) dx += 1;
-  if (keys.ArrowUp || keys.KeyW) dy -= 1;
-  if (keys.ArrowDown || keys.KeyS) dy += 1;
+  if (keys.KeyA || (arrowsToo && keys.ArrowLeft)) dx -= 1;
+  if (keys.KeyD || (arrowsToo && keys.ArrowRight)) dx += 1;
+  if (keys.KeyW || (arrowsToo && keys.ArrowUp)) dy -= 1;
+  if (keys.KeyS || (arrowsToo && keys.ArrowDown)) dy += 1;
   if (touch) {
     const tx = touch.x - touch.ox, ty = touch.y - touch.oy, d = Math.hypot(tx, ty);
     if (d > 10) { const k = Math.min(d, 55) / 55 / d; dx = tx * k; dy = ty * k; }
@@ -118,7 +120,7 @@ function inputDir() {
 // did. A courier on another machine has already made that conversion against their own camera,
 // and sends tx and ty in world coordinates instead.
 function readLocalInput(g, p) {
-  const v = inputDir();
+  const v = inputDir(g.players.length < 2);
   const rec = p.in || (p.in = { tx: 0, ty: 0 });
   rec.n = (rec.n || 0) + 1;
   rec.x = v.x; rec.y = v.y; rec.m = v.m; rec.run = v.run;
@@ -130,6 +132,34 @@ function readLocalInput(g, p) {
   return rec;
 }
 
-return Object.freeze({ inputDir, readLocalInput, TORCH_BTN });
+// The partner in the local harness. Two couriers on one keyboard is not a way to play — there
+// is one screen, one camera and one mouse — but it is the only way to exercise the rules that
+// exist solely because there are two of them, without a network in the way.
+let partnerTorch = 0, partnerSneak = 0;
+addEventListener('keydown', e => {
+  if (runtime.keys[e.code] || runtime.state !== 'play' || !runtime.game) return;
+  if (e.code === 'Slash') partnerTorch++;
+  if (e.code === 'Period') partnerSneak++;
+});
+function readSecondInput(g, p) {
+  const keys = runtime.keys;
+  let dx = 0, dy = 0;
+  if (keys.ArrowLeft) dx -= 1;
+  if (keys.ArrowRight) dx += 1;
+  if (keys.ArrowUp) dy -= 1;
+  if (keys.ArrowDown) dy += 1;
+  const m = Math.hypot(dx, dy);
+  const rec = p.in || (p.in = { tx: 0, ty: 0 });
+  rec.n = (rec.n || 0) + 1;
+  if (m > 1) { rec.x = dx / m; rec.y = dy / m; rec.m = 1; } else { rec.x = dx; rec.y = dy; rec.m = m; }
+  rec.run = !!keys.ShiftRight;
+  rec.fire = !!keys.Numpad0 || !!keys.ControlRight;
+  rec.finish = !!keys.Numpad1;
+  rec.aimScreen = false;                     // No second mouse: the partner shoots where they walk.
+  rec.torchSeq = partnerTorch; rec.sneakSeq = partnerSneak;
+  return rec;
+}
+
+return Object.freeze({ inputDir, readLocalInput, readSecondInput, TORCH_BTN });
 })();
 

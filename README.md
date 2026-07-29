@@ -35,11 +35,14 @@ Two checks exist so the simulation can be rearranged without changing what it do
 ```powershell
 node .\tools\test-seeded-town.js
 node .\tools\test-sim-determinism.js
+node .\tools\test-coop-rules.js
 ```
 
-`test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices.
+`test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices. `test-coop-rules.js` covers what only exists with two couriers, and is described with the shift below.
 
-The picture has its own check, which is run by hand because the answer depends on the browser doing the drawing. Open `index.html?2d&qa=frame-hash`, press start, and read `document.getElementById('c').dataset.frameHash` after a few seconds: it seeds the town, runs 300 steps of a fixed input script off the animation clock, and hashes all 403,200 pixels. Compare the value before and after a change. The mode forces the low quality profile and a dry night, because the rain field is filled when `environment.js` loads and no seed can reach it.
+The picture has its own check, which is run by hand because the answer depends on the browser doing the drawing. Open `index.html?2d&qa=frame-hash`, press start, and read `document.getElementById('c').dataset.frameHash` after a few seconds: it seeds the town, runs 300 steps of a fixed input script off the animation clock, and hashes all 403,200 pixels. Compare the value before and after a change.
+
+The mode pins three things that would otherwise decide the answer without appearing to. The quality profile, because it sets the light budget, the shadow count and the fog cadence. A dry night, because the rain field is filled when `environment.js` loads, before anything can seed it. And the sound, muted — not because sound is visible, but because several voices draw from the same random stream as the town and a muted engine returns before it draws, so the mute setting quietly moves every later draw. Two runs only compare if they agree about all three.
 
 ## Building a single file
 
@@ -161,6 +164,27 @@ Street lighting is a working part of the district:
 - a roof is the one surface facing the sky, so it is lit by the sky and by nothing else: no
   street lamp reaches up there, but moonlight does, and a row of houses reads as slate and
   tile rather than as holes cut out of the street.
+
+The district is being taught to hold a shift of two rather than one courier, ahead of the co-op
+mode that will need it. `index.html?qa=coop-local` puts a second courier on the arrow keys next
+to the first, on one screen and one camera — not a way to play, but the only way to exercise the
+rules below without a network in the way. `tools/test-coop-rules.js` covers them headlessly:
+
+- health, ammunition, the flashlight battery, stamina and what is on the back belong to each
+  courier; the district, the horde, the parcel count and the wallet belong to the shift;
+- a zombie has one head: it works out whoever is giving themselves away hardest, settles ties by
+  who is closer, and changes its mind when that stops being true — so a partner sprinting past
+  can take the horde off somebody crawling;
+- a beam betrays whoever is holding it, and the one holding it is who the horde comes for;
+- a parcel is signed off by the courier carrying it — a partner standing at the right door with
+  the wrong parcel signs nothing — while the count on the district is shared;
+- running out of health puts a courier on the ground instead of ending the district, and the
+  horde loses interest in a body; three seconds of a partner standing over them gets them back
+  up on part of their health. The district is only lost when nobody is left standing, which
+  alone is the same moment it always was;
+- both couriers light the same map: fog is opened by either of them, and each carries their own
+  flashlight, muzzle flash and pool of light;
+- traffic honks at, swerves for and runs over whichever courier is actually in front of it.
 
 A speed pass follows, with no change to the rules or to a single pixel of the picture:
 

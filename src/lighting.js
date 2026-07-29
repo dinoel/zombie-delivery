@@ -186,7 +186,7 @@ function paintLightDirect(camx, camy, x, y, r, col, tint, punch, ang, spread) {
 
 // One light list keeps the GL and 2D paths consistent.
 function collectLights(g, camx, camy) {
-  const p = g.p, out = [];
+  const out = [];
   const add = (x, y, r, rgb, int, tint, punch, ang, spread, soft, priority = 1, skip) => {
     if (!legacyPerf && (x + r < camx || y + r < camy || x - r > camx + W || y - r > camy + H)) return;
     out.push({ x, y, r, rgb, int, tint, punch, ang: ang || 0, spread: spread || 0,
@@ -231,13 +231,17 @@ function collectLights(g, camx, camy) {
     add(c.x, c.y, 52, RGB_ROOF_RED, .8 * pulse, .34, .5, 0, 0, 0, 1, c);      // Roof reflection.
     add(c.x, c.y, 52, RGB_ROOF_BLUE, .8 * (1.55 - pulse), .34, .5, 0, 0, 0, 1, c);
   }
-  const lit = p.torch && p.batt > 0;
-  if (lit) {                                                                             // Flashlight originates from the hand.
-    const h = torchHand(p);
-    add(h.x, h.y, 250 - 40 * g.weather.rain, RGB_WARM, 1.15 * p.flick, .18, .95, p.aim, .45, 6, 10);
+  // Every courier carries their own light. A partner's beam sweeping the far pavement is
+  // often the first thing that says where they are.
+  for (const courier of g.players) {
+    const lit = courier.torch && courier.batt > 0;
+    if (lit) {                                                                           // Flashlight originates from the hand.
+      const h = torchHand(courier);
+      add(h.x, h.y, 250 - 40 * g.weather.rain, RGB_WARM, 1.15 * courier.flick, .18, .95, courier.aim, .45, 6, 10);
+    }
+    add(courier.x, courier.y, lit ? 74 : 52, RGB_WARM, lit ? .5 : .3, .1, lit ? .8 : .6, 0, 0, 0, 9); // Pool around the feet.
+    if (courier.muzzle > 0) { const h = gunHand(courier); add(h.x, h.y, 190, RGB_MUZZLE, 1.7, .5, 1, 0, 0, 16, 10); }
   }
-  add(p.x, p.y, lit ? 74 : 52, RGB_WARM, lit ? .5 : .3, .1, lit ? .8 : .6, 0, 0, 0, 9); // Pool around the feet.
-  if (p.muzzle > 0) { const h = gunHand(p); add(h.x, h.y, 190, RGB_MUZZLE, 1.7, .5, 1, 0, 0, 16, 10); }
   for (const s of g.zombieShots) add(s.x, s.y, 23 + s.r, s.light || RGB_FILTH, .75, .28, .62, 0, 0, 0, 8);
   for (const b of g.parcels) if (b.state === 'ground') add(b.x, b.y, 46, RGB_PARCEL, .7, .24, .8, 0, 0, 0, 5);
   for (const a of g.ammoBoxes) add(a.x, a.y, 42, RGB_AMMO, .6, .22, .78, 0, 0, 0, 5);

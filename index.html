@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>COURIER</title>
-<link rel="stylesheet" href="styles/main.css?v=20260729-61">
+<link rel="stylesheet" href="styles/main.css?v=20260729-62">
 </head>
 <body>
 <div id="hud" aria-label="Game status">
@@ -110,6 +110,13 @@
         </div>
       </details>
     </div>
+    <div class="net-control">
+      <label for="roomCode">CO-OP</label>
+      <input id="roomCode" type="text" maxlength="6" placeholder="ROOM" autocomplete="off" spellcheck="false">
+      <button id="hostBtn" type="button">HOST</button>
+      <button id="joinBtn" type="button">JOIN</button>
+      <span id="netStatus" aria-live="polite"></span>
+    </div>
     <div class="quality-control">
       <label for="qualitySelect">QUALITY</label>
       <select id="qualitySelect">
@@ -125,19 +132,20 @@
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260729-61"></script>
-  <script src="src/core.js?v=20260729-61"></script>
-  <script src="src/quality.js?v=20260729-61"></script>
-  <script src="src/audio.js?v=20260729-61"></script>
-  <script src="src/car-physics.js?v=20260729-61"></script>
-  <script src="src/environment.js?v=20260729-61"></script>
-  <script src="src/world.js?v=20260729-61"></script>
-  <script src="src/physics.js?v=20260729-61"></script>
-  <script src="src/input.js?v=20260729-61"></script>
-  <script src="src/gameplay.js?v=20260729-61"></script>
-  <script src="src/lighting.js?v=20260729-61"></script>
-  <script src="src/entities.js?v=20260729-61"></script>
-  <script src="src/render.js?v=20260729-61"></script>
-  <script src="src/main.js?v=20260729-61"></script>
+  <script src="src/namespace.js?v=20260729-62"></script>
+  <script src="src/core.js?v=20260729-62"></script>
+  <script src="src/quality.js?v=20260729-62"></script>
+  <script src="src/audio.js?v=20260729-62"></script>
+  <script src="src/car-physics.js?v=20260729-62"></script>
+  <script src="src/environment.js?v=20260729-62"></script>
+  <script src="src/world.js?v=20260729-62"></script>
+  <script src="src/physics.js?v=20260729-62"></script>
+  <script src="src/input.js?v=20260729-62"></script>
+  <script src="src/gameplay.js?v=20260729-62"></script>
+  <script src="src/lighting.js?v=20260729-62"></script>
+  <script src="src/entities.js?v=20260729-62"></script>
+  <script src="src/render.js?v=20260729-62"></script>
+  <script src="src/net.js?v=20260729-62"></script>
+  <script src="src/main.js?v=20260729-62"></script>
 </body>
 </html>

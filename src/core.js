@@ -19,7 +19,11 @@ const UI = Object.freeze({
   time: $('time'),
   best: $('best'),
   quality: $('qualitySelect'),
-  qualityStatus: $('qualityStatus')
+  qualityStatus: $('qualityStatus'),
+  roomCode: $('roomCode'),
+  hostBtn: $('hostBtn'),
+  joinBtn: $('joinBtn'),
+  netStatus: $('netStatus')
 });
 
 const STORAGE_KEYS = Object.freeze({ mute: 'townMute', best: 'townBest', quality: 'townQuality' });

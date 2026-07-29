@@ -149,6 +149,29 @@ function makeCourier(start, index, torch) {
   };
 }
 
+// A fingerprint of the shape of a district, so two peers can prove they really did build the
+// same one before anybody starts walking around in it.
+//
+// Generation leans on cos, sin, atan2 and hypot, and the language does not require those to
+// agree to the last bit across engines. One ulp in the wrong place moves a house, which moves
+// everything decided after it — and that would otherwise surface as a desync ten seconds into a
+// shift, looking like a network fault rather than what it is. Coordinates are rounded before
+// mixing, so the check tolerates the last bit of arithmetic noise and still catches a district
+// that is genuinely not the same district.
+function layoutChecksum(g) {
+  let h = 0x811c9dc5;
+  const mix = v => { h ^= Math.round(v) | 0; h = Math.imul(h, 0x01000193) >>> 0; };
+  mix(g.level); mix(g.need);
+  for (const n of g.roads.nodes) { mix(n.x); mix(n.y); }
+  for (const house of g.houses) { mix(house.cx); mix(house.cy); mix(house.hw); mix(house.hh); }
+  for (const b of g.parcels) { mix(b.x); mix(b.y); mix(b.dest.x); mix(b.dest.y); }
+  for (const z of g.zombies) { mix(z.x); mix(z.y); mix(z.hp); }
+  for (const c of g.cars) { mix(c.x); mix(c.y); }
+  for (const l of g.lamps) { mix(l.x); mix(l.y); }
+  for (const p of g.players) { mix(p.x); mix(p.y); }
+  return h.toString(16).padStart(8, '0');
+}
+
 // ---------- district generation ----------
 function buildTown(level) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
@@ -1065,7 +1088,7 @@ function drawCarShape(c, car) {
 }
 
 return Object.freeze({
-  buildTown, makeCourier, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
+  buildTown, makeCourier, layoutChecksum, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
 });
 })();
 

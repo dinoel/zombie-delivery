@@ -39,11 +39,15 @@ flowchart TD
   W --> R
   L --> R
   X --> R
+  C --> NT["net"]
   W --> M["main"]
+  NT --> M
   A --> M
   G --> M
   R --> M
 ```
+
+`net` sits deliberately at the edge: it depends only on `core`, and nothing in the simulation depends on it. A district never learns whether it is being played alone or shared, which is what keeps the rules in one shape. The one question the loop asks is who owns them — `net.authoritative()` — and when the answer is somebody else, the frame runs `presentFrame` instead of `update`. A district is never sent: both peers grow the same town from one seed and compare `layoutChecksum` before anyone walks around in it.
 
 `physics` also owns the district's static broad phase. Houses, hedges, parked cars, trees, and bushes never move once a town is built, so they are indexed into one uniform grid on first use and rebuilt only when a district replaces its furniture. `solidsNear`, `treesNear`, `softNear`, and `parkedNear` return candidates in list order, which keeps collision resolution identical to walking the full array — the grid narrows the search, it never decides the outcome.
 

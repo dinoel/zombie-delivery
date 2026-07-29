@@ -44,6 +44,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Presentation seam test failed:`n$presentationTest")
   }
+
+  $relayFramesTest = & node (Join-Path $PSScriptRoot 'test-relay-frames.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Relay framing test failed:`n$relayFramesTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -52,20 +57,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-61',
-  'src/core.js?v=20260729-61',
-  'src/quality.js?v=20260729-61',
-  'src/audio.js?v=20260729-61',
-  'src/car-physics.js?v=20260729-61',
-  'src/environment.js?v=20260729-61',
-  'src/world.js?v=20260729-61',
-  'src/physics.js?v=20260729-61',
-  'src/input.js?v=20260729-61',
-  'src/gameplay.js?v=20260729-61',
-  'src/lighting.js?v=20260729-61',
-  'src/entities.js?v=20260729-61',
-  'src/render.js?v=20260729-61',
-  'src/main.js?v=20260729-61'
+  'src/namespace.js?v=20260729-62',
+  'src/core.js?v=20260729-62',
+  'src/quality.js?v=20260729-62',
+  'src/audio.js?v=20260729-62',
+  'src/car-physics.js?v=20260729-62',
+  'src/environment.js?v=20260729-62',
+  'src/world.js?v=20260729-62',
+  'src/physics.js?v=20260729-62',
+  'src/input.js?v=20260729-62',
+  'src/gameplay.js?v=20260729-62',
+  'src/lighting.js?v=20260729-62',
+  'src/entities.js?v=20260729-62',
+  'src/render.js?v=20260729-62',
+  'src/net.js?v=20260729-62',
+  'src/main.js?v=20260729-62'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -82,7 +88,7 @@ foreach ($reference in $references) {
   }
 }
 
-$moduleNames = @('core', 'quality', 'audio', 'carPhysics', 'environment', 'world', 'physics', 'input', 'gameplay', 'lighting', 'entities', 'render')
+$moduleNames = @('core', 'quality', 'audio', 'carPhysics', 'environment', 'world', 'physics', 'input', 'gameplay', 'lighting', 'entities', 'render', 'net')
 foreach ($moduleName in $moduleNames) {
   $moduleFile = if ($moduleName -eq 'carPhysics') { 'car-physics.js' } else { "$moduleName.js" }
   $modulePath = Join-Path $project "src\$moduleFile"
@@ -193,6 +199,33 @@ if (-not $mainSource.Contains('authoritative()')) {
   $problems.Add('The loop must choose between running the rules and only presenting them.')
 }
 
+# Two browsers work one district by growing the same town from one seed and proving it matched,
+# never by sending the district itself.
+$netSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src/net.js')
+foreach ($netFeature in @('const PROTOCOL', "role !== 'guest'", 'function hostDistrict(',
+    'function declareLayout(', "t: 'join'", "t: 'ready'", 'available')) {
+  if (-not $netSource.Contains($netFeature)) {
+    $problems.Add("The co-op session is incomplete: $netFeature")
+  }
+}
+if (-not $mainSource.Contains('function buildSeeded(') -or
+    -not $mainSource.Contains('Math.random = previous')) {
+  $problems.Add('A co-op district must be grown from a shared seed and the generator put back.')
+}
+if (-not $worldSource.Contains('function layoutChecksum(')) {
+  $problems.Add('Peers must be able to prove they built the same district.')
+}
+$relaySource = Get-Content -Raw -LiteralPath (Join-Path $project 'tools/relay.js')
+foreach ($relayFeature in @('258EAFA5-E914-47DA-95CA-C5AB0DC85B11', 'function createParser(',
+    'fragmented frames are not supported', 'require.main === module')) {
+  if (-not $relaySource.Contains($relayFeature)) {
+    $problems.Add("The relay is incomplete: $relayFeature")
+  }
+}
+if ($relaySource.Contains('Sec-WebSocket-Extensions:')) {
+  $problems.Add('The relay must not accept permessage-deflate: it cannot inflate.')
+}
+
 $lightingCouriers = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
 if (-not $lightingCouriers.Contains('for (const courier of g.players)')) {
   $problems.Add('Every courier must contribute their own flashlight, footing and muzzle flash.')
@@ -262,4 +295,4 @@ if ($problems.Count -gt 0) {
   exit 1
 }
 
-Write-Host "Verification passed: $($references.Count) resources, 12 isolated subsystems, valid load order and JavaScript, English-only project text."
+Write-Host "Verification passed: $($references.Count) resources, 13 isolated subsystems, valid load order and JavaScript, English-only project text."

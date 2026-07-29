@@ -28,6 +28,22 @@ node .\tools\test-car-damage.js
 
 It covers plastic body-node displacement, replacement of the original collision outline with the deformed outline, moderate and catastrophic frontal crashes, side-part damage, and final failure after repeated zombie impacts. Visual states can be compared in `tools/car-damage-preview.html`. To inspect smoke and the crumpled physical wreck in the game, open `index.html?2d&qa=car-damage`; a test vehicle will appear in the starting beam. Normal gameplay never enables this mode.
 
+## Playing it together
+
+Two people can work one district. Start the relay on one machine:
+
+```powershell
+node .\tools\relay.js
+```
+
+It prints the addresses it is reachable at, serves the game from the same port, and forwards messages between two browsers. It has no dependencies and knows nothing about the game — it carries bytes and counts to two.
+
+Open one of the printed addresses on both machines, type the same few letters as a room code, and have one side press `HOST` and the other `JOIN`. The host then presses `START SHIFT` for both.
+
+The district itself never crosses the network: it is a 2450-pixel canvas, a closure and a fog grid, and shipping it would be neither possible nor worth it. Instead the host picks a seed, both ends grow the same town from it, and both compute a fingerprint of the result and compare. A mismatch stops the session in the lobby with a plain sentence rather than surfacing ten seconds later as inexplicable drift — generation leans on `cos`, `sin` and `hypot`, and the language does not require those to agree to the last bit between different engines. Use the same browser on both machines.
+
+Co-op is unavailable over `file://`, because the page has to come from the relay it talks to. Opening `index.html` off the disk is still a complete game; it just cannot be two.
+
 ## Keeping the district reproducible
 
 Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.

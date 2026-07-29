@@ -329,3 +329,46 @@ canvas.aim {
   .manual__body { max-height: 140px; }
   #qualityStatus { display: none; }
 }
+
+/* Co-op lobby: a room code and which end of it you are. */
+.net-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+  font-size: 12px;
+  letter-spacing: .06em;
+}
+.net-control label { color: #8fa3b8; }
+.net-control input {
+  width: 88px;
+  padding: 4px 7px;
+  background: #10161f;
+  border: 1px solid #2b3a4d;
+  border-radius: 4px;
+  color: #dce7f2;
+  font: inherit;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+.net-control input:focus { outline: none; border-color: #57c7ff; }
+.net-control button {
+  padding: 4px 11px;
+  background: #1b2635;
+  border: 1px solid #2b3a4d;
+  border-radius: 4px;
+  color: #cfe0f2;
+  font: inherit;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.net-control button:hover { background: #24344a; border-color: #57c7ff; }
+.net-control button:disabled { opacity: .45; cursor: default; }
+#netStatus {
+  flex: 1 1 100%;
+  min-height: 1.2em;
+  color: #8fa3b8;
+  letter-spacing: .02em;
+}
+#netStatus.net-status--bad { color: #ff9a8f; }

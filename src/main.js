@@ -6,10 +6,11 @@ const {
   cv, ctx, W, H, UI, overlay, startBtn, runtime, clamp, LIVES_MAX
 } = window.TownGame.core;
 const SND = window.TownGame.audio;
-const { buildTown } = window.TownGame.world;
+const { buildTown, layoutChecksum } = window.TownGame.world;
 const { prepareCarImpactComparison } = window.TownGame.environment;
 const { update, presentFrame } = window.TownGame.gameplay;
 const { draw } = window.TownGame.render;
+const net = window.TownGame.net;
 
 // Once every subsystem has loaded, the public module collection no longer changes.
 Object.freeze(window.TownGame);
@@ -79,7 +80,57 @@ function runFrameHash() {
 }
 // Whether this peer owns the simulation. Alone in a district it always does, and it will keep
 // doing so while hosting; only a guest hands the rules to somebody else.
-const authoritative = () => !window.TownGame.net || window.TownGame.net.authoritative();
+const authoritative = () => net.authoritative();
+
+// Both peers grow the same town from the same seed rather than sending it: the district is a
+// 2450-pixel canvas, a closure and a fog grid, and shipping it is neither possible nor worth it.
+// Swapping the generator for a seeded one around the call is the trick this file already uses
+// for profiling, put to its real purpose. The previous function is restored rather than the
+// native one, because profiling may have replaced it first.
+function buildSeeded(level, seed) {
+  const previous = Math.random;
+  let s = seed | 0;
+  Math.random = () => {
+    s |= 0; s = s + 0x6d2b79f5 | 0;
+    let n = Math.imul(s ^ s >>> 15, 1 | s);
+    n = n + Math.imul(n ^ n >>> 7, 61 | n) ^ n;
+    return ((n ^ n >>> 14) >>> 0) / 4294967296;
+  };
+  try {
+    const g = buildTown(level);
+    g.seed = seed;
+    return g;
+  } finally { Math.random = previous; }
+}
+
+// ---------- the co-op lobby ----------
+const setNetStatus = (text, bad) => {
+  UI.netStatus.textContent = text || '';
+  UI.netStatus.classList.toggle('net-status--bad', !!bad);
+};
+net.onStatus = text => setNetStatus(text, /lost|refused|different|already|Nobody|could not|Could not/.test(text));
+// A guest does not press start: the district arrives when the host opens one.
+net.onStart = msg => {
+  enterDistrict(buildSeeded(msg.level, msg.seed));
+  const sum = layoutChecksum(runtime.game);
+  net.declareLayout(runtime.game, sum);
+  if (sum !== msg.sum) setNetStatus('The two machines built different districts. Use the same browser on both.', true);
+};
+UI.hostBtn.addEventListener('click', () => { SND.init(); net.connect('host', UI.roomCode.value); });
+UI.joinBtn.addEventListener('click', () => { SND.init(); net.connect('guest', UI.roomCode.value); });
+if (!net.available()) setNetStatus('Co-op needs the page served by the relay: run "node tools/relay.js".');
+
+// Everything that has to happen when a district begins, whoever decided it should.
+function enterDistrict(g) {
+  runtime.game = g;
+  const impactQa = qaMode === 'impact-compare';
+  if (impactQa) prepareCarImpactComparison(g);
+  overlay.classList.add('hidden');
+  cv.classList.add('aim');
+  runtime.mouse.down = 0; runtime.fireHeld = false;
+  runtime.state = impactQa ? 'qa' : 'play';
+  last = performance.now();
+}
 let last = performance.now();
 let perfFrames = 0, perfUpdate = 0, perfDraw = 0, perfFrame = 0;
 function loop(t) {
@@ -121,20 +172,25 @@ startBtn.addEventListener('click', () => {
   const won = runtime.state === 'win', retry = runtime.state === 'retry';
   if (!won && !retry) { runtime.lives = LIVES_MAX; runtime.cash = 0; }
   const next = won ? runtime.game.level + 1 : retry ? runtime.game.level : 1;
-  runtime.game = buildTown(next);
-  const impactQa = qaMode === 'impact-compare';
-  if (impactQa) prepareCarImpactComparison(runtime.game);
-  overlay.classList.add('hidden');
-  cv.classList.add('aim');
-  runtime.mouse.down = 0; runtime.fireHeld = false;
-  runtime.state = impactQa ? 'qa' : 'play';
+  const shift = net.state();
+  if (shift.role === 'guest') {
+    setNetStatus('The host opens the district; this end waits for it.');
+    return;
+  }
+  if (shift.role === 'host') {
+    // The host picks the seed, so there is exactly one answer to what this district looks like.
+    const plan = net.hostDistrict(next);
+    enterDistrict(buildSeeded(plan.level, plan.seed));
+    net.declareLayout(runtime.game, layoutChecksum(runtime.game));
+  } else {
+    enterDistrict(buildTown(next));
+  }
   delete cv.dataset.perfReady;
   delete cv.dataset.perfUpdate;
   delete cv.dataset.perfDraw;
   delete cv.dataset.perfFrame;
   delete cv.dataset.perfFps;
   perfFrames = perfUpdate = perfDraw = perfFrame = 0;
-  last = performance.now();
   if (hashQa) {
     // Rain is the one thing on screen that a seed cannot reach: the drop field is a module-level
     // array filled when environment.js loads, which is before this file exists to replace

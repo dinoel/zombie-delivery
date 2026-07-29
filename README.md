@@ -50,6 +50,12 @@ A snapshot is about 4 kB, or 75 kB/s, because almost nothing is in it. The town,
 
 The guest draws the district a tenth of a second behind what it has been told, interpolating between the two snapshots either side of that moment, so a partner walks instead of stepping twenty times a second. Bullets and thrown filth are carried forward between snapshots rather than waiting for the next one, since they travel in straight lines anyway.
 
+Its own courier is the exception, because walking with the round trip on your own legs is the one thing that makes a game feel broken. The guest runs its own steps forward as the keys are pressed and settles up with the host afterwards: a small disagreement is folded in over about a quarter of a second, and anything past sixty pixels — a car, a blast, a bite — lands at once, because that is meant to be sudden. It runs the same code the host runs, so with the same input the guess is exact rather than merely close.
+
+Guessing is not allowed to play the game. A predicted step moves the courier and spends stamina, since speed depends on it, but it never makes a footstep the horde can hear, never spends a round, and never touches health, the battery, invulnerability or knockback. Aim is not predicted at all and does not need to be: it travels in world coordinates, so the host fires along exactly the line the guest drew.
+
+Add `?lag=200` to the URL on either end to put a round trip and some jitter back into a loopback connection, which is the only way to see any of this working.
+
 ## Keeping the district reproducible
 
 Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.

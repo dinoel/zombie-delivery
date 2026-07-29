@@ -54,6 +54,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Snapshot test failed:`n$snapshotTest")
   }
+
+  $predictionTest = & node (Join-Path $PSScriptRoot 'test-prediction.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Prediction test failed:`n$predictionTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -62,21 +67,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-63',
-  'src/core.js?v=20260729-63',
-  'src/quality.js?v=20260729-63',
-  'src/audio.js?v=20260729-63',
-  'src/car-physics.js?v=20260729-63',
-  'src/environment.js?v=20260729-63',
-  'src/world.js?v=20260729-63',
-  'src/physics.js?v=20260729-63',
-  'src/input.js?v=20260729-63',
-  'src/gameplay.js?v=20260729-63',
-  'src/lighting.js?v=20260729-63',
-  'src/entities.js?v=20260729-63',
-  'src/render.js?v=20260729-63',
-  'src/net.js?v=20260729-63',
-  'src/main.js?v=20260729-63'
+  'src/namespace.js?v=20260729-64',
+  'src/core.js?v=20260729-64',
+  'src/quality.js?v=20260729-64',
+  'src/audio.js?v=20260729-64',
+  'src/car-physics.js?v=20260729-64',
+  'src/environment.js?v=20260729-64',
+  'src/world.js?v=20260729-64',
+  'src/physics.js?v=20260729-64',
+  'src/input.js?v=20260729-64',
+  'src/gameplay.js?v=20260729-64',
+  'src/lighting.js?v=20260729-64',
+  'src/entities.js?v=20260729-64',
+  'src/render.js?v=20260729-64',
+  'src/net.js?v=20260729-64',
+  'src/main.js?v=20260729-64'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -197,6 +202,10 @@ foreach ($eventFeature in @('function emit(', 'function shakeAt(', 'const EV = O
     $problems.Add("The event channel is incomplete: $eventFeature")
   }
 }
+if (-not $gameplaySource.Contains('stepCourier(g, p, dt, predicted = false)') -or
+    -not $gameplaySource.Contains('if (!predicted) makeNoise(g, p.x, p.y,')) {
+  $problems.Add('A predicted courier step must not be able to alert the horde.')
+}
 if ($gameplaySource.Contains('g.shake = Math.max(g.shake, 1);')) {
   $problems.Add('Screen shake must be measured from the local courier through shakeAt, not set flat.')
 }
@@ -210,7 +219,8 @@ $netSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src/net.js')
 foreach ($netFeature in @('const PROTOCOL', "role !== 'guest'", 'function hostDistrict(',
     'function declareLayout(', "t: 'join'", "t: 'ready'", 'available',
     'function encodeSnapshot(', 'function applySnapshot(', 'function pump(', 'function hostTick(',
-    'function applyRemoteInput(', 'function lerpAngle(', 'const DELAY')) {
+    'function applyRemoteInput(', 'function lerpAngle(', 'const DELAY',
+    'function predict(', 'function reconcile(', 'const SNAP_AT')) {
   if (-not $netSource.Contains($netFeature)) {
     $problems.Add("The co-op session is incomplete: $netFeature")
   }

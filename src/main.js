@@ -168,6 +168,7 @@ function loop(t) {
       readLocalInput(runtime.game, runtime.game.p);
       net.sendInput(runtime.game.p);
       net.pump(runtime.game, dt);
+      net.predict(runtime.game, dt);   // Its own legs, without waiting for the round trip.
       presentFrame(runtime.game, dt);
       draw(runtime.game);
     }

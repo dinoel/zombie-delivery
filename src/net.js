@@ -39,8 +39,20 @@ const available = () => location.protocol === 'http:' || location.protocol === '
 const relayUrl = () =>
   `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/`;
 
+// Loopback has no latency worth the name, and prediction that is only ever tested at zero
+// latency is prediction that has not been tested. ?lag=120 puts a round trip back in, with a
+// little jitter, so the correction can be watched doing its job. It deliberately uses its own
+// parameter rather than a qa flag, because a qa flag changes the district and this must not.
+const lagMs = Math.max(0, Math.min(600, Number(new URLSearchParams(location.search).get('lag')) || 0));
+const delayed = fn => {
+  if (!lagMs) { fn(); return; }
+  setTimeout(fn, lagMs / 2 + Math.random() * lagMs * .15);
+};
+
 function send(message) {
-  if (socket && socket.readyState === 1) socket.send(JSON.stringify(message));
+  if (!socket || socket.readyState !== 1) return;
+  const text = JSON.stringify(message);
+  delayed(() => { if (socket && socket.readyState === 1) socket.send(text); });
 }
 
 function disconnect(reason) {
@@ -70,7 +82,7 @@ function connect(want, code) {
   catch { announce('Could not reach the relay.'); phase = 'idle'; return false; }
 
   socket.addEventListener('open', () => send({ t: 'join', room: clean, want }));
-  socket.addEventListener('message', e => receive(e.data));
+  socket.addEventListener('message', e => delayed(() => receive(e.data)));
   socket.addEventListener('close', () => {
     if (phase === 'idle') return;
     phase = 'lost'; partnerPresent = false;
@@ -167,6 +179,7 @@ const SNAPSHOT_HZ = 20;
 const DELAY = .1;                     // Render this far behind the host, to have something to interpolate toward.
 const KEEP = 16;                      // Snapshots kept for interpolation.
 
+let snapshotSerial = 0, lastReconciled = -1;
 const q1 = v => Math.round(v * 10) / 10;
 const q2 = v => Math.round(v * 100) / 100;
 const flag = (on, n) => (on ? 1 << n : 0);
@@ -188,7 +201,7 @@ function encodeSnapshot(g, ack) {
       flag(z.headless, 0) | flag(z.silent, 1) | ((z.lostArms || 0) << 2)]);
   }
   return {
-    t: 's', ack,
+    t: 's', ack, k: ++snapshotSerial,
     gs: [q2(g.time), g.delivered, g.killed, g.earned, q2(g.spawnGrace),
       flag(g.done, 0) | flag(g.dead, 1)],
     pl: g.players.map(p => [q1(p.x), q1(p.y), q1(p.vx), q1(p.vy), q2(p.ang), q2(p.aim),
@@ -381,6 +394,61 @@ function carryProjectiles(g, dt) {
   for (const s of g.zombieShots) { s.px = s.x; s.py = s.y; s.x += s.vx * dt; s.y += s.vy * dt; s.spin += dt * 8; }
 }
 
+// ---------- the guest's own courier ----------
+//
+// Everything else on a guest's screen is a tenth of a second old, and that is fine: a partner
+// half a street away does not need to be current. Its own courier does. Walking with the delay
+// on your own legs is the one thing that makes a game feel broken, so this end runs its own
+// steps forward and then quietly agrees with the host afterwards.
+//
+// Aim is deliberately not predicted, and does not need to be: it travels in world coordinates,
+// so the host fires along exactly the line the guest drew. Only the muzzle lags, by latency
+// times walking speed — about fifteen pixels at sixty milliseconds.
+const SNAP_AT = 60;                   // Past this the host is telling us something we cannot ease into.
+const history = [];                   // { n, x, y } for each step this end has taken.
+const HISTORY_MAX = 240;
+let errX = 0, errY = 0;
+
+function predict(g, dt) {
+  const p = g.p;
+  if (!p || !p.in) return;
+  window.TownGame.gameplay.stepCourier(g, p, dt, true);
+  history.push({ n: p.in.n, x: p.x, y: p.y });
+  if (history.length > HISTORY_MAX) history.shift();
+
+  // Whatever the host disagreed about is folded in over about a quarter of a second, which is
+  // slow enough not to be seen and fast enough not to accumulate.
+  if (errX || errY) {
+    const k = 1 - Math.pow(.002, dt);
+    p.x += errX * k; p.y += errY * k;
+    errX -= errX * k; errY -= errY * k;
+    if (Math.abs(errX) < .05 && Math.abs(errY) < .05) errX = errY = 0;
+  }
+}
+
+// The host has now told us where our courier really was at the moment it had heard input number
+// `ack`. Compare that against where we thought it was at the same moment, not against where we
+// are now — a tenth of a second of walking is not an error.
+function reconcile(g, row, ack) {
+  const p = g.p;
+  let past = null;
+  for (let i = history.length - 1; i >= 0; i--) if (history[i].n === ack) { past = history[i]; break; }
+  while (history.length && history[0].n <= ack) history.shift();
+  if (!past) {                        // No memory of that moment: take the host's word for it.
+    p.x = row[0]; p.y = row[1]; p.vx = row[2]; p.vy = row[3];
+    errX = errY = 0;
+    return;
+  }
+  const dx = row[0] - past.x, dy = row[1] - past.y;
+  if (Math.hypot(dx, dy) > SNAP_AT) {
+    // A car, a blast or a bite. Nothing about that is worth easing into: it is meant to be sudden.
+    p.x = row[0]; p.y = row[1]; p.vx = row[2]; p.vy = row[3];
+    history.length = 0; errX = errY = 0;
+    return;
+  }
+  errX = dx; errY = dy;
+}
+
 // Make the district current, then hand it to the frame. This is where a guest spends its time:
 // it never decides anything, it catches up.
 function pump(g, dt) {
@@ -397,8 +465,21 @@ function pump(g, dt) {
   }
   const span = b ? b.gs[0] - a.gs[0] : 0;
   const t = span > 0 ? Math.min(1, Math.max(0, (renderTime - a.gs[0]) / span)) : 0;
-  applySnapshot(g, b || a);
+  const newestApplied = b || a;
+  const mine = g.p;
+  const held = mine ? { x: mine.x, y: mine.y, vx: mine.vx, vy: mine.vy, ang: mine.ang, aim: mine.aim, walk: mine.walk } : null;
+  applySnapshot(g, newestApplied);
   interpolate(g, a, b, t);
+  // Its own courier is put back where this end had walked it to, and the disagreement with the
+  // host is settled separately rather than by jumping.
+  if (held && role === 'guest' && newestApplied.k !== lastReconciled) {
+    lastReconciled = newestApplied.k;
+    const row = newestApplied.pl[mine.id];
+    Object.assign(mine, held);
+    if (row) reconcile(g, row, newestApplied.ack || 0);
+  } else if (held && role === 'guest') {
+    Object.assign(mine, held);
+  }
   carryProjectiles(g, dt);
   while (queue.length > 2 && queue[1].gs[0] < renderTime - DELAY * 2) queue.shift();
 }
@@ -446,7 +527,12 @@ return Object.freeze({
   available, connect, disconnect, send,
   authoritative, state,
   hostDistrict, declareLayout,
-  encodeSnapshot, applySnapshot, pump, hostTick, sendInput,
+  encodeSnapshot, applySnapshot, pump, predict, reconcile, hostTick, sendInput,
+  // What the guess currently disagrees with the host about, for tuning the correction and for
+  // seeing at a glance whether the guess is doing anything at all.
+  debug: () => ({ lagMs, history: history.length, errX: +errX.toFixed(2), errY: +errY.toFixed(2),
+    queued: queue.length, renderTime: renderTime === null ? null : +renderTime.toFixed(2),
+    authoritative: queue.length ? queue[queue.length - 1].pl : null }),
   receiveSnapshot, applyRemoteInput,
   get pendingStart() { return pendingStart; },
   set onStatus(fn) { onStatus = fn; },

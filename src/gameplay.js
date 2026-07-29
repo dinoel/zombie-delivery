@@ -539,7 +539,7 @@ const SNEAK_SPEED = 68;
 // and nothing else. Pulling it out of update is what lets the same code move a courier standing
 // in this room and a courier whose keystrokes arrived over a wire — and, later, lets a guest
 // replay its own moves ahead of the host without a second implementation to keep honest.
-function stepCourier(g, p, dt) {
+function stepCourier(g, p, dt, predicted = false) {
   const inp = p.in;
   if (p.down) {                                 // Lying in the street: no walking, no torch, no aim.
     p.vx = p.vy = 0;
@@ -550,17 +550,17 @@ function stepCourier(g, p, dt) {
   }
   // A courier stepping into a district adopts whatever the counters already read. They keep
   // climbing across districts, and presses made before this shift are not theirs to act on.
-  if (p.torchSeen === null) { p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; }
+  if (!predicted && p.torchSeen === null) { p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; }
   // A press is only a press the first time it is seen. The rules decide what it means, which is
   // why the flashlight can be switched on here and switched off by a flat battery below.
-  if (inp.torchSeq !== p.torchSeen) {
+  if (!predicted && inp.torchSeq !== p.torchSeen) {
     p.torchSeen = inp.torchSeq;
     p.torch = !p.torch;
     SND.play(p.torch && p.batt > 0 ? 'click' : 'empty');
   }
-  if (inp.sneakSeq !== p.sneakSeen) { p.sneakSeen = inp.sneakSeq; p.sneakToggle = !p.sneakToggle; }
+  if (!predicted && inp.sneakSeq !== p.sneakSeen) { p.sneakSeen = inp.sneakSeq; p.sneakToggle = !p.sneakToggle; }
 
-  p.inv = Math.max(0, p.inv - dt);
+  if (!predicted) p.inv = Math.max(0, p.inv - dt);
 
   // Bushes slow movement.
   let inBush = false;
@@ -574,7 +574,7 @@ function stepCourier(g, p, dt) {
   }
 
   // The flashlight drains and flickers at low charge.
-  if (p.torch && p.batt > 0) {
+  if (!predicted && p.torch && p.batt > 0) {
     p.batt = Math.max(0, p.batt - BATT_DRAIN * dt);
     p.flick = p.batt < .16 ? (Math.random() < .12 ? rnd(.15, .5) : rnd(.75, 1)) : 1;
     if (p.batt === 0) p.torch = false;
@@ -584,7 +584,10 @@ function stepCourier(g, p, dt) {
   p.sneaking = wantSneak && p.stagger <= 0 && p.takedown <= 0;
   p.running = wantRun && !p.sneaking && dirM > .2 && p.stam > .06 && p.stagger <= 0;
   p.moving = dirM > .2;                         // Standing still is what makes a zombie hard to alert.
-  if (p.sneaking && p.moving) p.stealthCrawlTime = (p.stealthCrawlTime || 0) + dt;
+  if (!predicted && p.sneaking && p.moving) p.stealthCrawlTime = (p.stealthCrawlTime || 0) + dt;
+  // Stamina is predicted, unlike the rest of what the host owns, because speed depends on it:
+  // a guess that kept sprinting after the host had run out drifts far enough to be corrected
+  // with a jump rather than a nudge, which is the one thing this is all meant to avoid.
   if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
   else {
     p.rest = Math.max(0, p.rest - dt);
@@ -594,14 +597,14 @@ function stepCourier(g, p, dt) {
   const road = surfaceAt(g, p.x, p.y);
   const movementSpeed = p.sneaking ? SNEAK_SPEED : p.running ? RUN : WALK;
   const speed = (inBush ? .62 : 1) * movementSpeed * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
-  p.stagger = Math.max(0, (p.stagger || 0) - dt);
+  if (!predicted) p.stagger = Math.max(0, (p.stagger || 0) - dt);
 
   // Sprinting carries far, walking is quiet, and soles sound sharper on asphalt.
   if (dirM > .2) {
     p.step -= dt;
     if (p.step <= 0) {
       p.step = (p.sneaking ? 1.15 : p.running ? .34 : .8) * (1 - .12 * road);
-      makeNoise(g, p.x, p.y,
+      if (!predicted) makeNoise(g, p.x, p.y,
         (p.sneaking ? 28 : p.running ? 210 : 78) * (1 + .3 * road),
         p.sneaking ? .35 : p.running ? 3.5 : 1.2, p.running);
       if (!p.sneaking) SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
@@ -612,7 +615,7 @@ function stepCourier(g, p, dt) {
   const acc = (14 - 5 * road * g.weather.wet) * dt;      // Wet asphalt makes acceleration and braking sluggish.
   p.vx += (tvx - p.vx) * Math.min(1, acc);
   p.vy += (tvy - p.vy) * Math.min(1, acc);
-  if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
+  if (!predicted && p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
   p.x += p.vx * dt; p.y += p.vy * dt;
   if (dirM > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (p.sneaking ? 5 : inBush ? 7 : 11); }
   else p.walk += dt * 1.5;
@@ -1998,6 +2001,6 @@ function gameOver(g) {
     'TRY AGAIN');
 }
 
-return Object.freeze({ update, presentFrame });
+return Object.freeze({ update, presentFrame, stepCourier });
 })();
 

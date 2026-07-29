@@ -142,6 +142,10 @@ function makeCourier(start, index, torch) {
     torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
     takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
     torchSeen: null, sneakSeen: null,             // Adopted from the press counters on the first frame.
+    // A courier always has a record, even before anyone has told it anything: standing still,
+    // holding nothing. A partner whose first packet has not landed yet must not stop the frame.
+    in: { n: 0, x: 0, y: 0, m: 0, run: false, fire: false, finish: false,
+          aimScreen: false, sx: 0, sy: 0, tx: 0, ty: 0, torchSeq: 0, sneakSeq: 0 },
     reviveT: 0,                                   // How long a partner has been kneeling over them.
     hp: HP_MAX, hpMax: HP_MAX, ammo: 24, down: false,
     carried: 0, handsFull: null, finishTarget: null,
@@ -173,7 +177,7 @@ function layoutChecksum(g) {
 }
 
 // ---------- district generation ----------
-function buildTown(level) {
+function buildTown(level, couriers = 1) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
   const stealthQa = qaMode === 'stealth' || qaMode === 'stealth-walk' || qaMode === 'stealth-crawl';
   const R = makeRoads();
@@ -518,6 +522,10 @@ function buildTown(level) {
     const type = forced || ZOMBIE_TYPES[(k + typeOffset) % ZOMBIE_TYPES.length];
     const size = type.size || 1;
     zombies.push({
+      // A name that survives dying. The horde is spliced as it thins, so a place in the array
+      // stops meaning anything the moment anyone falls — and the other end of a co-op session has
+      // to be able to say which zombie it meant.
+      id: k,
       x: s.x, y: s.y, kind: type.id, hp: type.hp, maxHp: type.hp,
       size, r: ZR * size, dumb: !!type.dumb,
       skin: type.skin, clothes: type.clothes, eye: type.eye, trail: type.trail, mapColor: type.map,
@@ -697,10 +705,13 @@ function buildTown(level) {
   // randomness, so the static layer below still meets the stream exactly where it always did.
   const torchOn = qaMode !== 'foliage-lighting' && !stealthQa;
   const coopLocal = qaMode === 'coop-local';
-  const players = [makeCourier(start, 0, torchOn)];
-  // Two couriers on one keyboard is not a way to play, but it is the only way to exercise the
-  // rules that exist because there are two of them without a network standing in the way.
-  if (coopLocal) players.push(makeCourier({ x: start.x + 34, y: start.y }, 1, torchOn));
+  // A shift is however many couriers were agreed before the district was built. Both ends of a
+  // co-op session build the same roster, because the roster is part of what they are proving
+  // matched — a district with one courier in it is not the same district as one with two.
+  const shift = Math.max(1, coopLocal ? 2 : couriers);
+  const players = [];
+  for (let i = 0; i < shift; i++)
+    players.push(makeCourier({ x: start.x + i * 34, y: start.y }, i, torchOn));
 
   return {
     level, solids, trees, soft, houses, props, parcels, cars, need, zombies, ammoBoxes,
@@ -716,6 +727,7 @@ function buildTown(level) {
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     delivered: 0,                                   // Signed off. What is on a back belongs to the courier.
     events: [],                                     // Loud moments of this frame, for a peer that only watches.
+    nextPartId: 1,                                  // Severed limbs are born mid-district and need naming.
     dead: false,                                    // The run is over: every courier is down.
     time: 0, spawnGrace: stealthQa ? 0 : 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,

@@ -273,6 +273,9 @@ function severZombiePart(g, z, kind, side, dx, dy) {
   const quiet = z.silent ? .35 : 1;
   const impulse = rnd(75, 145) * quiet;
   const part = {
+    // A name of its own, and the name of whoever it came off. A head outlives its owner by the
+    // whole district, and the other end of a co-op session has to be able to say which one.
+    id: g.nextPartId++, zid: z.id,
     kind, side, x: point.x, y: point.y, h: kind === 'head' ? 10 : 7,
     vx: nx * impulse + lateralX * rnd(25, 70) * quiet,
     vy: ny * impulse + lateralY * rnd(25, 70) * quiet,

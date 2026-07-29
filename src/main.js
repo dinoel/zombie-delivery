@@ -9,6 +9,7 @@ const SND = window.TownGame.audio;
 const { buildTown, layoutChecksum } = window.TownGame.world;
 const { prepareCarImpactComparison } = window.TownGame.environment;
 const { update, presentFrame } = window.TownGame.gameplay;
+const { readLocalInput } = window.TownGame.input;
 const { draw } = window.TownGame.render;
 const net = window.TownGame.net;
 
@@ -87,7 +88,7 @@ const authoritative = () => net.authoritative();
 // Swapping the generator for a seeded one around the call is the trick this file already uses
 // for profiling, put to its real purpose. The previous function is restored rather than the
 // native one, because profiling may have replaced it first.
-function buildSeeded(level, seed) {
+function buildSeeded(level, seed, couriers) {
   const previous = Math.random;
   let s = seed | 0;
   Math.random = () => {
@@ -97,7 +98,7 @@ function buildSeeded(level, seed) {
     return ((n ^ n >>> 14) >>> 0) / 4294967296;
   };
   try {
-    const g = buildTown(level);
+    const g = buildTown(level, couriers);
     g.seed = seed;
     return g;
   } finally { Math.random = previous; }
@@ -111,7 +112,10 @@ const setNetStatus = (text, bad) => {
 net.onStatus = text => setNetStatus(text, /lost|refused|different|already|Nobody|could not|Could not/.test(text));
 // A guest does not press start: the district arrives when the host opens one.
 net.onStart = msg => {
-  enterDistrict(buildSeeded(msg.level, msg.seed));
+  enterDistrict(buildSeeded(msg.level, msg.seed, 2));
+  // The host is the first courier on the roster and this end is the second, so the camera, the
+  // gauges and the aim all follow the right one.
+  runtime.game.p = runtime.game.players[1];
   const sum = layoutChecksum(runtime.game);
   net.declareLayout(runtime.game, sum);
   if (sum !== msg.sum) setNetStatus('The two machines built different districts. Use the same browser on both.', true);
@@ -155,11 +159,17 @@ function loop(t) {
         cv.dataset.perfReady = '1';
       }
     } else if (authoritative()) {
-      update(runtime.game, dt); draw(runtime.game);
+      update(runtime.game, dt);
+      net.hostTick(runtime.game, dt);   // What the partner needs to see, twenty times a second.
+      draw(runtime.game);
     } else {
-      // Someone else is running the rules. This peer only works out what the district looks
-      // like, sounds like and feels like from the state that reached it.
-      presentFrame(runtime.game, dt); draw(runtime.game);
+      // Someone else is running the rules. This peer says what its courier is doing, catches the
+      // district up to the state that reached it, and works out how the place looks and sounds.
+      readLocalInput(runtime.game, runtime.game.p);
+      net.sendInput(runtime.game.p);
+      net.pump(runtime.game, dt);
+      presentFrame(runtime.game, dt);
+      draw(runtime.game);
     }
   } else if (runtime.game) draw(runtime.game);
   requestAnimationFrame(loop);
@@ -180,7 +190,7 @@ startBtn.addEventListener('click', () => {
   if (shift.role === 'host') {
     // The host picks the seed, so there is exactly one answer to what this district looks like.
     const plan = net.hostDistrict(next);
-    enterDistrict(buildSeeded(plan.level, plan.seed));
+    enterDistrict(buildSeeded(plan.level, plan.seed, 2));
     net.declareLayout(runtime.game, layoutChecksum(runtime.game));
   } else {
     enterDistrict(buildTown(next));

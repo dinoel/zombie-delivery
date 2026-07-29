@@ -49,6 +49,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Relay framing test failed:`n$relayFramesTest")
   }
+
+  $snapshotTest = & node (Join-Path $PSScriptRoot 'test-snapshot.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Snapshot test failed:`n$snapshotTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -57,21 +62,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-62',
-  'src/core.js?v=20260729-62',
-  'src/quality.js?v=20260729-62',
-  'src/audio.js?v=20260729-62',
-  'src/car-physics.js?v=20260729-62',
-  'src/environment.js?v=20260729-62',
-  'src/world.js?v=20260729-62',
-  'src/physics.js?v=20260729-62',
-  'src/input.js?v=20260729-62',
-  'src/gameplay.js?v=20260729-62',
-  'src/lighting.js?v=20260729-62',
-  'src/entities.js?v=20260729-62',
-  'src/render.js?v=20260729-62',
-  'src/net.js?v=20260729-62',
-  'src/main.js?v=20260729-62'
+  'src/namespace.js?v=20260729-63',
+  'src/core.js?v=20260729-63',
+  'src/quality.js?v=20260729-63',
+  'src/audio.js?v=20260729-63',
+  'src/car-physics.js?v=20260729-63',
+  'src/environment.js?v=20260729-63',
+  'src/world.js?v=20260729-63',
+  'src/physics.js?v=20260729-63',
+  'src/input.js?v=20260729-63',
+  'src/gameplay.js?v=20260729-63',
+  'src/lighting.js?v=20260729-63',
+  'src/entities.js?v=20260729-63',
+  'src/render.js?v=20260729-63',
+  'src/net.js?v=20260729-63',
+  'src/main.js?v=20260729-63'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -203,7 +208,9 @@ if (-not $mainSource.Contains('authoritative()')) {
 # never by sending the district itself.
 $netSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src/net.js')
 foreach ($netFeature in @('const PROTOCOL', "role !== 'guest'", 'function hostDistrict(',
-    'function declareLayout(', "t: 'join'", "t: 'ready'", 'available')) {
+    'function declareLayout(', "t: 'join'", "t: 'ready'", 'available',
+    'function encodeSnapshot(', 'function applySnapshot(', 'function pump(', 'function hostTick(',
+    'function applyRemoteInput(', 'function lerpAngle(', 'const DELAY')) {
   if (-not $netSource.Contains($netFeature)) {
     $problems.Add("The co-op session is incomplete: $netFeature")
   }

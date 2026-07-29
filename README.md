@@ -44,6 +44,12 @@ The district itself never crosses the network: it is a 2450-pixel canvas, a clos
 
 Co-op is unavailable over `file://`, because the page has to come from the relay it talks to. Opening `index.html` off the disk is still a complete game; it just cannot be two.
 
+Once the shift starts, one browser runs the rules and the other watches. The guest sends what its courier is doing about sixty times a second — a direction, whether it is running, firing or finishing, and where it is aiming in world coordinates, because a point on its screen means nothing on the host's. The host sends the district back twenty times a second.
+
+A snapshot is about 4 kB, or 75 kB/s, because almost nothing is in it. The town, the horde's colours, which door each parcel belongs to and the shape of every car were all settled by the seed and are already standing at both ends, so entities are named by id and carry only their state. Sparks, blood, stains, smoke and noise rings are never sent at all: they are made locally from the short list of events beside each snapshot, which is why the two screens differ about where a particular spark landed and agree about everything a rule can read.
+
+The guest draws the district a tenth of a second behind what it has been told, interpolating between the two snapshots either side of that moment, so a partner walks instead of stepping twenty times a second. Bullets and thrown filth are carried forward between snapshots rather than waiting for the next one, since they travel in straight lines anyway.
+
 ## Keeping the district reproducible
 
 Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.

@@ -24,7 +24,7 @@ const {
 const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
 } = window.TownGame.carPhysics;
-const { inputDir } = window.TownGame.input;
+const { readLocalInput } = window.TownGame.input;
 
 const FILTH_MIN_RANGE = 145;
 const FILTH_MAX_RANGE = 360;
@@ -484,6 +484,95 @@ const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulde
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
 const SNEAK_SPEED = 68;
 
+// One courier's own frame: what they are carrying out with their body, from the input record
+// and nothing else. Pulling it out of update is what lets the same code move a courier standing
+// in this room and a courier whose keystrokes arrived over a wire — and, later, lets a guest
+// replay its own moves ahead of the host without a second implementation to keep honest.
+function stepCourier(g, p, dt) {
+  const inp = p.in;
+  // A courier stepping into a district adopts whatever the counters already read. They keep
+  // climbing across districts, and presses made before this shift are not theirs to act on.
+  if (p.torchSeen === null) { p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; }
+  // A press is only a press the first time it is seen. The rules decide what it means, which is
+  // why the flashlight can be switched on here and switched off by a flat battery below.
+  if (inp.torchSeq !== p.torchSeen) {
+    p.torchSeen = inp.torchSeq;
+    p.torch = !p.torch;
+    SND.play(p.torch && p.batt > 0 ? 'click' : 'empty');
+  }
+  if (inp.sneakSeq !== p.sneakSeen) { p.sneakSeen = inp.sneakSeq; p.sneakToggle = !p.sneakToggle; }
+
+  p.inv = Math.max(0, p.inv - dt);
+
+  // Bushes slow movement.
+  let inBush = false;
+  for (const b of g.soft) {
+    const dx = b.x - p.x, dy = b.y - p.y, r = b.r * .9;
+    if (dx * dx + dy * dy < r * r) { inBush = true; break; }
+  }
+  let dirX = inp.x, dirY = inp.y, dirM = inp.m, wantRun = inp.run, wantSneak = p.sneakToggle;
+  if (g.stealthQaInput) {
+    dirX = 0; dirY = -1; dirM = 1; wantRun = false; wantSneak = g.stealthQaInput === 'crawl';
+  }
+
+  // The flashlight drains and flickers at low charge.
+  if (p.torch && p.batt > 0) {
+    p.batt = Math.max(0, p.batt - BATT_DRAIN * dt);
+    p.flick = p.batt < .16 ? (Math.random() < .12 ? rnd(.15, .5) : rnd(.75, 1)) : 1;
+    if (p.batt === 0) p.torch = false;
+  } else p.flick = 1;
+
+  // Sprinting consumes stamina and creates noise.
+  p.sneaking = wantSneak && p.stagger <= 0 && p.takedown <= 0;
+  p.running = wantRun && !p.sneaking && dirM > .2 && p.stam > .06 && p.stagger <= 0;
+  p.moving = dirM > .2;                         // Standing still is what makes a zombie hard to alert.
+  if (p.sneaking && p.moving) p.stealthCrawlTime = (p.stealthCrawlTime || 0) + dt;
+  if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
+  else {
+    p.rest = Math.max(0, p.rest - dt);
+    if (p.rest <= 0) p.stam = Math.min(1, p.stam + STAM_REGEN * dt);
+  }
+  // The courier moves noticeably faster on asphalt than through grass and yards.
+  const road = surfaceAt(g, p.x, p.y);
+  const movementSpeed = p.sneaking ? SNEAK_SPEED : p.running ? RUN : WALK;
+  const speed = (inBush ? .62 : 1) * movementSpeed * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
+  p.stagger = Math.max(0, (p.stagger || 0) - dt);
+
+  // Sprinting carries far, walking is quiet, and soles sound sharper on asphalt.
+  if (dirM > .2) {
+    p.step -= dt;
+    if (p.step <= 0) {
+      p.step = (p.sneaking ? 1.15 : p.running ? .34 : .8) * (1 - .12 * road);
+      makeNoise(g, p.x, p.y,
+        (p.sneaking ? 28 : p.running ? 210 : 78) * (1 + .3 * road),
+        p.sneaking ? .35 : p.running ? 3.5 : 1.2, p.running);
+      if (!p.sneaking) SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
+    }
+  } else p.step = .1;
+
+  const tvx = dirX * speed, tvy = dirY * speed;
+  const acc = (14 - 5 * road * g.weather.wet) * dt;      // Wet asphalt makes acceleration and braking sluggish.
+  p.vx += (tvx - p.vx) * Math.min(1, acc);
+  p.vy += (tvy - p.vy) * Math.min(1, acc);
+  if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
+  p.x += p.vx * dt; p.y += p.vy * dt;
+  if (dirM > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (p.sneaking ? 5 : inBush ? 7 : 11); }
+  else p.walk += dt * 1.5;
+
+  p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
+  for (const s of solidsNear(g, p.x, p.y, PR)) hitOBB(p, PR, s);
+  for (const t of treesNear(g, p.x, p.y, PR)) hitCircle(p, PR, t);
+  // The camera belongs to whoever is watching this screen, and it has to be current before a
+  // point on that screen can be read as a point in the town.
+  if (p === g.p) g.cam = camOf(g);
+
+  // Aim with the mouse, or fall back to the movement direction.
+  if (inp.aimScreen && p === g.p) { p.tx = inp.sx + g.cam.x; p.ty = inp.sy + g.cam.y; }
+  else if (inp.aimScreen) { p.tx = inp.tx; p.ty = inp.ty; }
+  else { p.tx = p.x + Math.cos(p.ang) * 300; p.ty = p.y + Math.sin(p.ang) * 300; }
+  p.aim = Math.atan2(p.ty - p.y, p.tx - p.x);
+}
+
 // A silent finish is only available on an unaware zombie approached from behind.
 function takedownTarget(g, p) {
   if (g.done || p.stagger > 0 || p.takedown > 0) return null;
@@ -784,88 +873,25 @@ function update(g, dt) {
   g.shake = Math.max(0, g.shake - dt * 3);
   const p = g.p;
   SND.listen(p.x, p.y);
-  p.inv = Math.max(0, p.inv - dt);
+  // The courier in front of this screen reads their own devices; anyone else on the shift
+  // arrives with their record already filled in from the wire.
+  readLocalInput(g, g.p);
+  for (const courier of g.players) stepCourier(g, courier, dt);
 
-  // Bushes slow movement.
-  let inBush = false;
-  for (const b of g.soft) {
-    const dx = b.x - p.x, dy = b.y - p.y, r = b.r * .9;
-    if (dx * dx + dy * dy < r * r) { inBush = true; break; }
-  }
-  const dir = inputDir();
-  if (g.stealthQaInput) Object.assign(dir,
-    { x: 0, y: -1, m: 1, run: false, sneak: g.stealthQaInput === 'crawl' });
-
-  // The flashlight drains and flickers at low charge.
-  if (p.torch && p.batt > 0) {
-    p.batt = Math.max(0, p.batt - BATT_DRAIN * dt);
-    p.flick = p.batt < .16 ? (Math.random() < .12 ? rnd(.15, .5) : rnd(.75, 1)) : 1;
-    if (p.batt === 0) p.torch = false;
-  } else p.flick = 1;
-
-  // Sprinting consumes stamina and creates noise.
-  p.sneaking = dir.sneak && p.stagger <= 0 && p.takedown <= 0;
-  p.running = dir.run && !p.sneaking && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
-  p.moving = dir.m > .2;                        // Standing still is what makes a zombie hard to alert.
-  if (p.sneaking && p.moving) p.stealthCrawlTime = (p.stealthCrawlTime || 0) + dt;
-  if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
-  else {
-    p.rest = Math.max(0, p.rest - dt);
-    if (p.rest <= 0) p.stam = Math.min(1, p.stam + STAM_REGEN * dt);
-  }
-  // The courier moves noticeably faster on asphalt than through grass and yards.
-  const road = surfaceAt(g, p.x, p.y);
-  const movementSpeed = p.sneaking ? SNEAK_SPEED : p.running ? RUN : WALK;
-  const speed = (inBush ? .62 : 1) * movementSpeed * (p.stagger > 0 ? .35 : 1) * (1 + .18 * road);
-  p.stagger = Math.max(0, (p.stagger || 0) - dt);
-
-  // Sprinting carries far, walking is quiet, and soles sound sharper on asphalt.
-  if (dir.m > .2) {
-    p.step -= dt;
-    if (p.step <= 0) {
-      p.step = (p.sneaking ? 1.15 : p.running ? .34 : .8) * (1 - .12 * road);
-      makeNoise(g, p.x, p.y,
-        (p.sneaking ? 28 : p.running ? 210 : 78) * (1 + .3 * road),
-        p.sneaking ? .35 : p.running ? 3.5 : 1.2, p.running);
-      if (!p.sneaking) SND.play(road > .5 ? 'stepA' : 'stepG', p.x, p.y);
-    }
-  } else p.step = .1;
-
-  const tvx = dir.x * speed, tvy = dir.y * speed;
-  const acc = (14 - 5 * road * g.weather.wet) * dt;      // Wet asphalt makes acceleration and braking sluggish.
-  p.vx += (tvx - p.vx) * Math.min(1, acc);
-  p.vy += (tvy - p.vy) * Math.min(1, acc);
-  if (p.kx) { p.x += p.kx * dt; p.y += p.ky * dt; p.kx *= .88; p.ky *= .88; if (Math.abs(p.kx) < 5) p.kx = p.ky = 0; }
-  p.x += p.vx * dt; p.y += p.vy * dt;
-  if (dir.m > .05) { p.ang = Math.atan2(p.vy, p.vx); p.walk += dt * (p.sneaking ? 5 : inBush ? 7 : 11); }
-  else p.walk += dt * 1.5;
-
-  p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
-  for (const s of solidsNear(g, p.x, p.y, PR)) hitOBB(p, PR, s);
-  for (const t of treesNear(g, p.x, p.y, PR)) hitCircle(p, PR, t);
-  g.cam = camOf(g);
-
-  // Aim with the mouse, or fall back to the movement direction.
-  if (runtime.mouse.active) {
-    p.tx = runtime.mouse.sx + g.cam.x; p.ty = runtime.mouse.sy + g.cam.y;
-  }
-  else { p.tx = p.x + Math.cos(p.ang) * 300; p.ty = p.y + Math.sin(p.ang) * 300; }
-  p.aim = Math.atan2(p.ty - p.y, p.tx - p.x);
   updateWeather(g, dt);
   updateFog(g, dt);
 
   // Fire.
   p.cool = Math.max(0, p.cool - dt);
   p.muzzle = Math.max(0, p.muzzle - dt);
-  const wantFire = runtime.mouse.down || runtime.fireHeld ||
-    runtime.keys.Space || runtime.keys.KeyK;
+  const wantFire = p.in.fire;
   if (wantFire && p.cool <= 0 && p.ammo > 0 && !g.done) fire(g, p);
 
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
   p.takedown = Math.max(0, p.takedown - dt);
   p.finishTarget = takedownTarget(g, p);
-  const wantFinish = !!runtime.keys.KeyE;
+  const wantFinish = p.in.finish;
   if (wantFinish && !p.finishHeld && p.finishTarget) {
     const z = p.finishTarget;
     p.takedown = TAKEDOWN_LOCK;

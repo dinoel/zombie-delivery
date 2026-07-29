@@ -42,20 +42,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-58',
-  'src/core.js?v=20260729-58',
-  'src/quality.js?v=20260729-58',
-  'src/audio.js?v=20260729-58',
-  'src/car-physics.js?v=20260729-58',
-  'src/environment.js?v=20260729-58',
-  'src/world.js?v=20260729-58',
-  'src/physics.js?v=20260729-58',
-  'src/input.js?v=20260729-58',
-  'src/gameplay.js?v=20260729-58',
-  'src/lighting.js?v=20260729-58',
-  'src/entities.js?v=20260729-58',
-  'src/render.js?v=20260729-58',
-  'src/main.js?v=20260729-58'
+  'src/namespace.js?v=20260729-59',
+  'src/core.js?v=20260729-59',
+  'src/quality.js?v=20260729-59',
+  'src/audio.js?v=20260729-59',
+  'src/car-physics.js?v=20260729-59',
+  'src/environment.js?v=20260729-59',
+  'src/world.js?v=20260729-59',
+  'src/physics.js?v=20260729-59',
+  'src/input.js?v=20260729-59',
+  'src/gameplay.js?v=20260729-59',
+  'src/lighting.js?v=20260729-59',
+  'src/entities.js?v=20260729-59',
+  'src/render.js?v=20260729-59',
+  'src/main.js?v=20260729-59'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -106,9 +106,21 @@ foreach ($controlCode in @('KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyM', 'KeyP
 }
 
 $gameplaySource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\gameplay.js')
+# Devices are read in one place and written onto the courier as a record, so the rules can move a
+# courier holding this keyboard and a courier whose keystrokes crossed a network with one path.
 foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
-  if (-not $gameplaySource.Contains($actionCode)) {
+  if (-not $inputSource.Contains($actionCode)) {
     $problems.Add("Physical gameplay action is missing: $actionCode")
+  }
+}
+foreach ($recordField in @('function readLocalInput(', 'rec.torchSeq', 'rec.sneakSeq', 'rec.aimScreen')) {
+  if (-not $inputSource.Contains($recordField)) {
+    $problems.Add("The input record is incomplete: $recordField")
+  }
+}
+foreach ($stepField in @('function stepCourier(', 'p.in', 'inp.torchSeq !== p.torchSeen', 'readLocalInput(g, g.p)')) {
+  if (-not $gameplaySource.Contains($stepField)) {
+    $problems.Add("The courier step must be driven by the input record: $stepField")
   }
 }
 foreach ($stealthFeature in @('NOTICE_SNEAK', 'NOTICE_SNEAK_FILL', 'CONTACT_NOTICE_PAD',
@@ -131,8 +143,8 @@ if (-not $worldSource.Contains('function makeCourier(') -or
     -not $worldSource.Contains('players, p: players[0]')) {
   $problems.Add('Couriers must be built by makeCourier into a roster the district holds.')
 }
-if (-not $inputSource.Contains('p.sneakToggle = !runtime.game.p.sneakToggle') -or
-    -not $inputSource.Contains('runtime.game.p.sneakToggle')) {
+if (-not $inputSource.Contains('sneakPresses++') -or
+    -not $gameplaySource.Contains('p.sneakToggle = !p.sneakToggle')) {
   $problems.Add('Crawl must be toggled by a single KeyC press rather than held continuously.')
 }
 

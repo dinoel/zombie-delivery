@@ -141,6 +141,7 @@ function makeCourier(start, index, torch) {
     walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
     torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
     takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
+    torchSeen: null, sneakSeen: null,             // Adopted from the press counters on the first frame.
     hp: HP_MAX, hpMax: HP_MAX, ammo: 24, down: false,
     carried: 0, handsFull: null, finishTarget: null,
     stealthNotice: 0, stealthWatchers: 0, stealthDetected: false, stealthCrawlTime: 0

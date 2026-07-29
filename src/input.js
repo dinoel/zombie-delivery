@@ -5,17 +5,19 @@ window.TownGame.input = (() => {
 const { cv, startBtn, runtime } = window.TownGame.core;
 const SND = window.TownGame.audio;
 
+// The flashlight and the crawl are presses, not states. A handler cannot simply flip them on the
+// courier any more: the courier it would flip may be running on somebody else's machine, and the
+// rules flip the flashlight themselves when the battery dies. Counting presses instead lets the
+// same record describe a local key and a key pressed across a network, and lets whoever owns the
+// simulation decide what the press means.
+let torchPresses = 0, sneakPresses = 0;
+
 // ---------- input ----------
 addEventListener('keydown', e => {
   const code = e.code;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
-  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') {
-    runtime.game.p.torch = !runtime.game.p.torch;
-    SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
-  }
-  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyC') {
-    runtime.game.p.sneakToggle = !runtime.game.p.sneakToggle;
-  }
+  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') torchPresses++;
+  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyC') sneakPresses++;
   if (!runtime.keys[code] && code === 'KeyM') SND.toggle();
   // Pause freezes the district but keeps the frame on screen.
   if (!runtime.keys[code] && (code === 'KeyP' || code === 'Escape') && runtime.game &&
@@ -45,8 +47,7 @@ cv.addEventListener('touchstart', e => {
   for (const t of e.changedTouches) {
     const p = tpos(t);
     if (runtime.state === 'play' && runtime.game && Math.hypot(p[0] - TORCH_BTN.x, p[1] - TORCH_BTN.y) < TORCH_BTN.r) {
-      runtime.game.p.torch = !runtime.game.p.torch;
-      SND.play(runtime.game.p.torch && runtime.game.p.batt > 0 ? 'click' : 'empty');
+      torchPresses++;
       continue;
     }
     if (runtime.joyId === null) {
@@ -92,7 +93,6 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 function inputDir() {
   const { keys, touch } = runtime;
   let dx = 0, dy = 0, run = !!(keys.ShiftLeft || keys.ShiftRight);
-  const sneak = !!(runtime.game && runtime.game.p.sneakToggle);
   if (keys.ArrowLeft || keys.KeyA) dx -= 1;
   if (keys.ArrowRight || keys.KeyD) dx += 1;
   if (keys.ArrowUp || keys.KeyW) dy -= 1;
@@ -104,10 +104,32 @@ function inputDir() {
   }
   const m = Math.hypot(dx, dy);
   const v = m > 1 ? { x: dx / m, y: dy / m, m: 1 } : { x: dx, y: dy, m };
-  v.run = run; v.sneak = sneak;
+  v.run = run;
   return v;
 }
 
-return Object.freeze({ inputDir, TORCH_BTN });
+// Everything the devices in front of this screen are saying, written onto the courier as one
+// record. The simulation reads only the record, so it cannot tell — and does not need to tell —
+// whether the courier is holding this keyboard or a keyboard somewhere else.
+//
+// Aim is the one field that cannot be settled here. A mouse names a point on this screen, and
+// that only becomes a point in the town once the camera is known, which is not until the courier
+// has moved. So the screen position travels and the rules convert it at the instant they always
+// did. A courier on another machine has already made that conversion against their own camera,
+// and sends tx and ty in world coordinates instead.
+function readLocalInput(g, p) {
+  const v = inputDir();
+  const rec = p.in || (p.in = { tx: 0, ty: 0 });
+  rec.n = (rec.n || 0) + 1;
+  rec.x = v.x; rec.y = v.y; rec.m = v.m; rec.run = v.run;
+  rec.fire = !!(runtime.mouse.down || runtime.fireHeld || runtime.keys.Space || runtime.keys.KeyK);
+  rec.finish = !!runtime.keys.KeyE;
+  rec.aimScreen = runtime.mouse.active;
+  rec.sx = runtime.mouse.sx; rec.sy = runtime.mouse.sy;
+  rec.torchSeq = torchPresses; rec.sneakSeq = sneakPresses;
+  return rec;
+}
+
+return Object.freeze({ inputDir, readLocalInput, TORCH_BTN });
 })();
 

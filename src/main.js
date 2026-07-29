@@ -8,7 +8,7 @@ const {
 const SND = window.TownGame.audio;
 const { buildTown } = window.TownGame.world;
 const { prepareCarImpactComparison } = window.TownGame.environment;
-const { update } = window.TownGame.gameplay;
+const { update, presentFrame } = window.TownGame.gameplay;
 const { draw } = window.TownGame.render;
 
 // Once every subsystem has loaded, the public module collection no longer changes.
@@ -77,6 +77,9 @@ function runFrameHash() {
   cv.dataset.frameHashQuality = window.TownGame.quality.current.key;
   cv.dataset.frameHashSteps = String(HASH_STEPS);
 }
+// Whether this peer owns the simulation. Alone in a district it always does, and it will keep
+// doing so while hosting; only a guest hands the rules to somebody else.
+const authoritative = () => !window.TownGame.net || window.TownGame.net.authoritative();
 let last = performance.now();
 let perfFrames = 0, perfUpdate = 0, perfDraw = 0, perfFrame = 0;
 function loop(t) {
@@ -100,8 +103,12 @@ function loop(t) {
         cv.dataset.perfFps = (1000 * perfFrames / perfFrame).toFixed(1);
         cv.dataset.perfReady = '1';
       }
-    } else {
+    } else if (authoritative()) {
       update(runtime.game, dt); draw(runtime.game);
+    } else {
+      // Someone else is running the rules. This peer only works out what the district looks
+      // like, sounds like and feels like from the state that reached it.
+      presentFrame(runtime.game, dt); draw(runtime.game);
     }
   } else if (runtime.game) draw(runtime.game);
   requestAnimationFrame(loop);

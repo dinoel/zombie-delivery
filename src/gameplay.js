@@ -11,12 +11,12 @@ const {
 } = window.TownGame.core;
 const SND = window.TownGame.audio;
 const {
-  TURN_IN, updateFog, updateWeather,
+  TURN_IN, updateFog, updateWeather, updateWeatherVisuals,
   lanePoint, steerCar, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
   damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   crash, crashObstacle,
   bezAt, bezDir,
-  makeNoise, surfaceAt
+  makeNoise, surfaceAt, EV, emit, shakeAt
 } = window.TownGame.environment;
 const {
   hitOBB, obbHit, hitCircle, solidsNear, treesNear, parkedNear, lampsNear
@@ -62,7 +62,8 @@ function fire(g, p) {
   const hx = Math.cos(a), hy = Math.sin(a);
   g.spawnGrace = 0;                           // Firing voluntarily ends the quiet start.
   p.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
-  g.shake = Math.max(g.shake, .3);
+  shakeAt(g, p.x, p.y, .3);
+  emit(g, EV.shot, h.x, h.y, a);
   warnZombiesOfShot(g, h.x, h.y, hx, hy);
   g.bullets.push({ x: h.x + Math.cos(a) * 10, y: h.y + Math.sin(a) * 10, px: h.x, py: h.y,
                    vx: hx * BV, vy: hy * BV, l: .5 });
@@ -243,7 +244,8 @@ function explodeZombieHead(g, head) {
   }
 
   const near = clamp(1 - playerDistance / 560, 0, 1);
-  g.shake = Math.max(g.shake, .8 + near * 2.7);
+  shakeAt(g, x, y, .8 + near * 2.7, 900);
+  emit(g, EV.blast, x, y, near);
   makeNoise(g, x, y, 720, 14, true);
   SND.play('headBlast', x, y);
   return true;
@@ -351,6 +353,7 @@ function breakLamp(g, l) {
     g.parts.push({ x: l.hx, y: l.hy, vx: rnd(-95, 95), vy: rnd(-125, 45), l: rnd(.3, .85),
       c: pick(['#fff3c8', '#cfe4ff', '#9aa6b2']), s: rnd(2, 4) });
   SND.play('glass', l.hx, l.hy);
+  emit(g, EV.lamp, l.hx, l.hy);
   makeNoise(g, l.hx, l.hy, 230, 3, true);
   return true;
 }
@@ -671,6 +674,7 @@ function reviveCouriers(g, dt) {
     p.hp = Math.max(1, Math.round(p.hpMax * .4));   // Back on their feet, not back to full.
     p.inv = 2.2; p.vx = p.vy = p.kx = p.ky = 0;
     SND.play('pick', p.x, p.y);
+    emit(g, EV.revive, p.id, p.x, p.y);
   }
 }
 
@@ -763,7 +767,9 @@ function rearBlocked(g, c) {
 
 // Apply one hit to one courier from a car or zombie.
 function hurt(g, p, dx, dy, power, stagger = .5, amount = 1) {
-  p.hp -= amount; p.inv = 1.9; p.stagger = stagger; g.shake = Math.max(g.shake, 1);
+  p.hp -= amount; p.inv = 1.9; p.stagger = stagger;
+  shakeAt(g, p.x, p.y, 1);
+  emit(g, EV.hurt, p.id, p.x, p.y, amount);
   p.kx = dx * power; p.ky = dy * power;
   for (let k = 0; k < 16 + (amount - 1) * 8; k++)
     g.parts.push({ x: p.x, y: p.y, vx: rnd(-160, 160), vy: rnd(-160, 160), l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
@@ -776,6 +782,7 @@ function hurt(g, p, dx, dy, power, stagger = .5, amount = 1) {
 // partner is a problem somebody else can still walk over and solve.
 function downCourier(g, p) {
   p.down = true;
+  emit(g, EV.down, p.id, p.x, p.y);
   if (g.players.every(q => q.down)) loseLife(g);
 }
 
@@ -969,10 +976,11 @@ function update(g, dt) {
       g.headExplosionQaStep++;
     }
   }
+  g.events.length = 0;                  // Each frame writes its own notes; a snapshot takes them.
   g.spawnGrace = Math.max(0, g.spawnGrace - dt);
   g.shake = Math.max(0, g.shake - dt * 3);
   const p = g.p;
-  SND.listen(p.x, p.y);
+  listenFor(g, p);
   // The courier in front of this screen reads their own devices; anyone else on the shift
   // arrives with their record already filled in from the wire.
   readLocalInput(g, g.p);
@@ -1316,7 +1324,7 @@ function update(g, dt) {
           z.kx = c.hx * 90; z.ky = c.hy * 90;          // Barely shifted by the impact.
           damageCarWithZombie(g, c, z, carContact);
           c.v *= .18; c.stall = Math.max(c.stall, rnd(.5, 1.1));
-          g.shake = Math.max(g.shake, clamp(1 - Math.hypot(g.p.x - z.x, g.p.y - z.y) / 520, 0, 1) * .8);
+          shakeAt(g, z.x, z.y, .8, 520);
           sprayZombieBlood(g, z, carContact.x, carContact.y, c.hx, c.hy, 16, 1.1);
           if (z.hp <= 0) { g.roadKills++; killZombie(g, z); }
           else resolveCircleCar(c, z, z.r);
@@ -1439,12 +1447,7 @@ function update(g, dt) {
     }
   }
 
-  // Noise rings show how far the player has revealed their position.
-  for (let i = g.rings.length - 1; i >= 0; i--) {
-    const r = g.rings[i];
-    r.l -= dt; r.r += (r.max - r.r) * Math.min(1, dt * 5);
-    if (r.l <= 0) g.rings.splice(i, 1);
-  }
+  ageRings(g, dt);
 
   // A parked car cannot drive without a driver, but its alarm flashes and honks.
   for (const c of g.parked) {
@@ -1645,14 +1648,7 @@ function update(g, dt) {
     for (const parked of g.parked) if (obbHit(c.box, parked)) { crashObstacle(g, c, parked); break; }
   }
 
-  for (let i = g.carSmoke.length - 1; i >= 0; i--) {
-    const s = g.carSmoke[i];
-    s.l -= dt;
-    s.x += s.vx * dt; s.y += s.vy * dt;
-    s.vx *= Math.pow(.985, dt * 60); s.vy -= 5 * dt;
-    s.r += dt * (s.growth || 7);
-    if (s.l <= 0) g.carSmoke.splice(i, 1);
-  }
+  ageCarSmoke(g, dt);
 
   // Parcels. The courier carries two at a time, and a parcel's address is worth nothing
   // until it is on their back: picking one up is what puts its door on the map.
@@ -1677,19 +1673,14 @@ function update(g, dt) {
     if (carrier.down || Math.hypot(b.dest.x - carrier.x, b.dest.y - carrier.y) >= 26) continue;
     b.state = 'done'; carrier.carried--; g.delivered++;
     SND.play('deliver', b.dest.x, b.dest.y);
+    emit(g, EV.deliver, b.dest.x, b.dest.y);
     for (let k = 0; k < 18; k++)
       g.parts.push({ x: b.dest.x, y: b.dest.y, vx: rnd(-120, 120), vy: rnd(-180, -30), l: rnd(.4, .9),
                      c: pick(['#8fe388', '#ffd766']), s: rnd(2, 4) });
     if (g.delivered >= g.need) finishDistrict(g, carrier);
   }
 
-  for (let i = g.blasts.length - 1; i >= 0; i--) {
-    const blast = g.blasts[i];
-    blast.l -= dt;
-    const progress = 1 - clamp(blast.l / blast.max, 0, 1);
-    blast.r = blast.maxR * (1 - Math.pow(1 - progress, 2.4));
-    if (blast.l <= 0) g.blasts.splice(i, 1);
-  }
+  ageBlasts(g, dt);
 
   // Severed limbs tumble and bleed. Heads remain physical for the entire district.
   for (let i = g.zombieParts.length - 1; i >= 0; i--) {
@@ -1797,6 +1788,101 @@ function update(g, dt) {
     if (part.kind !== 'head' && part.l <= 0) g.zombieParts.splice(i, 1);
   }
 
+  ageDebris(g, dt);
+
+  drawHud(g);
+}
+
+// ---------- what a peer works out for itself ----------
+//
+// Everything below is what the game looks, sounds and feels like rather than what it is. A peer
+// that is not running the simulation still owns all of it: its own ears, its own weather on the
+// glass, its own smoke and sparks, its own screen shaking. Each piece is called from exactly the
+// line it used to occupy inside update, because three of them are position-sensitive — rings age
+// before a siren pushes a new one, smoke ages between the traffic and the parcels, and the fog
+// opens before contacts move anybody — and a frame that ran them in a tidier order would draw a
+// different picture.
+
+function listenFor(g, p) { SND.listen(p.x, p.y); }
+
+// Replay the frame's notes as sound, debris and shake. Only a peer that did not run the rules
+// calls this — the peer that did already made all of it on the way past.
+function playEvents(g) {
+  for (const e of g.events) {
+    const x = e[1], y = e[2];
+    switch (e[0]) {
+      case EV.shot: {
+        const a = e[3];
+        shakeAt(g, x, y, .3);
+        SND.play('shot', x, y);
+        for (let k = 0; k < 5; k++)
+          g.parts.push({ x: x + Math.cos(a) * 11, y: y + Math.sin(a) * 11,
+                         vx: Math.cos(a) * rnd(40, 150) + rnd(-60, 60),
+                         vy: Math.sin(a) * rnd(40, 150) + rnd(-60, 60),
+                         l: rnd(.1, .25), c: '#ffe08a', s: rnd(2, 3) });
+        break;
+      }
+      case EV.hurt: {
+        const amount = e[4];
+        shakeAt(g, e[2], e[3], 1);
+        SND.play('hurt', e[2], e[3]);
+        for (let k = 0; k < 16 + (amount - 1) * 8; k++)
+          g.parts.push({ x: e[2], y: e[3], vx: rnd(-160, 160), vy: rnd(-160, 160),
+                         l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
+        break;
+      }
+      case EV.lamp:
+        SND.play('glass', x, y);
+        for (let k = 0; k < 14; k++)
+          g.parts.push({ x, y, vx: rnd(-95, 95), vy: rnd(-125, 45), l: rnd(.3, .85),
+                         c: pick(['#fff3c8', '#cfe4ff', '#9aa6b2']), s: rnd(2, 4) });
+        break;
+      case EV.blast:
+        shakeAt(g, x, y, .8 + e[3] * 2.7, 900);
+        SND.play('headBlast', x, y);
+        break;
+      case EV.ring:
+        g.rings.push({ x, y, r: 10, max: e[3], l: .55 });
+        break;
+      case EV.down: SND.play('hurt', e[2], e[3]); break;
+      case EV.revive: SND.play('pick', e[2], e[3]); break;
+      case EV.deliver: SND.play('deliver', x, y); break;
+    }
+  }
+  g.events.length = 0;
+}
+
+function ageRings(g, dt) {
+  // Noise rings show how far a courier has revealed their position.
+  for (let i = g.rings.length - 1; i >= 0; i--) {
+    const r = g.rings[i];
+    r.l -= dt; r.r += (r.max - r.r) * Math.min(1, dt * 5);
+    if (r.l <= 0) g.rings.splice(i, 1);
+  }
+}
+
+function ageCarSmoke(g, dt) {
+  for (let i = g.carSmoke.length - 1; i >= 0; i--) {
+    const s = g.carSmoke[i];
+    s.l -= dt;
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    s.vx *= Math.pow(.985, dt * 60); s.vy -= 5 * dt;
+    s.r += dt * (s.growth || 7);
+    if (s.l <= 0) g.carSmoke.splice(i, 1);
+  }
+}
+
+function ageBlasts(g, dt) {
+  for (let i = g.blasts.length - 1; i >= 0; i--) {
+    const blast = g.blasts[i];
+    blast.l -= dt;
+    const progress = 1 - clamp(blast.l / blast.max, 0, 1);
+    blast.r = blast.maxR * (1 - Math.pow(1 - progress, 2.4));
+    if (blast.l <= 0) g.blasts.splice(i, 1);
+  }
+}
+
+function ageDebris(g, dt) {
   // Volumetric blood droplets become ground stains after a short flight.
   for (let i = g.bloodDrops.length - 1; i >= 0; i--) {
     const d = g.bloodDrops[i];
@@ -1817,7 +1903,22 @@ function update(g, dt) {
   }
   for (let i = g.splats.length - 1; i >= 0; i--)
     if ((g.splats[i].l -= dt) <= 0) g.splats.splice(i, 1);
+}
 
+// One frame for a peer that is only watching. It never touches a rule: no courier moves, no
+// zombie decides anything, no bullet is fired. It reads the state that arrived, plays what
+// happened since the last one, and makes the district feel like a place.
+function presentFrame(g, dt) {
+  listenFor(g, g.p);                    // One pair of ears, and they belong to whoever is here.
+  updateWeatherVisuals(g, dt);
+  updateFog(g, dt);
+  for (const c of g.cars) emitCarSmoke(g, c, dt);
+  for (const c of g.parked) emitCarSmoke(g, c, dt);
+  ageRings(g, dt);
+  ageCarSmoke(g, dt);
+  ageBlasts(g, dt);
+  ageDebris(g, dt);
+  playEvents(g);
   drawHud(g);
 }
 
@@ -1894,6 +1995,6 @@ function gameOver(g) {
     'TRY AGAIN');
 }
 
-return Object.freeze({ update });
+return Object.freeze({ update, presentFrame });
 })();
 

@@ -36,6 +36,7 @@ Two checks exist so the simulation can be rearranged without changing what it do
 node .\tools\test-seeded-town.js
 node .\tools\test-sim-determinism.js
 node .\tools\test-coop-rules.js
+node .\tools\test-presentation.js
 ```
 
 `test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices. `test-coop-rules.js` covers what only exists with two couriers, and is described with the shift below.
@@ -185,6 +186,21 @@ rules below without a network in the way. `tools/test-coop-rules.js` covers them
 - both couriers light the same map: fog is opened by either of them, and each carries their own
   flashlight, muzzle flash and pool of light;
 - traffic honks at, swerves for and runs over whichever courier is actually in front of it.
+
+The frame is split between what the district *is* and what it *looks, sounds and feels like*, so
+a peer that is not running the rules can still draw the place properly:
+
+- `presentFrame` does the ears, the weather on the glass, the fog, the smoke, the sparks, the
+  screen shake and the HUD, and touches no rule at all — `tools/test-presentation.js` pins that
+  from both sides: nothing a rule owns may move during it, and the fog and the debris must;
+- each piece is called from the exact line it used to occupy inside the update, because several
+  are position-sensitive — noise rings age before a siren pushes a new one, smoke ages between
+  the traffic and the parcels, and the fog opens before contacts move anybody;
+- screen shake is worked out from where the local courier is standing rather than shipped as one
+  number, so an explosion two blocks away stays somebody else's problem;
+- the loud and visible moments — a shot, a hit, broken glass, a head going off, a noise ring, a
+  courier going down or getting back up — are also written down as events, so a peer that never
+  ran the rule can still replay the noise and the debris from the note.
 
 A speed pass follows, with no change to the rules or to a single pixel of the picture:
 

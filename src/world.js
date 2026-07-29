@@ -692,6 +692,7 @@ function buildTown(level) {
     fog, seen,                                                    // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
     delivered: 0,                                   // Signed off. What is on a back belongs to the courier.
+    events: [],                                     // Loud moments of this frame, for a peer that only watches.
     dead: false,                                    // The run is over: every courier is down.
     time: 0, spawnGrace: stealthQa ? 0 : 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,

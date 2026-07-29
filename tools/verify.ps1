@@ -39,6 +39,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Co-op rules test failed:`n$coopRulesTest")
   }
+
+  $presentationTest = & node (Join-Path $PSScriptRoot 'test-presentation.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Presentation seam test failed:`n$presentationTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -47,20 +52,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-60',
-  'src/core.js?v=20260729-60',
-  'src/quality.js?v=20260729-60',
-  'src/audio.js?v=20260729-60',
-  'src/car-physics.js?v=20260729-60',
-  'src/environment.js?v=20260729-60',
-  'src/world.js?v=20260729-60',
-  'src/physics.js?v=20260729-60',
-  'src/input.js?v=20260729-60',
-  'src/gameplay.js?v=20260729-60',
-  'src/lighting.js?v=20260729-60',
-  'src/entities.js?v=20260729-60',
-  'src/render.js?v=20260729-60',
-  'src/main.js?v=20260729-60'
+  'src/namespace.js?v=20260729-61',
+  'src/core.js?v=20260729-61',
+  'src/quality.js?v=20260729-61',
+  'src/audio.js?v=20260729-61',
+  'src/car-physics.js?v=20260729-61',
+  'src/environment.js?v=20260729-61',
+  'src/world.js?v=20260729-61',
+  'src/physics.js?v=20260729-61',
+  'src/input.js?v=20260729-61',
+  'src/gameplay.js?v=20260729-61',
+  'src/lighting.js?v=20260729-61',
+  'src/entities.js?v=20260729-61',
+  'src/render.js?v=20260729-61',
+  'src/main.js?v=20260729-61'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -166,6 +171,28 @@ if (-not $environmentSource.Contains('function revealAround(') -or
 if (-not $environmentSource.Contains('function nearestPlayer(')) {
   $problems.Add('Traffic and weather must react to the nearest courier, not to a fixed one.')
 }
+# A peer that is not running the rules still owns its own senses. The pieces are called from the
+# exact lines they occupied inside update, because several of them are position-sensitive.
+foreach ($presentFeature in @('function presentFrame(', 'function listenFor(', 'function ageRings(',
+    'function ageCarSmoke(', 'function ageBlasts(', 'function ageDebris(', 'function playEvents(',
+    'update, presentFrame')) {
+  if (-not $gameplaySource.Contains($presentFeature)) {
+    $problems.Add("The presentation seam is incomplete: $presentFeature")
+  }
+}
+foreach ($eventFeature in @('function emit(', 'function shakeAt(', 'const EV = Object.freeze(',
+    'emit(g, EV.ring, x, y, r)', 'function updateWeatherVisuals(')) {
+  if (-not $environmentSource.Contains($eventFeature)) {
+    $problems.Add("The event channel is incomplete: $eventFeature")
+  }
+}
+if ($gameplaySource.Contains('g.shake = Math.max(g.shake, 1);')) {
+  $problems.Add('Screen shake must be measured from the local courier through shakeAt, not set flat.')
+}
+if (-not $mainSource.Contains('authoritative()')) {
+  $problems.Add('The loop must choose between running the rules and only presenting them.')
+}
+
 $lightingCouriers = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
 if (-not $lightingCouriers.Contains('for (const courier of g.players)')) {
   $problems.Add('Every courier must contribute their own flashlight, footing and muzzle flash.')

@@ -12,6 +12,28 @@ const { createCarBody, syncCarBody, deformCarBody, circleCarContact, worldToLoca
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
 
+// ---------- events: the loud and visible moments, written down ----------
+//
+// Whoever runs the rules makes its own sparks and plays its own sounds, because that is where
+// the information is: a trigger was pulled, a lamp lost its glass, a head went off. A peer that
+// is only watching has none of that — a shot reaches it as two positions in a snapshot with no
+// memory of anybody firing. So each of those moments is also noted here, and a watching peer
+// replays the noise and the debris from the note instead of from a rule it never ran.
+const EV = Object.freeze({
+  shot: 0, hurt: 1, lamp: 2, blast: 3, ring: 4, down: 5, revive: 6, deliver: 7
+});
+function emit(g, code, ...args) {
+  if (g.events) g.events.push([code, ...args]);
+}
+
+// Screen shake belongs to a screen rather than to a district: an explosion two blocks away is
+// somebody else's problem. Each peer works out how much of an event it actually felt from where
+// its own courier is standing, so the event travels and the feeling does not.
+function shakeAt(g, x, y, power, falloff = 540) {
+  const felt = x === null ? 1 : clamp(1 - Math.hypot(g.p.x - x, g.p.y - y) / falloff, 0, 1);
+  g.shake = Math.max(g.shake, power * felt);
+}
+
 // Noise tells zombies where an event happened. Rain muffles every source.
 function makeNoise(g, x, y, r, strength, ring, skip) {
   r *= 1 - .3 * g.weather.rain;
@@ -21,7 +43,7 @@ function makeNoise(g, x, y, r, strength, ring, skip) {
     if (z === skip || z.gone || dx * dx + dy * dy > r2) continue;
     z.tx = x; z.ty = y; z.alert = Math.max(z.alert, strength);
   }
-  if (ring) g.rings.push({ x, y, r: 10, max: r, l: .55 });
+  if (ring) { g.rings.push({ x, y, r: 10, max: r, l: .55 }); emit(g, EV.ring, x, y, r); }
 }
 
 // The courier nearest a point. Traffic, thunder and crash shake all used to mean the only
@@ -144,7 +166,6 @@ function updateWeather(g, dt) {
   w.rain += clamp(w.target - w.rain, -.12 * dt, .12 * dt);
   // Asphalt gets wet quickly and takes about a minute to dry.
   w.wet += w.rain > w.wet ? Math.min(w.rain - w.wet, .3 * dt) : Math.max(w.rain - w.wet, -.05 * dt);
-  SND.rain(w.rain);
 
   // Lightning flashes immediately; delayed thunder is the useful distraction.
   w.flash = Math.max(0, w.flash - dt * 3.2);
@@ -170,7 +191,15 @@ function updateWeather(g, dt) {
     makeNoise(g, w.boomX, w.boomY, 1300, 6, true);   // The whole district follows the thunder.
   }
 
-  // Screen-space raindrops and ground splashes.
+  updateWeatherVisuals(g, dt);
+}
+
+// The half of the weather that is only ever seen and heard. The drop field is in screen space
+// and the splashes are placed against this camera, so they belong to whoever is watching rather
+// than to the district — a peer that is not simulating still has rain on its own glass.
+function updateWeatherVisuals(g, dt) {
+  const w = g.weather;
+  SND.rain(w.rain);
   const density = quality.current.rainDensity;
   const n = (drops.length * w.rain * density) | 0;
   for (let i = 0; i < n; i++) {
@@ -661,8 +690,8 @@ function crashEffects(g, x, y, impactSpeed) {
   if (impactSpeed < 28) return;
   SND.play('crash', x, y);
   makeNoise(g, x, y, clamp(190 + impactSpeed * 1.25, 220, 520), clamp(2.5 + impactSpeed / 65, 3, 7), true);
-  const felt = nearestPlayer(g, x, y);
-  g.shake = Math.max(g.shake, clamp(impactSpeed / 170, .25, 1.25) * clamp(1 - Math.hypot(felt.x - x, felt.y - y) / 540, 0, 1));
+  // Shake belongs to a screen, so it is measured from the courier sitting in front of this one.
+  g.shake = Math.max(g.shake, clamp(impactSpeed / 170, .25, 1.25) * clamp(1 - Math.hypot(g.p.x - x, g.p.y - y) / 540, 0, 1));
   const count = Math.round(clamp(8 + impactSpeed * .09, 10, 34));
   for (let i = 0; i < count; i++)
     g.parts.push({ x, y, vx: rnd(-170, 170) * (1 + impactSpeed / 260), vy: rnd(-190, 110) * (1 + impactSpeed / 320),
@@ -742,7 +771,8 @@ function nearRoad(R, x, y) {
 return Object.freeze({
   FW, fogCv,
   updateFog, drawFog, fogAt,
-  newWeather, updateWeather, drawRain, drawGlowThroughFog,
+  EV, emit, shakeAt,
+  newWeather, updateWeather, updateWeatherVisuals, drawRain, drawGlowThroughFog,
   TURN_IN, makeRoads, onEdge, lanePoint, placeCar, steerCar, startTurn, startUTurn, ahead,
   newCarDamage, carSmokeProfile, damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   prepareCarImpactComparison,

@@ -24,6 +24,16 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Street layout test failed:`n$streetLayoutTest")
   }
+
+  $seededTownTest = & node (Join-Path $PSScriptRoot 'test-seeded-town.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Seeded town test failed:`n$seededTownTest")
+  }
+
+  $simDeterminismTest = & node (Join-Path $PSScriptRoot 'test-sim-determinism.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Simulation determinism test failed:`n$simDeterminismTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -32,20 +42,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-56',
-  'src/core.js?v=20260729-56',
-  'src/quality.js?v=20260729-56',
-  'src/audio.js?v=20260729-56',
-  'src/car-physics.js?v=20260729-56',
-  'src/environment.js?v=20260729-56',
-  'src/world.js?v=20260729-56',
-  'src/physics.js?v=20260729-56',
-  'src/input.js?v=20260729-56',
-  'src/gameplay.js?v=20260729-56',
-  'src/lighting.js?v=20260729-56',
-  'src/entities.js?v=20260729-56',
-  'src/render.js?v=20260729-56',
-  'src/main.js?v=20260729-56'
+  'src/namespace.js?v=20260729-57',
+  'src/core.js?v=20260729-57',
+  'src/quality.js?v=20260729-57',
+  'src/audio.js?v=20260729-57',
+  'src/car-physics.js?v=20260729-57',
+  'src/environment.js?v=20260729-57',
+  'src/world.js?v=20260729-57',
+  'src/physics.js?v=20260729-57',
+  'src/input.js?v=20260729-57',
+  'src/gameplay.js?v=20260729-57',
+  'src/lighting.js?v=20260729-57',
+  'src/entities.js?v=20260729-57',
+  'src/render.js?v=20260729-57',
+  'src/main.js?v=20260729-57'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }

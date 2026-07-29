@@ -28,6 +28,19 @@ node .\tools\test-car-damage.js
 
 It covers plastic body-node displacement, replacement of the original collision outline with the deformed outline, moderate and catastrophic frontal crashes, side-part damage, and final failure after repeated zombie impacts. Visual states can be compared in `tools/car-damage-preview.html`. To inspect smoke and the crumpled physical wreck in the game, open `index.html?2d&qa=car-damage`; a test vehicle will appear in the starting beam. Normal gameplay never enables this mode.
 
+## Keeping the district reproducible
+
+Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.
+
+```powershell
+node .\tools\test-seeded-town.js
+node .\tools\test-sim-determinism.js
+```
+
+`test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices.
+
+The picture has its own check, which is run by hand because the answer depends on the browser doing the drawing. Open `index.html?2d&qa=frame-hash`, press start, and read `document.getElementById('c').dataset.frameHash` after a few seconds: it seeds the town, runs 300 steps of a fixed input script off the animation clock, and hashes all 403,200 pixels. Compare the value before and after a change. The mode forces the low quality profile and a dry night, because the rain field is filled when `environment.js` loads and no seed can reach it.
+
 ## Building a single file
 
 The game is developed and played from source; the bundle is only for handing it to someone as one file.

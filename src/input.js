@@ -19,11 +19,20 @@ addEventListener('keydown', e => {
   if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') torchPresses++;
   if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyC') sneakPresses++;
   if (!runtime.keys[code] && code === 'KeyM') SND.toggle();
-  // Pause freezes the district but keeps the frame on screen.
+  // Pause freezes the district but keeps the frame on screen. A district shared with somebody
+  // else belongs to both of them, so only the end running the rules may stop it — a guest that
+  // paused alone would sit watching a still frame while snapshots piled up behind it.
   if (!runtime.keys[code] && (code === 'KeyP' || code === 'Escape') && runtime.game &&
       (runtime.state === 'play' || runtime.state === 'paused')) {
+    const net = window.TownGame.net;
+    if (net && !net.authoritative()) {
+      net.note('The host holds the pause on a shared district.');
+      runtime.keys[code] = 1;
+      return;
+    }
     runtime.state = runtime.state === 'play' ? 'paused' : 'play';
     if (runtime.state === 'paused') SND.rain(0);
+    if (net) net.sendPause(runtime.state === 'paused');
     runtime.keys[code] = 1;
     return;                                   // A paused game must not also fire or start a district.
   }

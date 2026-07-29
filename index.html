@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>COURIER</title>
-<link rel="stylesheet" href="styles/main.css?v=20260729-64">
+<link rel="stylesheet" href="styles/main.css?v=20260729-65">
 </head>
 <body>
 <div id="hud" aria-label="Game status">
@@ -12,6 +12,7 @@
   <span class="hud__parcels">PARCELS <b id="box">0/4</b></span>
   <span class="hud__ammo">AMMO <b id="ammo">12</b></span>
   <span class="hud__health">HEALTH <b id="hp">♥♥♥♥♥</b></span>
+  <span class="hud__partner" id="partnerBox" hidden>PARTNER <b id="partner">—</b></span>
   <span class="hud__lives">LIVES <b id="lives">●●●</b></span>
   <span class="hud__cash">CASH <b id="cash">$0</b></span>
   <span class="hud__time">TIME <b id="time">0.0</b></span>
@@ -101,6 +102,22 @@
             drops <span class="legend legend--cash">cash</span> — a tank always does. Nothing sells anything yet,
             so the wallet just fills up over the shift.
           </p>
+          <h3>Working a shift together</h3>
+          <p>
+            Two couriers can share one district. Type the same room code on both machines, one
+            presses <span class="key">HOST</span> and the other <span class="key">JOIN</span>,
+            and the host starts the shift for both. Health, ammunition, the flashlight and what
+            is on your back are your own; the district, the horde, the parcel count and the
+            wallet belong to the shift. A parcel is signed off by whoever is carrying it.
+          </p>
+          <p>
+            Running out of health puts you on the ground instead of ending the district, and the
+            horde loses interest in a body. Three seconds of your
+            <span class="legend legend--partner">partner</span> standing over you gets you back
+            on your feet with part of your health — an arrow points to them whenever they are off
+            screen, and turns red the moment they go down. The district is only lost when neither
+            of you is standing. Only the host can pause.
+          </p>
           <h3>Ground and weather</h3>
           <p>
             Pavement is faster and louder; <span class="legend legend--rain">rain</span> muffles sound, while
@@ -132,20 +149,20 @@
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260729-64"></script>
-  <script src="src/core.js?v=20260729-64"></script>
-  <script src="src/quality.js?v=20260729-64"></script>
-  <script src="src/audio.js?v=20260729-64"></script>
-  <script src="src/car-physics.js?v=20260729-64"></script>
-  <script src="src/environment.js?v=20260729-64"></script>
-  <script src="src/world.js?v=20260729-64"></script>
-  <script src="src/physics.js?v=20260729-64"></script>
-  <script src="src/input.js?v=20260729-64"></script>
-  <script src="src/gameplay.js?v=20260729-64"></script>
-  <script src="src/lighting.js?v=20260729-64"></script>
-  <script src="src/entities.js?v=20260729-64"></script>
-  <script src="src/render.js?v=20260729-64"></script>
-  <script src="src/net.js?v=20260729-64"></script>
-  <script src="src/main.js?v=20260729-64"></script>
+  <script src="src/namespace.js?v=20260729-65"></script>
+  <script src="src/core.js?v=20260729-65"></script>
+  <script src="src/quality.js?v=20260729-65"></script>
+  <script src="src/audio.js?v=20260729-65"></script>
+  <script src="src/car-physics.js?v=20260729-65"></script>
+  <script src="src/environment.js?v=20260729-65"></script>
+  <script src="src/world.js?v=20260729-65"></script>
+  <script src="src/physics.js?v=20260729-65"></script>
+  <script src="src/input.js?v=20260729-65"></script>
+  <script src="src/gameplay.js?v=20260729-65"></script>
+  <script src="src/lighting.js?v=20260729-65"></script>
+  <script src="src/entities.js?v=20260729-65"></script>
+  <script src="src/render.js?v=20260729-65"></script>
+  <script src="src/net.js?v=20260729-65"></script>
+  <script src="src/main.js?v=20260729-65"></script>
 </body>
 </html>

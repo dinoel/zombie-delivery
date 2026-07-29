@@ -67,21 +67,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-64',
-  'src/core.js?v=20260729-64',
-  'src/quality.js?v=20260729-64',
-  'src/audio.js?v=20260729-64',
-  'src/car-physics.js?v=20260729-64',
-  'src/environment.js?v=20260729-64',
-  'src/world.js?v=20260729-64',
-  'src/physics.js?v=20260729-64',
-  'src/input.js?v=20260729-64',
-  'src/gameplay.js?v=20260729-64',
-  'src/lighting.js?v=20260729-64',
-  'src/entities.js?v=20260729-64',
-  'src/render.js?v=20260729-64',
-  'src/net.js?v=20260729-64',
-  'src/main.js?v=20260729-64'
+  'src/namespace.js?v=20260729-65',
+  'src/core.js?v=20260729-65',
+  'src/quality.js?v=20260729-65',
+  'src/audio.js?v=20260729-65',
+  'src/car-physics.js?v=20260729-65',
+  'src/environment.js?v=20260729-65',
+  'src/world.js?v=20260729-65',
+  'src/physics.js?v=20260729-65',
+  'src/input.js?v=20260729-65',
+  'src/gameplay.js?v=20260729-65',
+  'src/lighting.js?v=20260729-65',
+  'src/entities.js?v=20260729-65',
+  'src/render.js?v=20260729-65',
+  'src/net.js?v=20260729-65',
+  'src/main.js?v=20260729-65'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -208,6 +208,16 @@ if (-not $gameplaySource.Contains('stepCourier(g, p, dt, predicted = false)') -o
 }
 if ($gameplaySource.Contains('g.shake = Math.max(g.shake, 1);')) {
   $problems.Add('Screen shake must be measured from the local courier through shakeAt, not set flat.')
+}
+# A shared district belongs to both ends: only the one running the rules may stop it, and the
+# other has to be told the shift is over rather than watching a frame that stopped moving.
+foreach ($shiftFeature in @('function watchDistrictEnd(', 'g.endShown')) {
+  if (-not $gameplaySource.Contains($shiftFeature)) {
+    $problems.Add("A guest must be shown the end of a district: $shiftFeature")
+  }
+}
+if (-not $inputSource.Contains('net.authoritative()') -or -not $inputSource.Contains('net.sendPause(')) {
+  $problems.Add('Only the peer running the rules may pause a shared district.')
 }
 if (-not $mainSource.Contains('authoritative()')) {
   $problems.Add('The loop must choose between running the rules and only presenting them.')

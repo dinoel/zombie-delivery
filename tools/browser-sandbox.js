@@ -126,7 +126,8 @@ globalThis.__seed = value => {
 // Every id core.js resolves at load time. Missing one is a null dereference deep inside a
 // subsystem, so they are listed rather than conjured on demand.
 const ELEMENT_IDS = ['overlay', 'startBtn', 'overlayMessage', 'lvl', 'box', 'ammo', 'hp',
-  'lives', 'cash', 'time', 'best', 'qualitySelect', 'qualityStatus'];
+  'lives', 'cash', 'time', 'best', 'qualitySelect', 'qualityStatus',
+  'partner', 'partnerBox', 'roomCode', 'hostBtn', 'joinBtn', 'netStatus'];
 
 /**
  * Loads the named subsystems in order and returns the populated TownGame namespace.

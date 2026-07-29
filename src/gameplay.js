@@ -1925,7 +1925,37 @@ function presentFrame(g, dt) {
   ageBlasts(g, dt);
   ageDebris(g, dt);
   playEvents(g);
+  watchDistrictEnd(g);
   drawHud(g);
+}
+
+// A guest never runs finishDistrict or loseLife — they are rules, and rules belong to the other
+// end. But it still has to be told the shift is over, and it already knows: done and dead cross
+// with every snapshot. So it watches for the moment they turn true and puts up the same screen,
+// reading the totals off the district rather than being sent them.
+function watchDistrictEnd(g) {
+  if (g.done && !g.endShown) {
+    g.endShown = 'win';
+    setTimeout(() => {
+      runtime.state = 'win';
+      showResult('DELIVERED!',
+        `district ${g.level} completed in ${g.time.toFixed(1)} s`,
+        `The shift signed off <b>${g.delivered}</b> parcels and put down <b>${g.killed}</b> zombies.<br>` +
+        `Cash picked up: <b>$${g.earned}</b>; the wallet holds <b>$${runtime.cash}</b>.<br>` +
+        `The host opens the next district when they are ready.`,
+        'WAITING FOR THE HOST');
+    }, 900);
+  }
+  if (g.dead && !g.endShown) {
+    g.endShown = 'lost';
+    runtime.state = 'over';
+    SND.rain(0);
+    showResult('COURIER DOWN',
+      `district ${g.level}, parcels ${g.delivered} of ${g.need}, lives left ${runtime.lives}`,
+      `Nobody was left standing.<br>` +
+      `The host decides whether the district is walked again.`,
+      'WAITING FOR THE HOST');
+  }
 }
 
 function drawHud(g) {
@@ -1934,6 +1964,17 @@ function drawHud(g) {
   UI.parcels.textContent = p.carried ? `${g.delivered}/${g.need} +${p.carried}` : `${g.delivered}/${g.need}`;
   UI.ammo.textContent = p.ammo;
   UI.hp.textContent = '♥'.repeat(Math.max(0, p.hp)) + '·'.repeat(clamp(p.hpMax - p.hp, 0, p.hpMax));
+  // On a shift of two, how the other one is doing is worth a glance without looking away from
+  // the street. Alone, the readout is not there at all rather than saying nothing.
+  const mate = g.players.length > 1 ? g.players.find(q => q !== p) : null;
+  UI.partnerBox.hidden = !mate;
+  if (mate) {
+    UI.partner.textContent = mate.down
+      ? 'DOWN'
+      : '♥'.repeat(Math.max(0, mate.hp)) + '·'.repeat(clamp(mate.hpMax - mate.hp, 0, mate.hpMax)) +
+        (mate.carried ? ` +${mate.carried}` : '');
+    UI.partner.className = mate.down ? 'hud__partner--down' : '';
+  }
   UI.lives.textContent = '●'.repeat(Math.max(0, runtime.lives)) + '·'.repeat(clamp(LIVES_MAX - runtime.lives, 0, LIVES_MAX));
   UI.cash.textContent = `$${runtime.cash}`;
   UI.time.textContent = g.time.toFixed(1);

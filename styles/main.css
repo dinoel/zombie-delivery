@@ -372,3 +372,8 @@ canvas.aim {
   letter-spacing: .02em;
 }
 #netStatus.net-status--bad { color: #ff9a8f; }
+
+/* A partner in trouble should be readable without looking away from the street. */
+.hud__partner { color: #57c7ff; }
+#partner.hud__partner--down { color: #ff5b4d; }
+.legend--partner { color: #57c7ff; }

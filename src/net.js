@@ -21,12 +21,13 @@ let role = 'solo';                    // solo until a room is joined, then host 
 let phase = 'idle';                   // idle, connecting, lobby, syncing, playing, lost.
 let room = '';
 let partnerPresent = false;
+let partnerPaused = false;
 let pendingStart = null;              // A start message a guest has received but not yet built.
 let onStatus = null, onStart = null;
 
 // Whoever is not a guest owns the rules, which alone in a district is always this peer.
 const authoritative = () => role !== 'guest';
-const state = () => ({ role, phase, room, partner: partnerPresent });
+const state = () => ({ role, phase, room, partner: partnerPresent, partnerPaused });
 
 function announce(text) {
   if (onStatus) onStatus(text, state());
@@ -58,7 +59,7 @@ function send(message) {
 function disconnect(reason) {
   if (socket) { try { socket.close(); } catch { /* already gone */ } }
   socket = null;
-  role = 'solo'; phase = 'idle'; room = ''; partnerPresent = false; pendingStart = null;
+  role = 'solo'; phase = 'idle'; room = ''; partnerPresent = false; partnerPaused = false; pendingStart = null;
   if (reason) announce(reason);
 }
 
@@ -141,6 +142,9 @@ function receive(raw) {
 
     case 's': receiveSnapshot(msg); break;
     case 'i': if (role === 'host' && runtime.game) applyRemoteInput(runtime.game, msg); break;
+    // The host has stopped the district. This end keeps drawing the last frame it has and says
+    // why, rather than appearing to have frozen on its own.
+    case 'pause': partnerPaused = !!msg.on; break;
   }
 }
 
@@ -525,6 +529,9 @@ function applyRemoteInput(g, msg) {
 
 return Object.freeze({
   available, connect, disconnect, send,
+  // Small courtesies the rest of the game asks for without needing to know how any of it works.
+  note: announce,
+  sendPause: on => { if (role === 'host') send({ t: 'pause', on: !!on }); },
   authoritative, state,
   hostDistrict, declareLayout,
   encodeSnapshot, applySnapshot, pump, predict, reconcile, hostTick, sendInput,

@@ -23,7 +23,9 @@ const UI = Object.freeze({
   roomCode: $('roomCode'),
   hostBtn: $('hostBtn'),
   joinBtn: $('joinBtn'),
-  netStatus: $('netStatus')
+  netStatus: $('netStatus'),
+  partner: $('partner'),
+  partnerBox: $('partnerBox')
 });
 
 const STORAGE_KEYS = Object.freeze({ mute: 'townMute', best: 'townBest', quality: 'townQuality' });

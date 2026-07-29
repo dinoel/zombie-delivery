@@ -339,6 +339,23 @@ function draw(g) {
   for (const courier of g.players) if (courier !== p && visible(courier.x, courier.y, 30)) drawPlayer(ctx, courier, g);
   drawPlayer(ctx, p, g);
 
+  // Standing over a fallen partner is the one thing on a shift that either of them can do for
+  // the other, so it says what it wants rather than leaving a ring to be worked out.
+  for (const mate of g.players) {
+    if (mate === p || !mate.down || !visible(mate.x, mate.y, 40)) continue;
+    const helping = Math.hypot(p.x - mate.x, p.y - mate.y) < 28 && !p.down;
+    ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = helping ? '#8fe388' : '#ff5b4d';
+    ctx.fillText(helping ? 'HOLDING ON' : 'PARTNER DOWN', mate.x, mate.y - 26);
+    if (!helping) {
+      ctx.fillStyle = 'rgba(255,214,180,.85)';
+      ctx.font = '9px Trebuchet MS, sans-serif';
+      ctx.fillText('stand close to bring them back', mate.x, mate.y - 15);
+    }
+    ctx.textAlign = 'left';
+  }
+
   // Bullets.
   // Two passes: the courier's tracer is warm, the patrol's is cold.
   ctx.lineCap = 'round';
@@ -455,6 +472,31 @@ function draw(g) {
     }
   }
 
+  // A partner off the edge of the screen gets an arrow of their own. Losing track of the other
+  // courier is the commonest way a shift comes apart, and it stops being a convenience the
+  // moment they go down — at which point the arrow says so.
+  for (const mate of g.players) {
+    if (mate === p) continue;
+    const mx = mate.x - camx, my = mate.y - camy;
+    if (mx > 20 && my > 20 && mx < W - 20 && my < H - 20) continue;
+    const a = Math.atan2(my - H / 2, mx - W / 2);
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const t = Math.min(Math.abs((W / 2 - 40) / (ca || 1e-6)), Math.abs((H / 2 - 40) / (sa || 1e-6)));
+    ctx.save();
+    ctx.translate(W / 2 + ca * t, H / 2 + sa * t);
+    ctx.rotate(a);
+    ctx.fillStyle = mate.down ? 'rgba(255,91,77,.95)' : 'rgba(87,199,255,.85)';
+    ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(-8, -7); ctx.lineTo(-8, 7); ctx.closePath(); ctx.fill();
+    ctx.rotate(-a);
+    if (mate.down) {
+      ctx.font = 'bold 10px Trebuchet MS, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('DOWN', 0, -13);
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+
   drawGauges(g);
   drawMinimap(g);
 
@@ -469,6 +511,21 @@ function draw(g) {
     ctx.fillStyle = 'rgba(207,224,242,.85)';
     ctx.font = '14px Trebuchet MS, sans-serif';
     ctx.fillText('P or ESC — resume', W / 2, H / 2 + 22);
+    ctx.textAlign = 'left';
+  }
+
+  // The other end has stopped the district. Saying so beats a frame that appears to have died.
+  const shift = window.TownGame.net.state();
+  if (shift.partnerPaused && runtime.state === 'play') {
+    ctx.fillStyle = 'rgba(6,9,16,.5)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#cfe0f2';
+    ctx.font = 'bold 22px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PARTNER PAUSED', W / 2, H / 2 - 6);
+    ctx.font = '14px Trebuchet MS, sans-serif';
+    ctx.fillStyle = 'rgba(207,224,242,.8)';
+    ctx.fillText('the host holds the pause', W / 2, H / 2 + 22);
     ctx.textAlign = 'left';
   }
 

@@ -56,6 +56,8 @@ Guessing is not allowed to play the game. A predicted step moves the courier and
 
 Add `?lag=200` to the URL on either end to put a round trip and some jitter back into a loopback connection, which is the only way to see any of this working.
 
+On screen, a shift of two reads as one: the HUD carries a compact partner line beside your own health, an arrow points to the partner whenever they are off screen and turns red the moment they go down, and a fallen courier is marked where they fell with a ring that fills as you stand over them. Only the host can pause a shared district — a guest that paused alone would sit watching a still frame while snapshots piled up behind it — and the other end is told so rather than being left to wonder. Neither end runs the rules for ending a district, so the guest watches for the moment the shift is won or lost and puts up the same screen, reading the totals off the district it already has.
+
 ## Keeping the district reproducible
 
 Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.
@@ -85,7 +87,7 @@ The script reads the load order out of `index.html`, so a new subsystem is picke
 
 terser is fetched on demand through `npx` and pinned to one version, so the build needs a network connection the first time and produces the same output on every run afterwards. Without terser the bundle is still written, unminified, and the script says so. Nothing about this is required to play the game.
 
-Current output: 279 kB of JavaScript compresses to 143 kB, and the whole page is 156 kB — 56 kB gzipped.
+Current output: 339 kB of JavaScript compresses to 166 kB, and the whole page is 183 kB — 66 kB gzipped. The bundle is the game only; co-op additionally needs `tools/relay.js` running somewhere both players can reach.
 
 `dist/` is generated and is not tracked.
 

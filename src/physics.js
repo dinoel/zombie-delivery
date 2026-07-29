@@ -121,18 +121,23 @@ function staticIndex(g) {
   if (cached && cached.solids === g.solids && cached.solidCount === g.solids.length &&
       cached.trees === g.trees && cached.treeCount === g.trees.length &&
       cached.soft === g.soft && cached.softCount === g.soft.length &&
-      cached.parked === g.parked && cached.parkedCount === g.parked.length) return cached;
+      cached.parked === g.parked && cached.parkedCount === g.parked.length &&
+      cached.lamps === g.lamps && cached.lampCount === g.lamps.length) return cached;
   const boxX = o => o.cx, boxY = o => o.cy, boxR = o => o.rad;
   const dotX = o => o.x, dotY = o => o.y, dotR = o => o.r;
+  // A lamp is indexed by its lantern rather than its mast: that is the part a bullet meets.
+  const headX = o => o.hx, headY = o => o.hy, headR = o => o.headR;
   return (g.staticIndex = {
     solids: g.solids, solidCount: g.solids.length,
     trees: g.trees, treeCount: g.trees.length,
     soft: g.soft, softCount: g.soft.length,
     parked: g.parked, parkedCount: g.parked.length,
+    lamps: g.lamps, lampCount: g.lamps.length,
     solidGrid: makeGrid(g.solids, boxX, boxY, boxR),
     treeGrid: makeGrid(g.trees, dotX, dotY, dotR),
     softGrid: makeGrid(g.soft, dotX, dotY, dotR),
-    parkedGrid: makeGrid(g.parked, boxX, boxY, boxR)
+    parkedGrid: makeGrid(g.parked, boxX, boxY, boxR),
+    lampGrid: makeGrid(g.lamps, headX, headY, headR)
   });
 }
 
@@ -140,8 +145,10 @@ const solidsNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).solidGrid, 
 const treesNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).treeGrid, x, y, r, out, pad);
 const softNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).softGrid, x, y, r, out, pad);
 const parkedNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).parkedGrid, x, y, r, out, pad);
+const lampsNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).lampGrid, x, y, r, out, pad);
 
 return Object.freeze({
-  hitOBB, obbHit, hitCircle, staticIndex, solidsNear, treesNear, softNear, parkedNear
+  hitOBB, obbHit, hitCircle, staticIndex,
+  solidsNear, treesNear, softNear, parkedNear, lampsNear
 });
 })();

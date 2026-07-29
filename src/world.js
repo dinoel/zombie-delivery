@@ -39,8 +39,23 @@ const SIDEWALK_CENTER = ROAD / 2 + 14;
 const SIDEWALK_INNER = ROAD / 2 + 9;
 const SIDEWALK_OUTER = (ROAD + 42) / 2 - 4;
 const FURNITURE_NODE_CLEARANCE = ROAD * 1.15;
+// A street lamp is a mast on the kerb with a bracket reaching out over the asphalt, so the
+// pool of light lands on the lane rather than on the pavement behind it.
+const LAMP_ARM = 38;
+const LAMP_HEAD_R = 6.5;                          // The glass a bullet has to find.
 const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
 const CROSSWALK_MIN_GAP = ROAD * .74;
+
+// One lamp: the mast stands where it was placed, the head hangs at the end of the bracket,
+// and the light is emitted from the head. A broken lamp keeps its geometry and loses its glow.
+function makeLamp(x, y, armX, armY, temperature, arm = LAMP_ARM) {
+  return {
+    t: 'lamp', x, y, arm,
+    hx: x + armX * arm, hy: y + armY * arm, ang: Math.atan2(armY, armX), headR: LAMP_HEAD_R,
+    lampRgb: temperature.rgb, bulb: temperature.bulb, lampPower: temperature.power,
+    broken: false, seed: Math.random()
+  };
+}
 
 function sidewalkPoint(roads, edge, distance, side) {
   const p = onEdge(edge, distance);
@@ -227,9 +242,9 @@ function buildTown(level) {
         p = q; break;
       }
       if (!p) { side = -side; continue; }
-      const temperature = pick(LAMP_TEMPERATURES);
-      props.push({ t: 'lamp', x: p.x, y: p.y, lampRgb: temperature.rgb,
-        bulb: temperature.bulb, lampPower: temperature.power });
+      // The bracket points from the kerb toward the centreline of the street it belongs to.
+      const armX = p.ty * p.side, armY = -p.tx * p.side;
+      props.push(makeLamp(p.x, p.y, armX, armY, pick(LAMP_TEMPERATURES)));
       if (Math.random() < .3) {
         const bx = p.x - p.ty * 23 * p.side, by = p.y + p.tx * 23 * p.side;
         if (insideEdge(bx, by, 17) && nearRoad(R, bx, by).d > SIDEWALK_OUTER + 5 &&
@@ -594,11 +609,9 @@ function buildTown(level) {
     const bush = { x: cx, y: cy + 48, r: 24, seed: .53, foliage: 'bush' };
     const hedge = obb(cx + 145, cy + 48, 0, 43, 9, { t: 'hedge', seed: .81 });
     trees.push(tree); soft.push(bush); props.push(hedge); solids.push(hedge);
-    for (let i = 0; i < 3; i++) {
-      const temperature = LAMP_TEMPERATURES[i * 2];
-      props.push({ t: 'lamp', x: cx + (i - 1) * 145, y: cy,
-        lampRgb: temperature.rgb, bulb: temperature.bulb, lampPower: temperature.power });
-    }
+    // The comparison lab keeps its lamps armless so each colour sits exactly above its subject.
+    for (let i = 0; i < 3; i++)
+      props.push(makeLamp(cx + (i - 1) * 145, cy, 0, 1, LAMP_TEMPERATURES[i * 2], 0));
   }
 
   // A single tall house in a clear flashlight beam verifies that roofs receive
@@ -768,14 +781,9 @@ function renderStatic(g) {
     c.beginPath(); c.arc(t.x - t.r * .3, t.y - t.r * .35, t.r * .34, 0, 6.283); c.fill();
   }
 
-  // Lamps and benches.
+  // Benches. Lamps are drawn with the frame instead: a lamp can be shot out, and the
+  // static layer is painted once when the district is built.
   for (const p of g.props) {
-    if (p.t === 'lamp') {
-      c.fillStyle = 'rgba(0,0,0,.2)';
-      c.beginPath(); c.ellipse(p.x + 5, p.y + 6, 7, 4.5, 0, 0, 6.283); c.fill();
-      c.fillStyle = '#3c4450'; c.beginPath(); c.arc(p.x, p.y, 4.5, 0, 6.283); c.fill();
-      c.fillStyle = p.bulb || '#ffe9a8'; c.beginPath(); c.arc(p.x, p.y, 2.4, 0, 6.283); c.fill();
-    }
     if (p.t === 'bench') {
       c.save(); c.translate(p.x, p.y); c.rotate(p.a);
       c.fillStyle = 'rgba(0,0,0,.2)'; roundRect(c, -13, -4, 28, 13, 3); c.fill();
@@ -785,6 +793,49 @@ function renderStatic(g) {
     }
   }
   return s;
+}
+
+// A street lamp from above: the mast on the kerb, the bracket reaching out over the asphalt,
+// and the lantern at its end. The ground shadow falls the same way for every lamp no matter
+// which way its bracket points, which is what makes the arm read as hanging above the street.
+function drawLamp(c, l) {
+  c.fillStyle = 'rgba(0,0,0,.22)';
+  c.beginPath(); c.ellipse(l.x + 5, l.y + 7, 6, 4, 0, 0, 6.283); c.fill();
+  if (l.arm) {
+    c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = 4; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(l.x + 5, l.y + 7); c.lineTo(l.hx + 5, l.hy + 7); c.stroke();
+    c.lineCap = 'butt';
+    c.beginPath(); c.ellipse(l.hx + 5, l.hy + 7, 7, 4.5, 0, 0, 6.283); c.fill();
+  }
+  c.save();
+  c.translate(l.x, l.y); c.rotate(l.ang);
+  c.fillStyle = '#39414d'; c.beginPath(); c.arc(0, 0, 5.2, 0, 6.283); c.fill();   // Mast.
+  c.fillStyle = '#5b6675'; c.beginPath(); c.arc(0, 0, 3.4, 0, 6.283); c.fill();
+  c.fillStyle = '#2a313b'; c.beginPath(); c.arc(0, 0, 1.6, 0, 6.283); c.fill();
+  if (l.arm) {
+    c.fillStyle = '#4a5462'; roundRect(c, 1, -2.1, l.arm - 1, 4.2, 2.1); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.16)'; c.fillRect(2, -1.9, l.arm - 3, 1.3);
+  }
+  const head = l.arm;
+  c.fillStyle = l.broken ? '#333b45' : '#414b58';
+  roundRect(c, head - 8, -4.6, 15, 9.2, 3.4); c.fill();
+  c.strokeStyle = 'rgba(10,12,16,.6)'; c.lineWidth = 1; c.stroke();
+  if (!l.broken) {
+    c.fillStyle = l.bulb || '#ffe9a8';
+    c.beginPath(); c.ellipse(head - .6, 0, 5, 3, 0, 0, 6.283); c.fill();
+    c.fillStyle = 'rgba(255,255,255,.6)';
+    c.beginPath(); c.ellipse(head - 1.6, -.7, 2.2, 1.3, 0, 0, 6.283); c.fill();
+  } else {
+    c.fillStyle = '#14181e';                       // An empty socket where the glass was.
+    c.beginPath(); c.ellipse(head - .6, 0, 5, 3, 0, 0, 6.283); c.fill();
+    c.strokeStyle = 'rgba(198,214,228,.45)'; c.lineWidth = .8;
+    for (let k = 0; k < 3; k++) {                  // The last shards still in the frame.
+      const a = l.seed * 6.283 + k * 2.1;
+      c.beginPath(); c.moveTo(head - .6, 0);
+      c.lineTo(head - .6 + Math.cos(a) * 4.4, Math.sin(a) * 2.6); c.stroke();
+    }
+  }
+  c.restore();
 }
 
 function drawHouse(c, h) {
@@ -987,6 +1038,8 @@ function drawCarShape(c, car) {
   }
 }
 
-return Object.freeze({ buildTown, drawHouse, drawCarShape, sidewalkPoint, layoutCrosswalks });
+return Object.freeze({
+  buildTown, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
+});
 })();
 

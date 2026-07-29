@@ -18,7 +18,9 @@ const {
   bezAt, bezDir,
   makeNoise, surfaceAt
 } = window.TownGame.environment;
-const { hitOBB, obbHit, hitCircle, solidsNear, treesNear, parkedNear } = window.TownGame.physics;
+const {
+  hitOBB, obbHit, hitCircle, solidsNear, treesNear, parkedNear, lampsNear
+} = window.TownGame.physics;
 const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
 } = window.TownGame.carPhysics;
@@ -224,6 +226,12 @@ function explodeZombieHead(g, head) {
     car.hitFlash = Math.max(car.hitFlash || 0, .28);
   }
 
+  // A blast that shatters car windows takes the street lighting with it.
+  for (const l of lampsNear(g, x, y, radius)) {
+    const dx = l.hx - x, dy = l.hy - y;
+    if (dx * dx + dy * dy < radius * radius) breakLamp(g, l);
+  }
+
   for (const part of g.zombieParts) {
     const dx = part.x - x, dy = part.y - y, d = Math.hypot(dx, dy) || 1;
     if (d >= radius) continue;
@@ -328,6 +336,21 @@ function dropCash(g, z) {
     x: z.x, y: z.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
     n: Math.round(rnd(band[0], band[1])), ph: Math.random() * 6.283, tilt: rnd(-.6, .6)
   });
+}
+
+// ---------- street lighting ----------
+// A lantern is glass on a bracket: one bullet ends it. The street goes dark, which is the
+// courier's own problem, and the noise of it carries the way any broken window does.
+function breakLamp(g, l) {
+  if (l.broken) return false;
+  l.broken = true;
+  g.lampsBroken = (g.lampsBroken || 0) + 1;
+  for (let k = 0; k < 14; k++)
+    g.parts.push({ x: l.hx, y: l.hy, vx: rnd(-95, 95), vy: rnd(-125, 45), l: rnd(.3, .85),
+      c: pick(['#fff3c8', '#cfe4ff', '#9aa6b2']), s: rnd(2, 4) });
+  SND.play('glass', l.hx, l.hy);
+  makeNoise(g, l.hx, l.hy, 230, 3, true);
+  return true;
 }
 
 function killZombie(g, z) {
@@ -914,11 +937,24 @@ function update(g, dt) {
       gone = 'z';
       }
     }
+    // A lantern hangs above the street, so it is the last thing a shot can meet: anything
+    // standing on the road takes the bullet first, and only a clear line reaches the glass.
+    if (!gone) for (const l of lampsNear(g, (b.px + b.x) * .5, (b.py + b.y) * .5,
+                                         Math.max(Math.abs(b.x - b.px), Math.abs(b.y - b.py)) * .5)) {
+      if (l.broken) continue;
+      const t = segmentCircleT(b.px, b.py, b.x, b.y, l.hx, l.hy, l.headR);
+      if (t === null) continue;
+      b.x = b.px + (b.x - b.px) * t; b.y = b.py + (b.y - b.py) * t;
+      breakLamp(g, l);
+      gone = 'l';
+      break;
+    }
     if (gone) {
       if (gone === 'w') SND.play('wall', b.x, b.y);
       for (let k = 0; k < 3; k++)
         g.parts.push({ x: b.x, y: b.y, vx: rnd(-70, 70), vy: rnd(-70, 70), l: rnd(.1, .25),
-          c: gone === 'c' ? pick(['#d8e0e6', '#ffe08a', '#7c858d']) : gone === 'h' ? '#96d85a' : '#ffe08a', s: 2 });
+          c: gone === 'c' ? pick(['#d8e0e6', '#ffe08a', '#7c858d']) : gone === 'h' ? '#96d85a' :
+             gone === 'l' ? pick(['#fff3c8', '#cfe4ff']) : '#ffe08a', s: 2 });
       g.bullets.splice(i, 1);
     }
   }

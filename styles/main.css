@@ -260,6 +260,7 @@ canvas.aim {
 .legend--neutral { color: var(--color-copy); }
 .legend--car { color: #ff8b7a; }
 .legend--patrol { color: #8fb6ff; }
+.legend--lamp { color: #ffd9a0; }
 .legend--rain { color: #a9d6ff; }
 .legend--thunder { color: #e8f0ff; }
 

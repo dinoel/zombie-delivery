@@ -135,6 +135,17 @@ The round is a delivery loop rather than a collection:
 - the HUD counts delivered parcels and appends the number in hand, as in `2/5 +1`;
 - the district ends when the last parcel reaches its door.
 
+Street lighting is a working part of the district:
+
+- a street lamp is a mast on the kerb with a bracket over the asphalt, so the pool of light
+  lands on the lane instead of the pavement behind it, and neighbouring pools overlap along a
+  block — a lit street can be walked without the flashlight;
+- one bullet in the lantern puts it out for the rest of the district: the mast and bracket stay,
+  the glass does not, and the street goes dark;
+- breaking glass carries about as far as a shattered car window, so blacking out a street calls
+  the horde to the noise;
+- a tank head going off takes every lamp inside the blast with it.
+
 A speed pass follows, with no change to the rules or to a single pixel of the picture:
 
 - houses, hedges, parked cars, trees, and bushes are indexed into one uniform grid when a

@@ -23,6 +23,7 @@ const RGB_BEACON_BLUE = [.24, .38, 1], RGB_ROOF_RED = [1, .2, .24], RGB_ROOF_BLU
 const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .82, .35];
 const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
 const RGB_CASH = [.66, .9, .69];
+const LAMP_RANGE = 205;                               // Reach of one street lamp over the road.
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
 const MAX_FOLIAGE_LOBES = 8;
@@ -192,8 +193,13 @@ function collectLights(g, camx, camy) {
                soft: soft || 0, priority, skip });
   };
 
-  for (const l of g.lamps)
-    add(l.x, l.y, 120, l.lampRgb || RGB_LAMP, 1.15 * (l.lampPower || 1), .24, .95, 0, 0, 14, 1);
+  // A working street lamp is the main light on the block: it hangs over the asphalt and
+  // reaches far enough that neighbouring pools overlap along a street. A shot-out one
+  // keeps its mast and leaves the road to the flashlight.
+  for (const l of g.lamps) {
+    if (l.broken) continue;
+    add(l.hx, l.hy, LAMP_RANGE, l.lampRgb || RGB_LAMP, 1.5 * (l.lampPower || 1), .3, .97, 0, 0, 5, 6);
+  }
   for (const c of g.cars) {
     if (!legacyPerf && (c.x + 270 < camx || c.y + 270 < camy || c.x - 270 > camx + W || c.y - 270 > camy + H)) continue;
     const a = Math.atan2(c.hy, c.hx);

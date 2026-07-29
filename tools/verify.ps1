@@ -32,20 +32,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-54',
-  'src/core.js?v=20260729-54',
-  'src/quality.js?v=20260729-54',
-  'src/audio.js?v=20260729-54',
-  'src/car-physics.js?v=20260729-54',
-  'src/environment.js?v=20260729-54',
-  'src/world.js?v=20260729-54',
-  'src/physics.js?v=20260729-54',
-  'src/input.js?v=20260729-54',
-  'src/gameplay.js?v=20260729-54',
-  'src/lighting.js?v=20260729-54',
-  'src/entities.js?v=20260729-54',
-  'src/render.js?v=20260729-54',
-  'src/main.js?v=20260729-54'
+  'src/namespace.js?v=20260729-56',
+  'src/core.js?v=20260729-56',
+  'src/quality.js?v=20260729-56',
+  'src/audio.js?v=20260729-56',
+  'src/car-physics.js?v=20260729-56',
+  'src/environment.js?v=20260729-56',
+  'src/world.js?v=20260729-56',
+  'src/physics.js?v=20260729-56',
+  'src/input.js?v=20260729-56',
+  'src/gameplay.js?v=20260729-56',
+  'src/lighting.js?v=20260729-56',
+  'src/entities.js?v=20260729-56',
+  'src/render.js?v=20260729-56',
+  'src/main.js?v=20260729-56'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -145,7 +145,7 @@ if (-not $qualitySource.Contains('foliageShadows: true') -or
 $lightingSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
 foreach ($lightingFeature in @('forEachFoliageLobe', 'profile.foliageShadows', 'l.lampRgb', 'softNear(g',
     'foliageTransmission', 'buildFoliageData', 'return max(.55, transmission)',
-    'buildRoofVerts', 'roofP', "lctx.fillStyle = 'rgba(10,14,38,.82)'")) {
+    'buildRoofVerts', 'roofP', 'ROOF_AMB', "lctx.fillStyle = 'rgba(10,14,38,.68)'")) {
   if (-not $lightingSource.Contains($lightingFeature)) {
     $problems.Add("Detailed lighting behavior is missing: $lightingFeature")
   }

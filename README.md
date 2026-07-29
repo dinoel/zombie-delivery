@@ -144,7 +144,10 @@ Street lighting is a working part of the district:
   the glass does not, and the street goes dark;
 - breaking glass carries about as far as a shattered car window, so blacking out a street calls
   the horde to the noise;
-- a tank head going off takes every lamp inside the blast with it.
+- a tank head going off takes every lamp inside the blast with it;
+- a roof is the one surface facing the sky, so it is lit by the sky and by nothing else: no
+  street lamp reaches up there, but moonlight does, and a row of houses reads as slate and
+  tile rather than as holes cut out of the street.
 
 A speed pass follows, with no change to the rules or to a single pixel of the picture:
 

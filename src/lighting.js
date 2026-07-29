@@ -293,8 +293,9 @@ function drawLight2D(g, camx, camy) {
       paintLightDirect(camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread);
     else paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip, shadows);
   }
-  // Ground-level light may hit walls, but it cannot land on a roof above it. Restore
-  // the ambient night layer over every visible roof after all light holes are cut.
+  // Ground-level light may hit walls, but it cannot land on a roof above it. Replace every
+  // visible roof with sky light after all light holes are cut: no lamp reaches up there, and
+  // the moon reaches nothing else as well.
   if (g.houses.length) {
     lctx.save(); lctx.beginPath();
     for (const h of g.houses) {
@@ -304,7 +305,7 @@ function drawLight2D(g, camx, camy) {
       lctx.closePath();
     }
     lctx.clip(); lctx.clearRect(0, 0, W, H);
-    lctx.fillStyle = 'rgba(10,14,38,.82)'; lctx.fillRect(0, 0, W, H); lctx.restore();
+    lctx.fillStyle = 'rgba(10,14,38,.68)'; lctx.fillRect(0, 0, W, H); lctx.restore();
   }
   ctx.drawImage(lightCv, 0, 0);
 }
@@ -313,6 +314,11 @@ function drawLight2D(g, camx, camy) {
 const glCv = document.createElement('canvas');
 glCv.width = W; glCv.height = H;
 const AMB = [.085, .105, .21];                        // Night multiplier for unlit pixels.
+// A roof is the one surface in the district that faces the sky, so it is the one surface lit
+// by it. Street lamps still never reach up there — the roof simply gets more moonlight than
+// the ground does, which is what keeps a row of houses reading as slate and tile at night
+// instead of as holes cut out of the street.
+const ROOF_AMB = [.24, .28, .37];
 let gl = (() => {
   if (location.search.includes('2d')) return null;    // ?2d forces the fallback path.
   const opt = { alpha: false, depth: false, stencil: true, antialias: false, preserveDrawingBuffer: false };
@@ -400,7 +406,7 @@ const GLR = gl && (() => { try {
     attribute vec2 a_pos; uniform vec2 u_res;
     void main() { vec2 p = a_pos; gl_Position = ${TO_CLIP}; }`, `
     precision mediump float;
-    void main() { gl_FragColor = vec4(${AMB[0]}, ${AMB[1]}, ${AMB[2]}, 1.0); }`);
+    void main() { gl_FragColor = vec4(${ROOF_AMB[0]}, ${ROOF_AMB[1]}, ${ROOF_AMB[2]}, 1.0); }`);
 
   const quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);

@@ -56,12 +56,12 @@ function warnZombiesOfShot(g, x, y, hx, hy) {
 }
 
 // A shot creates a bullet, flash, recoil, and neighborhood-wide noise.
-function fire(g) {
+function fire(g, p) {
   // The barrel points at the aim target instead of running parallel to the view direction.
-  const p = g.p, h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x) + rnd(-.045, .045);
+  const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x) + rnd(-.045, .045);
   const hx = Math.cos(a), hy = Math.sin(a);
   g.spawnGrace = 0;                           // Firing voluntarily ends the quiet start.
-  g.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
+  p.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
   g.shake = Math.max(g.shake, .3);
   warnZombiesOfShot(g, h.x, h.y, hx, hy);
   g.bullets.push({ x: h.x + Math.cos(a) * 10, y: h.y + Math.sin(a) * 10, px: h.x, py: h.y,
@@ -211,10 +211,12 @@ function explodeZombieHead(g, head) {
     if (z.hp <= 0) killZombie(g, z);
   }
 
-  const pdx = g.p.x - x, pdy = g.p.y - y, playerDistance = Math.hypot(pdx, pdy) || 1;
-  if (!g.done && !g.dead && g.p.inv <= 0 && playerDistance < radius) {
+  // A blast does not pick a victim: everyone standing inside it is caught by it.
+  for (const p of g.players) {
+    const pdx = p.x - x, pdy = p.y - y, playerDistance = Math.hypot(pdx, pdy) || 1;
+    if (g.done || g.dead || p.down || p.inv > 0 || playerDistance >= radius) continue;
     const force = 1 - playerDistance / radius;
-    hurt(g, pdx / playerDistance, pdy / playerDistance, 210 + force * 260, .65, playerDistance < 72 ? 2 : 1);
+    hurt(g, p, pdx / playerDistance, pdy / playerDistance, 210 + force * 260, .65, playerDistance < 72 ? 2 : 1);
   }
 
   for (const car of g.cars) {
@@ -483,8 +485,7 @@ const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is
 const SNEAK_SPEED = 68;
 
 // A silent finish is only available on an unaware zombie approached from behind.
-function takedownTarget(g) {
-  const p = g.p;
+function takedownTarget(g, p) {
   if (g.done || p.stagger > 0 || p.takedown > 0) return null;
   let best = null, bd = TAKEDOWN_RANGE * TAKEDOWN_RANGE;
   for (const z of g.zombies) {
@@ -570,15 +571,22 @@ function rearBlocked(g, c) {
   return false;
 }
 
-// Apply one player hit from a car or zombie.
-function hurt(g, dx, dy, power, stagger = .5, amount = 1) {
-  const p = g.p;
-  g.hp -= amount; p.inv = 1.9; p.stagger = stagger; g.shake = Math.max(g.shake, 1);
+// Apply one hit to one courier from a car or zombie.
+function hurt(g, p, dx, dy, power, stagger = .5, amount = 1) {
+  p.hp -= amount; p.inv = 1.9; p.stagger = stagger; g.shake = Math.max(g.shake, 1);
   p.kx = dx * power; p.ky = dy * power;
   for (let k = 0; k < 16 + (amount - 1) * 8; k++)
     g.parts.push({ x: p.x, y: p.y, vx: rnd(-160, 160), vy: rnd(-160, 160), l: rnd(.3, .7), c: '#ff6b5a', s: rnd(2, 5) });
   SND.play('hurt', p.x, p.y);
-  if (g.hp <= 0) loseLife(g);
+  if (p.hp <= 0) downCourier(g, p);
+}
+
+// A courier out of health is down where they fell. The district is only lost when there is
+// nobody left standing — which alone in a district is the same moment, and on a shift with a
+// partner is a problem somebody else can still walk over and solve.
+function downCourier(g, p) {
+  p.down = true;
+  if (g.players.every(q => q.down)) loseLife(g);
 }
 
 // Every district ends on the same screen: the briefing steps aside for the result, and the
@@ -595,8 +603,7 @@ function showResult(title, subtitle, html, button) {
 
 // The last parcel has been signed off. The celebration plays where the courier is standing,
 // which is the door they just walked up to.
-function finishDistrict(g) {
-  const p = g.p;
+function finishDistrict(g, p) {
   g.done = true;
   SND.play('win');
   for (let k = 0; k < 40; k++)
@@ -703,7 +710,7 @@ function resolveZombieContact(g, z) {
   z.pressure = 0;
   z.throwWind = 0;
   z.throwCd = Math.max(z.throwCd, .75);
-  hurt(g, nx, ny, 190, .28);
+  hurt(g, p, nx, ny, 190, .28);
   return canWake;
 }
 
@@ -800,7 +807,7 @@ function update(g, dt) {
   p.sneaking = dir.sneak && p.stagger <= 0 && p.takedown <= 0;
   p.running = dir.run && !p.sneaking && dir.m > .2 && p.stam > .06 && p.stagger <= 0;
   p.moving = dir.m > .2;                        // Standing still is what makes a zombie hard to alert.
-  if (p.sneaking && p.moving) g.stealthCrawlTime = (g.stealthCrawlTime || 0) + dt;
+  if (p.sneaking && p.moving) p.stealthCrawlTime = (p.stealthCrawlTime || 0) + dt;
   if (p.running) { p.stam = Math.max(0, p.stam - STAM_DRAIN * dt); p.rest = .55; }
   else {
     p.rest = Math.max(0, p.rest - dt);
@@ -852,22 +859,22 @@ function update(g, dt) {
   p.muzzle = Math.max(0, p.muzzle - dt);
   const wantFire = runtime.mouse.down || runtime.fireHeld ||
     runtime.keys.Space || runtime.keys.KeyK;
-  if (wantFire && p.cool <= 0 && g.ammo > 0 && !g.done) fire(g);
+  if (wantFire && p.cool <= 0 && p.ammo > 0 && !g.done) fire(g, p);
 
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
   p.takedown = Math.max(0, p.takedown - dt);
-  g.finishTarget = takedownTarget(g);
+  p.finishTarget = takedownTarget(g, p);
   const wantFinish = !!runtime.keys.KeyE;
-  if (wantFinish && !p.finishHeld && g.finishTarget) {
-    const z = g.finishTarget;
+  if (wantFinish && !p.finishHeld && p.finishTarget) {
+    const z = p.finishTarget;
     p.takedown = TAKEDOWN_LOCK;
     p.stagger = Math.max(p.stagger, TAKEDOWN_LOCK);
     z.silent = true;
     killZombie(g, z);
     makeNoise(g, z.x, z.y, 50, 1);
     g.takedowns++;
-    g.finishTarget = null;
+    p.finishTarget = null;
   }
   p.finishHeld = wantFinish;
 
@@ -1219,9 +1226,9 @@ function update(g, dt) {
     }
     if (g.dead) return;
   }
-  g.stealthDetected = stealthDetected;
-  g.stealthNotice = stealthDetected ? 1 : stealthNotice;
-  g.stealthWatchers = stealthWatchers;
+  p.stealthDetected = stealthDetected;
+  p.stealthNotice = stealthDetected ? 1 : stealthNotice;
+  p.stealthWatchers = stealthWatchers;
   for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
 
   // Filth projectiles move slowly, break on the environment, and remain dodgeable.
@@ -1255,7 +1262,7 @@ function update(g, dt) {
       g.zombieShots.splice(i, 1);
       if (p.inv <= 0) {
         g.filthHits++;
-        hurt(g, s.vx / speed, s.vy / speed, 105);
+        hurt(g, p, s.vx / speed, s.vy / speed, 105);
       }
       if (g.dead) return;
       continue;
@@ -1271,7 +1278,7 @@ function update(g, dt) {
     const a = g.ammoBoxes[i];
     a.ph += dt * 3;
     if (Math.hypot(a.x - p.x, a.y - p.y) < 22) {
-      if (a.batt) p.batt = Math.min(1, p.batt + .5); else g.ammo += a.n;
+      if (a.batt) p.batt = Math.min(1, p.batt + .5); else p.ammo += a.n;
       g.ammoBoxes.splice(i, 1);
       SND.play('pick', a.x, a.y);
       for (let k = 0; k < 10; k++)
@@ -1477,7 +1484,7 @@ function update(g, dt) {
         c.playerBodyCd = .55;
       }
       if (c.v > 35 && p.inv <= 0) {
-        hurt(g, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
+        hurt(g, p, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
         if (g.dead) return;
       }
       // Every car is a physical body rather than a pass-through sprite. After the
@@ -1516,13 +1523,13 @@ function update(g, dt) {
 
   // Parcels. The courier carries two at a time, and a parcel's address is worth nothing
   // until it is on their back: picking one up is what puts its door on the map.
-  g.handsFull = null;
+  p.handsFull = null;
   for (const b of g.parcels) {
     if (b.state !== 'ground') continue;
     b.ph += dt * 3;
     if (Math.hypot(b.x - p.x, b.y - p.y) >= 22) continue;
-    if (g.carried >= CARRY_MAX) { g.handsFull = b; continue; }   // It stays where it is until a hand is free.
-    b.state = 'carried'; g.carried++;
+    if (p.carried >= CARRY_MAX) { p.handsFull = b; continue; }   // It stays where it is until a hand is free.
+    b.state = 'carried'; p.carried++;
     SND.play('pick', b.x, b.y);
     for (let k = 0; k < 14; k++)
       g.parts.push({ x: b.x, y: b.y, vx: rnd(-90, 90), vy: rnd(-140, -20), l: rnd(.4, .8), c: '#ffd766', s: rnd(2, 4) });
@@ -1532,12 +1539,12 @@ function update(g, dt) {
   // last one is.
   if (!g.done) for (const b of g.parcels) {
     if (b.state !== 'carried' || Math.hypot(b.dest.x - p.x, b.dest.y - p.y) >= 26) continue;
-    b.state = 'done'; g.carried--; g.delivered++;
+    b.state = 'done'; p.carried--; g.delivered++;
     SND.play('deliver', b.dest.x, b.dest.y);
     for (let k = 0; k < 18; k++)
       g.parts.push({ x: b.dest.x, y: b.dest.y, vx: rnd(-120, 120), vy: rnd(-180, -30), l: rnd(.4, .9),
                      c: pick(['#8fe388', '#ffd766']), s: rnd(2, 4) });
-    if (g.delivered >= g.need) finishDistrict(g);
+    if (g.delivered >= g.need) finishDistrict(g, p);
   }
 
   for (let i = g.blasts.length - 1; i >= 0; i--) {
@@ -1678,10 +1685,11 @@ function update(g, dt) {
 }
 
 function drawHud(g) {
+  const p = g.p;
   UI.level.textContent = g.level;
-  UI.parcels.textContent = g.carried ? `${g.delivered}/${g.need} +${g.carried}` : `${g.delivered}/${g.need}`;
-  UI.ammo.textContent = g.ammo;
-  UI.hp.textContent = '♥'.repeat(Math.max(0, g.hp)) + '·'.repeat(clamp(g.hpMax - g.hp, 0, g.hpMax));
+  UI.parcels.textContent = p.carried ? `${g.delivered}/${g.need} +${p.carried}` : `${g.delivered}/${g.need}`;
+  UI.ammo.textContent = p.ammo;
+  UI.hp.textContent = '♥'.repeat(Math.max(0, p.hp)) + '·'.repeat(clamp(p.hpMax - p.hp, 0, p.hpMax));
   UI.lives.textContent = '●'.repeat(Math.max(0, runtime.lives)) + '·'.repeat(clamp(LIVES_MAX - runtime.lives, 0, LIVES_MAX));
   UI.cash.textContent = `$${runtime.cash}`;
   UI.time.textContent = g.time.toFixed(1);
@@ -1712,16 +1720,16 @@ function drawHud(g) {
     cv.dataset.headExplosions = String(g.headExplosions || 0);
     cv.dataset.activeBlasts = String(g.blasts.length);
     cv.dataset.victimHp = String(victim ? victim.hp.toFixed(2) : 0);
-    cv.dataset.playerHp = String(g.hp);
+    cv.dataset.playerHp = String(g.p.hp);
     cv.dataset.carIntegrity = String(g.cars[0] && g.cars[0].damage ? g.cars[0].damage.integrity.toFixed(2) : 0);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=stealth')) {
     cv.dataset.sneaking = String(!!g.p.sneaking);
-    cv.dataset.stealthNotice = String((g.stealthNotice || 0).toFixed(2));
-    cv.dataset.stealthWatchers = String(g.stealthWatchers || 0);
-    cv.dataset.stealthDetected = String(!!g.stealthDetected);
+    cv.dataset.stealthNotice = String((g.p.stealthNotice || 0).toFixed(2));
+    cv.dataset.stealthWatchers = String(g.p.stealthWatchers || 0);
+    cv.dataset.stealthDetected = String(!!g.p.stealthDetected);
     cv.dataset.playerSpeed = String(Math.hypot(g.p.vx, g.p.vy).toFixed(2));
-    cv.dataset.stealthCrawlTime = String((g.stealthCrawlTime || 0).toFixed(2));
+    cv.dataset.stealthCrawlTime = String((g.p.stealthCrawlTime || 0).toFixed(2));
     cv.dataset.watcherDistance = String(g.zombies[0] ? Math.hypot(g.zombies[0].x - g.p.x, g.zombies[0].y - g.p.y).toFixed(2) : 0);
   }
   if (typeof location !== 'undefined' && location.search.includes('qa=population')) {

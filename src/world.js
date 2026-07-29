@@ -130,6 +130,23 @@ const TANK_TYPE = Object.freeze({
   blood: ['#6f9c33', '#456f22', '#95c247'], stain: [56, 92, 26], shot: null
 });
 
+// One courier on the shift. Health, ammunition, the flashlight and what is on the back belong
+// to the person carrying them rather than to the district, which is what lets a second one
+// exist without either of them reaching into the other's pockets.
+function makeCourier(start, index, torch) {
+  return {
+    id: index,
+    x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0,
+    ang: -Math.PI / 2, aim: -Math.PI / 2, tx: start.x, ty: start.y - 300,
+    walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
+    torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
+    takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
+    hp: HP_MAX, hpMax: HP_MAX, ammo: 24, down: false,
+    carried: 0, handsFull: null, finishTarget: null,
+    stealthNotice: 0, stealthWatchers: 0, stealthDetected: false, stealthCrawlTime: 0
+  };
+}
+
 // ---------- district generation ----------
 function buildTown(level) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
@@ -650,24 +667,24 @@ function buildTown(level) {
     fog.fill(1); seen.fill(1);
   }
 
+  // Building the roster before the literal keeps every courier made in one place. It draws no
+  // randomness, so the static layer below still meets the stream exactly where it always did.
+  const players = [makeCourier(start, 0, qaMode !== 'foliage-lighting' && !stealthQa)];
+
   return {
     level, solids, trees, soft, houses, props, parcels, cars, need, zombies, ammoBoxes,
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
     stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
-    p: { x: start.x, y: start.y, vx: 0, vy: 0, kx: 0, ky: 0, ang: -Math.PI / 2, aim: -Math.PI / 2,
-         tx: start.x, ty: start.y - 300,
-         walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
-         torch: qaMode !== 'foliage-lighting' && !stealthQa, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
-         takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false },
+    players, p: players[0],                         // The local courier; the rest of the shift is alongside.
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
-    weather, ammo: 24, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
-    headKicks: 0, stealthNotice: 0, stealthWatchers: 0, stealthDetected: false, stealthCrawlTime: 0,
-    carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0, finishTarget: null,
+    weather, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
+    headKicks: 0,
+    carsBroken: carDamageQa ? 1 : 0, roadKills: 0, takedowns: 0,
     fog, seen,                                                    // Fog of war.
     fogActive: [], fogActiveMark: new Uint8Array(FW * FW),
-    delivered: 0, carried: 0, handsFull: null,      // Signed off, on the back, and the parcel that would not fit.
-    hp: HP_MAX, hpMax: HP_MAX, dead: false,
+    delivered: 0,                                   // Signed off. What is on a back belongs to the courier.
+    dead: false,                                    // The run is over: every courier is down.
     time: 0, spawnGrace: stealthQa ? 0 : 5, done: false, shake: 0, parts: [], cam: { x: 0, y: 0 },
     bloodQa: qaMode === 'zombie-blood', bloodQaDone: false,
     dismemberQa: qaMode === 'zombie-dismember', dismemberQaStep: 0, headKickQaDone: false,
@@ -1039,7 +1056,7 @@ function drawCarShape(c, car) {
 }
 
 return Object.freeze({
-  buildTown, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
+  buildTown, makeCourier, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
 });
 })();
 

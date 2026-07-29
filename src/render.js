@@ -289,13 +289,13 @@ function draw(g) {
   }
 
   // A parcel the courier has no hand left for.
-  if (g.handsFull && visible(g.handsFull.x, g.handsFull.y, 30)) {
+  if (p.handsFull && visible(p.handsFull.x, p.handsFull.y, 30)) {
     ctx.save();
     ctx.globalAlpha = .55 + .45 * Math.sin(g.time * 7);
     ctx.fillStyle = '#ffd766';
     ctx.font = 'bold 11px Trebuchet MS, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('HANDS FULL', g.handsFull.x, g.handsFull.y - 22);
+    ctx.fillText('HANDS FULL', p.handsFull.x, p.handsFull.y - 22);
     ctx.restore();
   }
 
@@ -303,8 +303,8 @@ function draw(g) {
   for (const z of g.zombies) if (visible(z.x, z.y, 48)) { drawZombie(ctx, z); drawNotice(ctx, z); }
 
   // Prompt over a zombie that can be finished silently right now.
-  if (g.finishTarget) {
-    const z = g.finishTarget;
+  if (p.finishTarget) {
+    const z = p.finishTarget;
     ctx.save();
     ctx.globalAlpha = .55 + .45 * Math.sin(g.time * 7);
     ctx.fillStyle = '#e8f0ff';

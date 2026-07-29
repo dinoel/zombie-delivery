@@ -61,10 +61,13 @@ function snapshot(g) {
     p: [p.x, p.y, p.vx, p.vy, p.kx, p.ky, p.ang, p.aim, p.tx, p.ty, p.walk, p.inv, p.cool,
       p.muzzle, p.stagger, p.torch, p.batt, p.stam, p.running, p.moving, p.rest, p.step,
       p.flick, p.takedown, p.sneaking, p.sneakToggle].map(v => q(v)),
-    g: [g.time, g.hp, g.ammo, g.delivered, g.carried, g.killed, g.earned, g.dead, g.done,
+    // Health, ammunition, what is carried and how noticed the courier is moved onto the courier
+    // when the district learned to hold more than one. The digest reads the same values in the
+    // same order from their new home, so it is expected not to move.
+    g: [g.time, p.hp, p.ammo, g.delivered, p.carried, g.killed, g.earned, g.dead, g.done,
       g.shake, g.spawnGrace, g.filthThrown, g.filthHits, g.dodges, g.surges, g.headKicks,
-      g.roadKills, g.takedowns, g.carsBroken, g.stealthNotice, g.stealthWatchers,
-      g.stealthDetected, g.stealthCrawlTime, g.lampsBroken || 0].map(v => q(v)),
+      g.roadKills, g.takedowns, g.carsBroken, p.stealthNotice, p.stealthWatchers,
+      p.stealthDetected, p.stealthCrawlTime, g.lampsBroken || 0].map(v => q(v)),
     zombies: g.zombies.map(z => [z.x, z.y, z.ang, z.hp, z.alert, z.hunt, z.notice, z.gone === true,
       z.kind, z.headless === true, z.lostArms || 0, z.throwCd, z.wdir].map(v => q(v))),
     cars: g.cars.map(c => [c.id, c.x, c.y, c.hx, c.hy, c.v, c.mode, c.broken === true,
@@ -112,8 +115,8 @@ assert.equal(JSON.stringify(first.state), JSON.stringify(second.state),
 // stop exercising most of the frame while still hashing consistently.
 assert.ok(!first.g.dead, 'the scripted run should keep the courier alive for the whole sample');
 assert.ok(first.g.time > 12, 'the scripted run should advance the district clock');
-assert.ok(first.g.killed > 0 && first.g.ammo < 24, 'the scripted run should have fought');
-assert.ok(first.g.hp < first.g.hpMax, 'the scripted run should have taken a hit');
+assert.ok(first.g.killed > 0 && first.g.p.ammo < 24, 'the scripted run should have fought');
+assert.ok(first.g.p.hp < first.g.p.hpMax, 'the scripted run should have taken a hit');
 assert.ok(first.seen.huntFrames > 100,
   'the scripted run should have been seen and hunted, not merely heard');
 assert.ok(first.seen.crawlFrames > 0 && first.seen.torchOff > 0,

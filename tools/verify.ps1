@@ -42,20 +42,20 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-57',
-  'src/core.js?v=20260729-57',
-  'src/quality.js?v=20260729-57',
-  'src/audio.js?v=20260729-57',
-  'src/car-physics.js?v=20260729-57',
-  'src/environment.js?v=20260729-57',
-  'src/world.js?v=20260729-57',
-  'src/physics.js?v=20260729-57',
-  'src/input.js?v=20260729-57',
-  'src/gameplay.js?v=20260729-57',
-  'src/lighting.js?v=20260729-57',
-  'src/entities.js?v=20260729-57',
-  'src/render.js?v=20260729-57',
-  'src/main.js?v=20260729-57'
+  'src/namespace.js?v=20260729-58',
+  'src/core.js?v=20260729-58',
+  'src/quality.js?v=20260729-58',
+  'src/audio.js?v=20260729-58',
+  'src/car-physics.js?v=20260729-58',
+  'src/environment.js?v=20260729-58',
+  'src/world.js?v=20260729-58',
+  'src/physics.js?v=20260729-58',
+  'src/input.js?v=20260729-58',
+  'src/gameplay.js?v=20260729-58',
+  'src/lighting.js?v=20260729-58',
+  'src/entities.js?v=20260729-58',
+  'src/render.js?v=20260729-58',
+  'src/main.js?v=20260729-58'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -112,10 +112,24 @@ foreach ($actionCode in @('keys.Space', 'keys.KeyK', 'keys.KeyE')) {
   }
 }
 foreach ($stealthFeature in @('NOTICE_SNEAK', 'NOTICE_SNEAK_FILL', 'CONTACT_NOTICE_PAD',
-    'touching ? 1', 'resolveZombieContact(g, z)', 'SNEAK_SPEED', 'p.sneaking', 'g.stealthNotice', 'stealthDetected')) {
+    'touching ? 1', 'resolveZombieContact(g, z)', 'SNEAK_SPEED', 'p.sneaking', 'p.stealthNotice', 'stealthDetected')) {
   if (-not $gameplaySource.Contains($stealthFeature)) {
     $problems.Add("Stealth crawling behavior is missing: $stealthFeature")
   }
+}
+
+# Health, ammunition, what is carried and how noticed a courier is belong to the courier rather
+# than to the district, so a second one can exist without sharing a magazine with the first.
+foreach ($courierFeature in @('g.players', 'p.hp', 'p.ammo', 'p.carried', 'downCourier',
+    'hurt(g, p,', 'fire(g, p)', 'takedownTarget(g, p)')) {
+  if (-not $gameplaySource.Contains($courierFeature)) {
+    $problems.Add("Per-courier state is missing: $courierFeature")
+  }
+}
+$worldSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\world.js')
+if (-not $worldSource.Contains('function makeCourier(') -or
+    -not $worldSource.Contains('players, p: players[0]')) {
+  $problems.Add('Couriers must be built by makeCourier into a roster the district holds.')
 }
 if (-not $inputSource.Contains('p.sneakToggle = !runtime.game.p.sneakToggle') -or
     -not $inputSource.Contains('runtime.game.p.sneakToggle')) {

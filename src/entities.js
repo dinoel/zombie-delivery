@@ -174,7 +174,7 @@ function drawPlayer(c, p, g) {
     c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
     // Prone, the back faces the camera: the load sits on top of the torso, not behind the
     // hips, and is drawn after the torso for the same reason.
-    drawCarriedParcels(c, g.carried, -7.5, 9, 8);
+    drawCarriedParcels(c, p.carried, -7.5, 9, 8);
 
     // Head and cap point forward, making the facing direction obvious from above.
     c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(10, 0, 7.2, 0, 6.283); c.fill();
@@ -214,7 +214,7 @@ function drawPlayer(c, p, g) {
   c.fillStyle = '#e0603f'; roundRect(c, -10, -9, 20, 18, 6); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
   c.fillStyle = '#b7452c'; roundRect(c, -11, -7, 8, 14, 3); c.fill();
-  drawCarriedParcels(c, g.carried, -12.5, 5.5, 9.5);
+  drawCarriedParcels(c, p.carried, -12.5, 5.5, 9.5);
   // Head.
   c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
   c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
@@ -245,13 +245,13 @@ function drawGauges(g) {
   bar(y, p.batt, low && Math.sin(g.time * 12) > 0 ? '#ff8b5a' : '#ffd766',
       p.torch ? 'FLASHLIGHT (F)' : 'FLASHLIGHT OFF (F)', p.torch);
   bar(y + 18, p.stam, p.stam < .2 ? '#ff8b7a' : '#8ee6a0', 'SPRINT (SHIFT)', p.running);
-  const awareness = clamp(g.stealthNotice || 0, 0, 1);
-  const stealthLabel = g.stealthDetected ? 'DETECTED' : awareness > .68 ? 'DANGER' :
+  const awareness = clamp(p.stealthNotice || 0, 0, 1);
+  const stealthLabel = p.stealthDetected ? 'DETECTED' : awareness > .68 ? 'DANGER' :
     awareness > .04 ? `SUSPICION ${Math.round(awareness * 100)}%` :
     p.sneaking ? 'HIDDEN · CRAWLING (C: STAND)' : 'HIDDEN · C: CROUCH';
-  const stealthColor = g.stealthDetected ? (Math.sin(g.time * 15) > 0 ? '#fff0a0' : '#ff5b4d') :
+  const stealthColor = p.stealthDetected ? (Math.sin(g.time * 15) > 0 ? '#fff0a0' : '#ff5b4d') :
     awareness > .68 ? '#ff9a5a' : '#ffd766';
-  bar(y - 20, awareness, stealthColor, stealthLabel, p.sneaking || awareness > .04 || g.stealthDetected);
+  bar(y - 20, awareness, stealthColor, stealthLabel, p.sneaking || awareness > .04 || p.stealthDetected);
   ctx.fillStyle = SND.muted ? 'rgba(232,240,255,.4)' : 'rgba(232,240,255,.8)';
   ctx.font = 'bold 10px Trebuchet MS, sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(SND.muted ? '♪ SOUND OFF (M)' : '♪ SOUND (M)', x, y - 29);

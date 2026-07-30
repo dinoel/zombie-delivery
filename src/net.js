@@ -213,9 +213,11 @@ function encodeSnapshot(g, ack) {
       q2(p.reviveT),
       flag(p.torch, 0) | flag(p.sneaking, 1) | flag(p.running, 2) | flag(p.moving, 3) | flag(p.down, 4)]),
     z: live,
+    // The fuse travels because it is the only warning a wreck gives before it goes up, and a
+    // guest reading it a beat late is a guest standing next to a car it thought was safe.
     c: g.cars.map(c => [c.id, q1(c.x), q1(c.y), q2(c.hx), q2(c.hy), q1(c.v), q2(c.damage.integrity),
       q2(c.beacon || 0), q2(c.honk || 0), q2(c.hazard || 0),
-      flag(c.broken, 0) | flag(c.police, 1)]),
+      flag(c.broken, 0) | flag(c.police, 1) | flag(c.exploded, 2), q2(c.fuse || 0)]),
     b: g.bullets.map(b => [q1(b.x), q1(b.y), q1(b.vx), q1(b.vy), q2(b.l), b.own ? 1 : 0]),
     f: g.zombieShots.map(s => [q1(s.x), q1(s.y), q1(s.vx), q1(s.vy), q2(s.l), q2(s.r), s.kind, q2(s.spin)]),
     pt: g.zombieParts.map(part => [part.id, part.zid, part.kind, part.side || 0,
@@ -287,6 +289,8 @@ function applySnapshot(g, s) {
     c.v = row[5]; c.damage.integrity = row[6];
     c.beacon = row[7]; c.honk = row[8]; c.hazard = row[9];
     c.broken = has(row[10], 0);
+    c.exploded = has(row[10], 2);
+    c.fuse = row[11];
   }
 
   // Whether a round is heavy is not sent: in madness every patrol round is one, and outside it

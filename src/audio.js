@@ -248,6 +248,21 @@ const SND = (() => {
         crack(.026, 240, 90, .34 * v, P, .7, 'lowpass', .05, .3);      // Bolt slamming home.
         break;
       }
+      // A tank of fuel going up, which is a slower event than anything else in the game: the
+      // crack of it arrives first and is almost incidental, then the low end takes a moment to
+      // build and a long time to leave. Most of it goes into the street, because the one thing
+      // that says "that was big" is how long the buildings keep handing it back.
+      case 'wreckBlast': {
+        const j = rnd(.92, 1.1);
+        impulse(.7 * v, P, .7);
+        crack(.04, 2600 * j, 700, .5 * v, P, .5, 'highpass', 0, .5);
+        crack(.85, 300 * j, 45, 1.05 * v, P, .7, 'lowpass', .004, .85);
+        crack(.42, 900 * j, 160, .5 * v, P, .55, 'bandpass', .02, .7);
+        tone(58 * j, 21, .62, 'triangle', .68 * v, P, 0, .012, .5);   // The thump you feel.
+        tone(112 * j, 38, .3, 'sawtooth', .22 * v, P, .01, .02, .4);
+        crack(.55, 180, 60, .38 * v, P, .8, 'lowpass', .22, .55);     // Debris coming back down.
+        break;
+      }
       case 'hit':   crack(.09, 800, 190, .5 * v, P, 1.4, 'bandpass'); break;
       case 'wall':  crack(.05, 3800, 1700, .26 * v, P, 2.2, 'bandpass'); break;
       case 'die':   crack(.26, 620, 100, .5 * v, P, .9, 'bandpass');

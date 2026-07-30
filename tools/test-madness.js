@@ -175,19 +175,37 @@ function district(madness) {
   const { g, env } = district(true);
   const car = g.cars.find(c => c.police);
   const seen = new Set();
-  let early = 0, late = 0;
-  for (let i = 0; i < 240 * 60; i++) {
-    g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
-    car.broken = false; car.zombieLoad = 0;          // The crew is not what is being measured.
-    env.TownGame.gameplay.update(g, 1 / 60);
-    for (const b of g.bullets) if (b.own === car && !seen.has(b)) {
-      seen.add(b);
-      if (i < 60 * 60) early++; else if (i >= 180 * 60) late++;
+  // Rounds are counted against targets put in front of the gun on purpose, not against whatever
+  // the district happens to leave nearby. An earlier version of this simply watched the car for
+  // four minutes and compared the first minute with the last, which measured the street thinning
+  // out around it rather than the belt — the number fell and the belt had nothing to do with it.
+  const volley = seconds => {
+    let fired = 0;
+    for (let i = 0; i < seconds * 60; i++) {
+      g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
+      car.broken = false; car.zombieLoad = 0;        // The crew is not what is being measured.
+      // Three of the horde, kept standing in the open beside the car for the whole sample.
+      for (let k = 0; k < 3; k++) {
+        const z = g.zombies[k];
+        if (!z) break;
+        z.x = car.x + 90 + k * 26; z.y = car.y + 12 * k;
+        z.gone = false; z.hp = z.maxHp = 40;
+      }
+      env.TownGame.gameplay.update(g, 1 / 60);
+      for (const b of g.bullets) if (b.own === car && !seen.has(b)) { seen.add(b); fired++; }
     }
+    return fired;
+  };
+  const early = volley(20);
+  for (let i = 0; i < 200 * 60; i++) {              // Three and a half minutes of ordinary district.
+    g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
+    car.broken = false; car.zombieLoad = 0;
+    env.TownGame.gameplay.update(g, 1 / 60);
   }
-  assert.ok(early > 60, `a machine gun should put out real volume (${early} rounds in the first minute)`);
-  assert.ok(late > early * .6,
-    `and should be firing just as freely three minutes later (${early} then, ${late} now)`);
+  const late = volley(20);
+  assert.ok(early > 40, `a machine gun should put out real volume (${early} rounds in twenty seconds)`);
+  assert.ok(late > early * .75,
+    `and should be firing just as freely four minutes later (${early} then, ${late} now)`);
 }
 
 {

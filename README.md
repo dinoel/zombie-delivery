@@ -196,6 +196,9 @@ The structural refactor and the first major gameplay pass are complete:
 - any damaged vehicle starts smoking, with frequency, size, density, and darkness increasing continuously with engine, body, and plastic damage;
 - the mechanical model separately tracks body and engine integrity, windows, headlights, taillights, mirrors, and suspension;
 - a heavy crash or repeated zombie impacts can disable a vehicle, leaving a smoking physical obstacle with hazard lights;
+- a wreck burns for thirty seconds and then goes up. The smoke is a fuse rather than a state: over the second half of it the column thickens, blackens and starts throwing embers, which is the only warning the blast gives — fifteen seconds, enough to walk out of it twice over;
+- the blast is four heads: twice the radius, so four times the ground, and four times the wound. Standing on it kills a courier outright and the rest of the ring costs two hits. Other traffic keeps a much shorter reach of 130 pixels, because a wave that disabled every vehicle within four hundred took the whole road network with it a wreck at a time;
+- what is left is a charred hull. It stops smoking for good, and stays on the street as cover and as something traffic has to drive around;
 - vehicles have separate tires, bumpers, hood, trunk, doors, four windows, mirrors, and independently breakable lights;
 - zombies wind up and throw dodgeable clumps of filth at medium range;
 - parcels are distributed across reachable yards near different homes;

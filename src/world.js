@@ -1151,6 +1151,16 @@ function drawCarShape(c, car) {
     line([[14,-5],[20,0],[13,5]]);
   }
 
+  // A hull the fire has already been through. It keeps its shape, because it is still cover and
+  // still something traffic has to go around, and loses its paint to say it has nothing left.
+  if (car.exploded) {
+    c.fillStyle = 'rgba(16,15,14,.72)';
+    c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y));
+    c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(58,50,44,.85)'; c.lineWidth = 1.4;
+    line([[-16,-6],[-4,2],[6,-4],[17,3]]);                      // Buckled roof skin.
+  }
+
   // Bullet marks are stored in local coordinates of the physical body, so they
   // continue following a panel when a later impact crumples it.
   for (const dent of car.bulletDents || []) {

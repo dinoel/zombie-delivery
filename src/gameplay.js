@@ -182,10 +182,11 @@ function bounceHeadFromCorrection(head, beforeX, beforeY, restitution = .48) {
 }
 
 const BLAST_SHAKE = 3.5;          // What a head going off does to a screen standing on top of it.
+const HEAD_BLAST_R = 190;
 function explodeZombieHead(g, head) {
   if (head.exploded) return false;
   head.exploded = true;
-  const x = head.x, y = head.y, radius = 190;
+  const x = head.x, y = head.y, radius = HEAD_BLAST_R;
   const index = g.zombieParts.indexOf(head);
   if (index >= 0) g.zombieParts.splice(index, 1);
   g.headExplosions = (g.headExplosions || 0) + 1;
@@ -204,13 +205,41 @@ function explodeZombieHead(g, head) {
       l: rnd(.45, 1.35), c: hot ? pick(['#fff0a0', '#ffb14e', '#ff5b39']) : pick(head.blood), s: rnd(2, 7) });
   }
 
+  blastWave(g, x, y, { radius, power: 1, nearRadius: 72, nearHits: 2, farHits: 1,
+                       carRadius: radius + 34 });
+
+  // How hard this lands is a question about where the screen is, not where the blast was, and
+  // shakeAt already answers it from the local courier. The event carries only the place.
+  shakeAt(g, x, y, BLAST_SHAKE, 900);
+  emit(g, EV.blast, x, y, 1);
+  makeNoise(g, x, y, 720, 14, true);
+  SND.play('headBlast', x, y);
+  return true;
+}
+
+// What a blast does to everything standing in it. A head going off and a car going up are the
+// same event at two sizes, so the wave is written once: `radius` decides who is in it at all and
+// `power` multiplies the wound. The shove only goes up with the square root of it, because four
+// times the wound thrown four times as hard is bodies leaving the district.
+//
+// A courier's share is given as a number of hits inside and outside `nearRadius`, rather than
+// scaled, because they only have five and anything past that is the same outcome. What matters is
+// the shape: standing on it is fatal, and the rest of the ring is a mistake rather than an
+// execution.
+//
+// What each blast throws into the air — gore, or burning fuel and bodywork — belongs to whatever
+// exploded and stays at the call site.
+function blastWave(g, x, y, opt) {
+  const { radius, power, nearRadius, nearHits, farHits, carRadius } = opt;
+  const shove = Math.sqrt(power);
   for (const z of g.zombies) {
     if (z.gone) continue;
     const dx = z.x - x, dy = z.y - y, d = Math.hypot(dx, dy) || 1;
     if (d >= radius + z.r) continue;
     const force = clamp(1 - d / radius, .08, 1);
-    damageZombie(g, z, .65 + 3.5 * force, dx, dy);
-    z.hit = .35; z.alert = 6; z.kx += dx / d * (130 + force * 310); z.ky += dy / d * (130 + force * 310);
+    damageZombie(g, z, (.65 + 3.5 * force) * power, dx, dy);
+    z.hit = .35; z.alert = 6;
+    z.kx += dx / d * (130 + force * 310) * shove; z.ky += dy / d * (130 + force * 310) * shove;
     sprayZombieBlood(g, z, z.x, z.y, dx / d, dy / d, Math.round(6 + force * 14), .75 + force * .55);
     if (z.hp <= 0) killZombie(g, z);
   }
@@ -220,15 +249,21 @@ function explodeZombieHead(g, head) {
     const pdx = p.x - x, pdy = p.y - y, playerDistance = Math.hypot(pdx, pdy) || 1;
     if (g.done || g.dead || p.down || p.inv > 0 || playerDistance >= radius) continue;
     const force = 1 - playerDistance / radius;
-    hurt(g, p, pdx / playerDistance, pdy / playerDistance, 210 + force * 260, .65, playerDistance < 72 ? 2 : 1);
+    hurt(g, p, pdx / playerDistance, pdy / playerDistance, (210 + force * 260) * shove, .65,
+      playerDistance < nearRadius ? nearHits : farHits);
   }
 
+  // Traffic gets its own, much shorter reach. A pressure wave carries far enough to knock a
+  // person down long after it has stopped being able to fold a car, and a wreck whose blast
+  // disabled every vehicle within four hundred pixels took the whole road network with it:
+  // each new wreck went up beside the next, and three minutes in there was nothing driving
+  // anywhere and the streets were a scrapyard.
   for (const car of g.cars) {
     const dx = car.x - x, dy = car.y - y, d = Math.hypot(dx, dy) || 1;
-    if (d >= radius + 34) continue;
-    const force = clamp(1 - d / (radius + 34), .08, 1), nx = dx / d, ny = dy / d;
-    damageCar(g, car, 58 + force * 145, nx, ny, 'explosion', car.x - nx * 22, car.y - ny * 11);
-    car.v += (car.hx * nx + car.hy * ny) * (35 + force * 95);
+    if (d >= carRadius) continue;
+    const force = clamp(1 - d / carRadius, .08, 1), nx = dx / d, ny = dy / d;
+    damageCar(g, car, (58 + force * 145) * power, nx, ny, 'explosion', car.x - nx * 22, car.y - ny * 11);
+    car.v += (car.hx * nx + car.hy * ny) * (35 + force * 95) * shove;
     car.hitFlash = Math.max(car.hitFlash || 0, .28);
   }
 
@@ -242,17 +277,78 @@ function explodeZombieHead(g, head) {
     const dx = part.x - x, dy = part.y - y, d = Math.hypot(dx, dy) || 1;
     if (d >= radius) continue;
     const force = 1 - d / radius;
-    if (part.kind === 'head') kickZombieHead(g, part, dx, dy, 110 + force * 250);
-    else { part.vx += dx / d * (90 + force * 280); part.vy += dy / d * (90 + force * 280); part.vh += 45 + force * 100; }
+    if (part.kind === 'head') kickZombieHead(g, part, dx, dy, (110 + force * 250) * shove);
+    else {
+      part.vx += dx / d * (90 + force * 280) * shove; part.vy += dy / d * (90 + force * 280) * shove;
+      part.vh += (45 + force * 100) * shove;
+    }
+  }
+}
+
+// ---------- a wreck going up ----------
+// Four times the head, which is four times the ground covered rather than four times the reach:
+// twice the radius is four times the area, and a blast wide enough to cross the screen would be
+// a rule about where the camera is rather than about where the fire was. Everything inside it
+// takes four times the wound, which is enough to take a tank off its feet from the middle.
+//
+// A courier standing on it does not survive — five hits is all they have, and a car going up on
+// top of somebody should not be survivable after half a minute of it saying so. Two hits out in
+// the rest of the ring leaves the mistake payable.
+const WRECK_RADIUS = 380;
+const WRECK_POWER = 4;
+const WRECK_NEAR = 128;
+const WRECK_CAR_R = 130;          // What it does to other traffic reaches barely past the next parking space.
+
+function explodeWreck(g, c) {
+  if (c.exploded) return false;
+  c.exploded = true;
+  c.fuse = 0;
+  c.hazard = 0;                          // The electrics go with everything else.
+  const x = c.x, y = c.y;
+  g.wrecksExploded = (g.wrecksExploded || 0) + 1;
+  g.blasts.push({ x, y, l: 2.1, max: 2.1, r: 0, maxR: WRECK_RADIUS, seed: Math.random() });
+  if (g.blasts.length > 8) g.blasts.shift();
+
+  // Burning fuel first, then the car itself coming apart: the fire is fast and short, the
+  // bodywork is slower and lands further out.
+  for (let k = 0; k < 90; k++) {
+    const a = rnd(0, 6.283), speed = rnd(120, 620);
+    g.parts.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, l: rnd(.35, 1.1),
+      c: pick(['#fff3bc', '#ffd166', '#ff8a3d', '#ff4b28']), s: rnd(3, 9) });
+  }
+  for (let k = 0; k < 46; k++) {
+    const a = rnd(0, 6.283), speed = rnd(80, 380);
+    g.parts.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, l: rnd(.6, 1.7),
+      c: pick(['#2a2d31', '#6e7276', '#d6d9db', c.col || '#8a8f95']), s: rnd(2, 6) });
+  }
+  // One last cloud, thrown wide. After this the hull is cold and the street can be seen across.
+  for (let k = 0; k < 14; k++) {
+    const a = rnd(0, 6.283), reach = rnd(0, 46);
+    g.carSmoke.push({
+      x: x + Math.cos(a) * reach, y: y + Math.sin(a) * reach,
+      vx: Math.cos(a) * rnd(25, 90), vy: Math.sin(a) * rnd(25, 90) - rnd(20, 60),
+      l: rnd(1.4, 2.6), max: 2.6, r: rnd(9, 18), growth: 26,
+      darkness: .92, opacity: .72, hot: k < 5
+    });
   }
 
-  // How hard this lands is a question about where the screen is, not where the blast was, and
-  // shakeAt already answers it from the local courier. The event carries only the place.
-  shakeAt(g, x, y, BLAST_SHAKE, 900);
-  emit(g, EV.blast, x, y);
-  makeNoise(g, x, y, 720, 14, true);
-  SND.play('headBlast', x, y);
+  blastWave(g, x, y, { radius: WRECK_RADIUS, power: WRECK_POWER, nearRadius: WRECK_NEAR,
+                       nearHits: 5, farHits: 2, carRadius: WRECK_CAR_R });
+
+  shakeAt(g, x, y, BLAST_SHAKE * WRECK_POWER, 1400);
+  emit(g, EV.blast, x, y, WRECK_POWER);
+  makeNoise(g, x, y, 1250, 20, true);
+  SND.play('wreckBlast', x, y);
   return true;
+}
+
+// The fuse only burns for whoever is running the rules. A watching peer is told the wreck went up
+// the same way it is told about anything else loud, and reads how far along the fuse is off the
+// snapshot so its smoke thickens on the same schedule.
+function burnWreck(g, c, dt) {
+  if (!c.broken || c.exploded || !(c.fuse > 0)) return;
+  c.fuse -= dt;
+  if (c.fuse <= 0) explodeWreck(g, c);
 }
 
 function shootZombieHead(g, head, vx, vy) {
@@ -1080,7 +1176,10 @@ function emitCarSmoke(g, c, dt) {
   if (c.smokeCd > 0 || g.carSmoke.length >= 72) return;
   c.smokeCd = smoke.interval * rnd(.78, 1.22);
   const side = rnd(-4 - smoke.level * 2, 4 + smoke.level * 2), front = rnd(10, 17);
-  const hot = smoke.level > .82 && Math.random() < .08 + smoke.level * .08;
+  // Embers in the column. A wreck near the end of its fuse throws far more of them, which is the
+  // only warning a courier gets that the thing they are using as cover is about to go.
+  const hot = smoke.level > .82 &&
+    Math.random() < .08 + smoke.level * .08 + (smoke.urgency || 0) * .55;
   const source = bodyPointWorld(c, front, side);
   const life = smoke.life * rnd(.82, 1.18);
   g.carSmoke.push({
@@ -1627,6 +1726,7 @@ function update(g, dt) {
     c.alarm = Math.max(0, (c.alarm || 0) - dt);
     c.honk = c.alarm > 0 && ((c.alarm * 3) | 0) % 2 === 0 ? .8 : 0;
     emitCarSmoke(g, c, dt);
+    burnWreck(g, c, dt);
   }
 
   // Tanks are wide enough and slow enough to be worth steering around, so traffic treats
@@ -1643,6 +1743,7 @@ function update(g, dt) {
     c.driverTimer = Math.max(0, (c.driverTimer || 0) - dt);
     if (c.driverTimer <= 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) c.driverMode = 'traffic';
     emitCarSmoke(g, c, dt);
+    burnWreck(g, c, dt);
     if (c.jx) {                                      // Residual displacement after impact.
       c.jx *= .86; c.jy *= .86;
       if (Math.abs(c.jx) < .3 && Math.abs(c.jy) < .3) c.jx = c.jy = 0;
@@ -2008,10 +2109,18 @@ function playEvents(g) {
           g.parts.push({ x, y, vx: rnd(-95, 95), vy: rnd(-125, 45), l: rnd(.3, .85),
                          c: pick(['#fff3c8', '#cfe4ff', '#9aa6b2']), s: rnd(2, 4) });
         break;
-      case EV.blast:
-        shakeAt(g, x, y, BLAST_SHAKE, 900);
-        SND.play('headBlast', x, y);
+      // A blast is never streamed — the ring is a picture, and a peer draws its own from the note.
+      // The note carries how big it was, because a head and a car going up are the same event at
+      // two sizes and a guest that drew them alike would be watching a different street.
+      case EV.blast: {
+        const heavy = (e[3] || 1) > 1, life = heavy ? 2.1 : 1.5;
+        shakeAt(g, x, y, BLAST_SHAKE * (e[3] || 1), heavy ? 1400 : 900);
+        SND.play(heavy ? 'wreckBlast' : 'headBlast', x, y);
+        g.blasts.push({ x, y, l: life, max: life, r: 0,
+                        maxR: heavy ? WRECK_RADIUS : HEAD_BLAST_R, seed: Math.random() });
+        if (g.blasts.length > 8) g.blasts.shift();
         break;
+      }
       case EV.ring:
         g.rings.push({ x, y, r: 10, max: e[3], l: .55 });
         break;

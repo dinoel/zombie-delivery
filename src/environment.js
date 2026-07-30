@@ -467,8 +467,15 @@ function ensureCarDamage(c) {
   return c.damage || (c.damage = newCarDamage());
 }
 
+// How long a wreck burns before the fuel goes. A wreck used to smoke for the rest of the
+// district: half a minute of that is atmosphere, ten minutes of it is a street nobody can see
+// across, and a district with a few of them in it ends up behind a permanent grey wall. So the
+// smoke is a fuse now rather than a state, and it runs out.
+const WRECK_FUSE = 30;
+
 // Smoke communicates damage continuously instead of acting as a binary failure effect.
 function carSmokeProfile(c) {
+  if (c.exploded) return { active: false, level: 0, urgency: 0 };   // Nothing left in it to burn.
   const d = ensureCarDamage(c);
   const engine = clamp(1 - d.engine / 100, 0, 1);
   const structure = clamp(1 - d.integrity / 100, 0, 1) * .78;
@@ -477,16 +484,21 @@ function carSmokeProfile(c) {
   // Very light damage has almost no physical severity, but smoke must still read
   // in the dark scene. An undamaged car creates no particles.
   const level = damage > .004 ? clamp(.22 + damage * .78, .22, 1) : 0;
+  // A fuse the player cannot read is a fuse that kills them from nowhere, so the second half of
+  // it is meant to look like what it is: the smoke thickens, blackens and starts throwing fire.
+  // Half a fuse is fifteen seconds of warning, which is enough to walk out of the blast twice
+  // over from anywhere inside it.
+  const urgency = c.fuse > 0 ? clamp(1 - c.fuse / (WRECK_FUSE * .5), 0, 1) : 0;
   return {
     active: level > 0,
-    level,
-    interval: clamp(.08 + .76 * (1 - level) * (1 - level), .08, .55),
-    darkness: clamp(.2 + Math.pow(level, .78) * .78, .2, .98),
+    level, urgency,
+    interval: clamp(.08 + .76 * (1 - level) * (1 - level), .08, .55) * (1 - urgency * .55),
+    darkness: clamp(.2 + Math.pow(level, .78) * .78 + urgency * .2, .2, .98),
     opacity: clamp(.32 + level * .48, .32, .8),
-    radius: 4.8 + level * 7.2,
+    radius: (4.8 + level * 7.2) * (1 + urgency * .5),
     life: 1.8 + level * 1.45,
     growth: 7 + level * 11,
-    rise: 15 + level * 25
+    rise: (15 + level * 25) * (1 + urgency * .6)
   };
 }
 
@@ -501,6 +513,7 @@ function disableCar(g, c, reason) {
   c.hold = true;
   c.hazard = 18;
   c.smokeCd = 0;
+  c.fuse = WRECK_FUSE;                    // From here it is burning, not merely broken.
   d.engine = Math.min(d.engine, 4);
   g.carsBroken = (g.carsBroken || 0) + 1;
   SND.play('engineBreak', c.x, c.y);
@@ -777,6 +790,7 @@ return Object.freeze({
   EV, emit, shakeAt,
   newWeather, updateWeather, updateWeatherVisuals, drawRain, drawGlowThroughFog,
   TURN_IN, makeRoads, onEdge, lanePoint, placeCar, steerCar, startTurn, startUTurn, ahead,
+  WRECK_FUSE,
   newCarDamage, carSmokeProfile, damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   prepareCarImpactComparison,
   disableCar, crash, crashObstacle,

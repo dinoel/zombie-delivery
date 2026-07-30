@@ -131,6 +131,13 @@ The structural refactor and the first major gameplay pass are complete:
 - every district mixes standard green walkers (2 HP), fast orange runners (1 HP), and slow purple brutes (4 HP);
 - the first district contains about 14 zombies, three guards patrol every parcel, and later districts scale to 32 enemies;
 - the courier starts with 24 rounds, while supply boxes and zombie ammo drops are more plentiful;
+- a round in flight is a tapered tracer with a hot head, and it is composited above the night
+  pass rather than painted into the world — a bullet is a light, and inside the lighting it faded
+  to six luma above bare ground the moment it left the flashlight beam;
+- a gunshot is built in the order the parts of one happen: a single-sample pressure step, the
+  muzzle blast, the gas thumping after it, and the slide closing fifteen milliseconds later,
+  with each layer sending part of itself into a synthesized street. The reflections are what
+  make it a gunshot rather than a click; there is still no audio file anywhere in the project;
 - each zombie archetype throws a projectile with its own palette, size, and speed;
 - hits produce directional sprays of green blood; airborne droplets stain the ground, and wounded zombies bleed while moving;
 - each car uses a deformable mesh of 35 nodes and linked panels; impact position, normal, and impulse plastically displace metal and spread load through adjacent constraints;

@@ -104,6 +104,52 @@ function drawZombiePart(part) {
   ctx.globalAlpha = 1;
 }
 
+// A tracer is not a line of one colour. It is brightest where the round is and fades back along
+// the way it came, so it is three passes — a wide dim glow over a stretched tail, a narrower
+// body, and a hot thin core over the last stretch — with a bright head on the tip. Batching by
+// pass keeps it three strokes for the whole volley rather than three for each round.
+//
+// It is drawn after the night pass rather than inside it, because a round in flight is a light
+// and not a painted surface. In the world pass the lighting multiplied it down to six luma above
+// bare ground the moment it left the flashlight cone, which is not what a tracer does.
+const TRACER = [
+  { reach: 2.6, width: 5.2, warm: 'rgba(255,196,88,.17)', cold: 'rgba(150,196,255,.15)' },
+  { reach: 1.5, width: 2.6, warm: 'rgba(255,224,140,.52)', cold: 'rgba(186,220,255,.46)' },
+  { reach: .55, width: 1.3, warm: '#fff6d8', cold: '#eaf4ff' }
+];
+function drawTracers(g, camx, camy) {
+  if (!g.bullets.length) return;
+  ctx.lineCap = 'round';
+  for (let pass = 0; pass < 2; pass++) {
+    for (const layer of TRACER) {
+      ctx.strokeStyle = pass ? layer.cold : layer.warm;
+      ctx.lineWidth = layer.width;
+      ctx.beginPath();
+      let any = false;
+      for (const b of g.bullets) {
+        if (!!b.own !== !!pass) continue;
+        const hx = b.x - camx, hy = b.y - camy;
+        if (hx < -60 || hy < -60 || hx > W + 60 || hy > H + 60) continue;
+        // The tail is stretched back past where the round was a frame ago: at this speed one
+        // frame of travel is barely ten pixels, which reads as a dash rather than a streak.
+        const dx = b.x - b.px, dy = b.y - b.py;
+        ctx.moveTo(hx - dx * layer.reach, hy - dy * layer.reach);
+        ctx.lineTo(hx, hy);
+        any = true;
+      }
+      if (any) ctx.stroke();
+    }
+    ctx.fillStyle = pass ? '#f4faff' : '#fffbe8';
+    for (const b of g.bullets) {
+      if (!!b.own !== !!pass) continue;
+      const hx = b.x - camx, hy = b.y - camy;
+      if (hx < -8 || hy < -8 || hx > W + 8 || hy > H + 8) continue;
+      ctx.beginPath(); ctx.arc(hx, hy, 1.7, 0, 6.283); ctx.fill();
+    }
+  }
+  ctx.lineCap = 'butt';
+}
+
 // The blast is composited above night lighting and fog so its flash and expanding
 // pressure ring stay readable even in bad weather.
 function drawBlastOverlays(g, camx, camy) {
@@ -356,22 +402,6 @@ function draw(g) {
     ctx.textAlign = 'left';
   }
 
-  // Bullets.
-  // Two passes: the courier's tracer is warm, the patrol's is cold.
-  ctx.lineCap = 'round';
-  for (let pass = 0; pass < 2; pass++) {
-    ctx.strokeStyle = pass ? '#cfe4ff' : '#ffe9a0';
-    ctx.lineWidth = pass ? 2 : 2.5;
-    ctx.beginPath();
-    let any = false;
-    for (const b of g.bullets) {
-      if (!!b.own !== !!pass) continue;
-      if (!segmentVisible(b.px, b.py, b.x, b.y, 3)) continue;
-      ctx.moveTo(b.px, b.py); ctx.lineTo(b.x, b.y); any = true;
-    }
-    if (any) ctx.stroke();
-  }
-  ctx.lineCap = 'butt';
   if (p.muzzle > 0) {                                  // Muzzle flash.
     const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x);
     const fx = h.x + Math.cos(a) * 9, fy = h.y + Math.sin(a) * 9;
@@ -441,6 +471,7 @@ function draw(g) {
   drawGlowThroughFog(g, camx, camy);
   drawBlastOverlays(g, camx, camy);
   drawCarSmoke(g, camx, camy);
+  drawTracers(g, camx, camy);
   if (g.weather.flash > 0) {                       // Lightning flashes above the fog layer.
     ctx.fillStyle = `rgba(226,238,255,${Math.min(.55, g.weather.flash * g.weather.flash * .7)})`;
     ctx.fillRect(0, 0, W, H);

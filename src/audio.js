@@ -20,6 +20,7 @@ const SND = (() => {
     const comp = ac.createDynamicsCompressor();        // A growling horde must not overload the speaker.
     comp.threshold.value = -16; comp.ratio.value = 8;
     master.connect(comp); comp.connect(ac.destination);
+    buildStreetTail();
     buf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -37,9 +38,82 @@ const SND = (() => {
     else n.connect(master);
     return n;
   }
+
+  // ---------- the street the shot happens in ----------
+  //
+  // A pistol fired outdoors is mostly not the pistol. The muzzle blast is over in a couple of
+  // milliseconds; what makes it read as a gunshot rather than a click is everything that comes
+  // back off the buildings — a handful of distinct slaps off the nearest walls, then a rough
+  // decaying wash. Without that the sharpest transient in the world still sounds like a toy,
+  // which is why this exists rather than another layer of filtered noise.
+  //
+  // The response is generated once, from its own small generator rather than Math.random, so
+  // that building it cannot shift the stream the town is grown from.
+  let street = null;
+  function buildStreetTail() {
+    const sr = ac.sampleRate, seconds = .42, len = Math.floor(sr * seconds);
+    const ir = ac.createBuffer(2, len, sr);
+    let seed = 0x9e3779b9;
+    const noise = () => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 2147483648 - 1;
+    };
+    // Early reflections: the far kerb, the facade behind, the one across the road, and so on.
+    const taps = [[.0075, .78], [.0163, .6], [.0291, .47], [.0447, .35], [.0628, .26], [.0912, .18]];
+    // The diffuse wash has to arrive after the first slaps rather than with them. Starting it at
+    // full level buried the reflections in it, which cost exactly the thing this is here for —
+    // the first slap now stands seventeen times above the wash in front of it instead of one and
+    // a quarter, and that difference is what a street sounds like.
+    const swellFor = sr * .045;
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const decay = Math.pow(1 - i / len, 3.4);
+        d[i] = noise() * decay * .2 * Math.min(1, i / swellFor);
+      }
+      for (const [when, gain] of taps) {
+        const at = Math.floor((when + (ch ? .0011 : 0)) * sr);   // A hair of stereo offset per ear.
+        for (let j = 0; j < 80 && at + j < len; j++)
+          d[at + j] += noise() * gain * Math.pow(1 - j / 80, 2.2);
+      }
+    }
+    const convolver = ac.createConvolver();
+    convolver.buffer = ir;
+    convolver.normalize = false;
+    const damp = ac.createBiquadFilter();                        // Distance eats the top end.
+    damp.type = 'lowpass'; damp.frequency.value = 4200; damp.Q.value = .6;
+    const level = ac.createGain();
+    level.gain.value = .9;
+    level.connect(convolver); convolver.connect(damp); damp.connect(master);
+    street = level;
+  }
+
+  // A voice that goes both straight to the ear and out into the street. The dry path keeps the
+  // transient sharp; only a fraction is sent away to come back as reflections.
+  function outdoors(pan, send) {
+    const n = out(pan);
+    if (street && send > 0) {
+      const tap = ac.createGain();
+      tap.gain.value = send;
+      n.connect(tap); tap.connect(street);
+    }
+    return n;
+  }
+
+  // A single-sample spike: the one thing filtered noise cannot imitate, because the click of a
+  // gunshot is a step in air pressure rather than a short sound.
+  function impulse(vol, pan, send, delay) {
+    const t0 = ac.currentTime + (delay || 0);
+    const b = ac.createBuffer(1, 24, ac.sampleRate);
+    const d = b.getChannelData(0);
+    d[0] = 1; d[1] = -.82; d[2] = .55; d[3] = -.3; d[4] = .14;
+    const s = ac.createBufferSource(), g = outdoors(pan, send);
+    s.buffer = b; g.gain.value = vol;
+    s.connect(g); s.start(t0);
+  }
   // Tone with descending pitch.
-  function tone(f, f2, dur, type, vol, pan, delay, atk) {
-    const t0 = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = out(pan);
+  function tone(f, f2, dur, type, vol, pan, delay, atk, send) {
+    const t0 = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = outdoors(pan, send || 0);
     o.type = type;
     o.frequency.setValueAtTime(f, t0);
     if (f2 && f2 !== f) o.frequency.exponentialRampToValueAtTime(Math.max(18, f2), t0 + dur);
@@ -63,8 +137,8 @@ const SND = (() => {
   }
 
   // The same noise with an instant attack, so impacts sound sharp instead of soft.
-  function crack(dur, hz, hz2, vol, pan, q, type, delay) {
-    const t0 = ac.currentTime + (delay || 0), s = ac.createBufferSource(), g = out(pan);
+  function crack(dur, hz, hz2, vol, pan, q, type, delay, send) {
+    const t0 = ac.currentTime + (delay || 0), s = ac.createBufferSource(), g = outdoors(pan, send || 0);
     s.buffer = buf; s.playbackRate.value = rnd(.9, 1.1);
     const f = ac.createBiquadFilter();
     f.type = type; f.Q.value = q;
@@ -138,10 +212,22 @@ const SND = (() => {
     const v = a.g, P = a.pan;
     switch (name) {
       // Gunshot: click, body, and a short neighborhood echo.
-      case 'shot':  crack(.035, 4200, 1500, .9 * v, P, .4, 'highpass');
-                    crack(.11, 380, 80, 1.1 * v, P, .8, 'lowpass');
-                    crack(.28, 1200, 420, .13 * v, P, .5, 'bandpass', .015);
-                    tone(125, 44, .09, 'triangle', .5 * v, P, 0, .001); break;
+      // A shot in the order the parts of one actually happen: the pressure step, the blast that
+      // follows it out of the muzzle, the gas thumping after that, and the slide closing a
+      // fraction of a second later. Each layer sends some of itself into the street, which is
+      // what comes back off the buildings and makes it a gunshot rather than a click. The whole
+      // thing is nudged a few per cent per shot, because two identical shots in a row is the
+      // giveaway that nothing was really fired.
+      case 'shot': {
+        const j = rnd(.94, 1.07);
+        impulse(.8 * v, P, .5);
+        crack(.026, 5400 * j, 1800, .72 * v, P, .5, 'highpass', 0, .45);
+        crack(.08, 950 * j, 250, .46 * v, P, .7, 'bandpass', .0012, .5);
+        crack(.125, 330, 70, .95 * v, P, .9, 'lowpass', 0, .4);
+        tone(116 * j, 40, .07, 'triangle', .4 * v, P, 0, .001, .3);
+        crack(.018, 7400, 4300, .17 * v, P, 1.7, 'highpass', .015, .2);
+        break;
+      }
       // Fired from inside a cabin: flatter and duller than the courier's pistol.
       case 'copshot': crack(.028, 2500, 1050, .6 * v, P, .55, 'highpass');
                       crack(.075, 300, 95, .52 * v, P, .9, 'lowpass');

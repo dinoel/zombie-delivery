@@ -72,21 +72,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260730-67',
-  'src/core.js?v=20260730-67',
-  'src/quality.js?v=20260730-67',
-  'src/audio.js?v=20260730-67',
-  'src/car-physics.js?v=20260730-67',
-  'src/environment.js?v=20260730-67',
-  'src/world.js?v=20260730-67',
-  'src/physics.js?v=20260730-67',
-  'src/input.js?v=20260730-67',
-  'src/gameplay.js?v=20260730-67',
-  'src/lighting.js?v=20260730-67',
-  'src/entities.js?v=20260730-67',
-  'src/render.js?v=20260730-67',
-  'src/net.js?v=20260730-67',
-  'src/main.js?v=20260730-67'
+  'src/namespace.js?v=20260730-68',
+  'src/core.js?v=20260730-68',
+  'src/quality.js?v=20260730-68',
+  'src/audio.js?v=20260730-68',
+  'src/car-physics.js?v=20260730-68',
+  'src/environment.js?v=20260730-68',
+  'src/world.js?v=20260730-68',
+  'src/physics.js?v=20260730-68',
+  'src/input.js?v=20260730-68',
+  'src/gameplay.js?v=20260730-68',
+  'src/lighting.js?v=20260730-68',
+  'src/entities.js?v=20260730-68',
+  'src/render.js?v=20260730-68',
+  'src/net.js?v=20260730-68',
+  'src/main.js?v=20260730-68'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -259,6 +259,11 @@ if ($relaySource.Contains('Sec-WebSocket-Extensions:')) {
 }
 
 $lightingCouriers = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
+$renderSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src/render.js')
+if (-not $renderSource.Contains('function drawTracers(') -or
+    -not $renderSource.Contains('drawTracers(g, camx, camy)')) {
+  $problems.Add('Tracers must be composited above the night lighting, not painted into the world.')
+}
 if (-not $lightingCouriers.Contains('for (const courier of g.players)')) {
   $problems.Add('Every courier must contribute their own flashlight, footing and muzzle flash.')
 }
@@ -294,6 +299,15 @@ foreach ($explosiveHeadFeature in @('explodeZombieHead', 'shootZombieHead', 'hea
   }
 }
 $audioSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\audio.js')
+# A gunshot outdoors is mostly its reflections: without them the sharpest transient still sounds
+# like a click. The response is generated once, from its own generator, so building it cannot
+# shift the stream the town is grown from.
+foreach ($shotFeature in @('function buildStreetTail(', 'function outdoors(', 'function impulse(',
+    'createConvolver')) {
+  if (-not $audioSource.Contains($shotFeature)) {
+    $problems.Add("The gunshot is missing its street: $shotFeature")
+  }
+}
 if (-not $audioSource.Contains("case 'headBlast'")) {
   $problems.Add('Explosive tank-head audio is missing.')
 }

@@ -161,7 +161,10 @@ The second gameplay pass adds survivability, stealth, and a livelier street:
 - traffic steers around a tank instead of flattening it; a collision costs half the tank's health but wrecks the car's front, and a second one leaves the vehicle barely driveable;
 - patrol cars shoot at zombies within 330 pixels, check the line of fire against houses, hedges, and traffic, lead moving targets, and lose accuracy with speed — about 40 % standing still and 30 % at full speed;
 - patrol gunfire draws the horde to the car rather than to the courier, and a nearby patrol becomes an alternative target for zombies;
-- a zombie splattered by a neighbour's throw turns on the thrower for eight to thirteen seconds;
+- a zombie splattered by a neighbour's throw turns on the thrower for eight to thirteen seconds,
+  and blows between two of the horde land at thirty per cent of what the same blow costs a
+  courier — at full strength a walker put another one down in half a second, which let a street
+  empty itself while the courier stood and watched;
 - jammed traffic escalates its way out: yield, back up, take another exit from the intersection, and finally turn around onto the opposite lane;
 - `P` and `ESC` pause the district, leaving the dimmed frame on screen;
 - world density is tuned per unit of area rather than per district, so houses, trees, traffic, and the horde survive changes to the road grid;
@@ -192,6 +195,12 @@ Street lighting is a working part of the district:
 - breaking glass carries about as far as a shattered car window, so blacking out a street calls
   the horde to the noise;
 - a tank head going off takes every lamp inside the blast with it;
+- roughly one lamp in six has a bulb on its way out: it sits low, wavers, and drops almost
+  dark every few seconds before catching again, which is worked out from the district clock
+  and the lamp's own seed rather than from chance, so two machines sharing a shift flicker in
+  step without a byte crossing between them;
+- the palette is sodium rather than daylight — the whole range sits in the yellows and the
+  coolest lamp on a block is a tired white, not a blue one;
 - a roof is the one surface facing the sky, so it is lit by the sky and by nothing else: no
   street lamp reaches up there, but moonlight does, and a row of houses reads as slate and
   tile rather than as holes cut out of the street.

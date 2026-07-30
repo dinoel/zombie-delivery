@@ -59,6 +59,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Prediction test failed:`n$predictionTest")
   }
+
+  $infightingTest = & node (Join-Path $PSScriptRoot 'test-infighting.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Infighting test failed:`n$infightingTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -67,21 +72,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260729-65',
-  'src/core.js?v=20260729-65',
-  'src/quality.js?v=20260729-65',
-  'src/audio.js?v=20260729-65',
-  'src/car-physics.js?v=20260729-65',
-  'src/environment.js?v=20260729-65',
-  'src/world.js?v=20260729-65',
-  'src/physics.js?v=20260729-65',
-  'src/input.js?v=20260729-65',
-  'src/gameplay.js?v=20260729-65',
-  'src/lighting.js?v=20260729-65',
-  'src/entities.js?v=20260729-65',
-  'src/render.js?v=20260729-65',
-  'src/net.js?v=20260729-65',
-  'src/main.js?v=20260729-65'
+  'src/namespace.js?v=20260730-67',
+  'src/core.js?v=20260730-67',
+  'src/quality.js?v=20260730-67',
+  'src/audio.js?v=20260730-67',
+  'src/car-physics.js?v=20260730-67',
+  'src/environment.js?v=20260730-67',
+  'src/world.js?v=20260730-67',
+  'src/physics.js?v=20260730-67',
+  'src/input.js?v=20260730-67',
+  'src/gameplay.js?v=20260730-67',
+  'src/lighting.js?v=20260730-67',
+  'src/entities.js?v=20260730-67',
+  'src/render.js?v=20260730-67',
+  'src/net.js?v=20260730-67',
+  'src/main.js?v=20260730-67'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -277,6 +282,12 @@ foreach ($headPhysicsFeature in @('kickZombieHead', "part.kind !== 'head'", 'cir
     $problems.Add("Persistent zombie-head physics is missing: $headPhysicsFeature")
   }
 }
+# A grudge between two of the horde is a brawl, not an execution.
+if (-not $gameplaySource.Contains('INFIGHT_SCALE') -or
+    -not $gameplaySource.Contains('FILTH_DMG * INFIGHT_SCALE') -or
+    -not $gameplaySource.Contains('swing * INFIGHT_SCALE')) {
+  $problems.Add('Blows between two of the horde must be scaled down from what they cost a courier.')
+}
 foreach ($explosiveHeadFeature in @('explodeZombieHead', 'shootZombieHead', 'head.shotHits', 'g.blasts', "SND.play('headBlast'", "z.kind === 'tank'")) {
   if (-not $gameplaySource.Contains($explosiveHeadFeature)) {
     $problems.Add("Explosive tank-head behavior is missing: $explosiveHeadFeature")
@@ -301,7 +312,8 @@ foreach ($lightingFeature in @('forEachFoliageLobe', 'profile.foliageShadows', '
   }
 }
 $worldSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\world.js')
-foreach ($worldLightingFeature in @('LAMP_TEMPERATURES', 'lampRgb:', "foliage: 'tree'", "foliage: 'bush'")) {
+foreach ($worldLightingFeature in @('LAMP_TEMPERATURES', 'lampRgb:', "foliage: 'tree'", "foliage: 'bush'",
+    'function lampGlow(', 'LAMP_FAULTY_SHARE', 'faulty: seed <')) {
   if (-not $worldSource.Contains($worldLightingFeature)) {
     $problems.Add("World lighting data is missing: $worldLightingFeature")
   }

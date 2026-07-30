@@ -6,7 +6,7 @@ const {
   ctx, W, H, WORLD, clamp, rnd, gunHand, roundRect, runtime
 } = window.TownGame.core;
 const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
-const { drawCarShape, drawLamp } = window.TownGame.world;
+const { drawCarShape, drawLamp, lampGlow } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
 const {
   drawZombie, drawNotice, nearestParcel, nearestDrop, drawPlayer, drawGauges, drawMinimap
@@ -402,7 +402,7 @@ function draw(g) {
   }
 
   // Street lamps hang above the street, so they pass over the traffic and the courier.
-  for (const l of g.lamps) if (visible(l.x, l.y, 56)) drawLamp(ctx, l);
+  for (const l of g.lamps) if (visible(l.x, l.y, 56)) drawLamp(ctx, l, lampGlow(l, g.time));
 
   // Detached parts mark the fight; heads remain until the district is rebuilt.
   for (const part of (g.zombieParts || [])) {

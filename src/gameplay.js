@@ -454,6 +454,12 @@ function updatePoliceFire(g, c, dt) {
 
 // ---------- infighting ----------
 const FEUD_TIME = [8, 13];        // How long a grudge lasts before the horde re-focuses on the courier.
+// A grudge between two of the horde is a brawl, not an execution. At full strength a walker put
+// another one down in two swings, which emptied a street faster than the courier ever could and
+// turned a feud into a way of clearing the district by standing still. Thirty per cent of what
+// the same blow does to a courier means a fight lasts most of the grudge and often settles
+// nothing, which is what makes it worth watching instead of worth waiting for.
+const INFIGHT_SCALE = .3;
 const FILTH_DMG = 1;
 
 // Doom rules: whoever gets splattered by a neighbour turns on the thrower.
@@ -465,7 +471,7 @@ function startFeud(a, b) {
 
 function hitByFilth(g, z, s) {
   const speed = Math.hypot(s.vx, s.vy) || 1;
-  damageZombie(g, z, FILTH_DMG, s.vx, s.vy);
+  damageZombie(g, z, FILTH_DMG * INFIGHT_SCALE, s.vx, s.vy);
   z.hit = .2;
   z.kx += s.vx * .1; z.ky += s.vy * .1;
   z.bleed = Math.min(7, (z.bleed || 0) + 2.4);
@@ -1305,7 +1311,8 @@ function update(g, dt) {
         z.foeHitCd = rnd(.5, .85);
         z.recoil = .18;
         const o = z.rival;
-        damageZombie(g, o, z.kind === 'brute' ? 1.5 : z.kind === 'runner' ? .5 : 1, rx, ry);
+        const swing = z.kind === 'brute' ? 1.5 : z.kind === 'runner' ? .5 : 1;
+        damageZombie(g, o, swing * INFIGHT_SCALE, rx, ry);
         o.hit = .2; o.rivalCd = Math.max(o.rivalCd, 4);
         o.kx += rx / rd * 90; o.ky += ry / rd * 90;
         o.bleed = Math.min(7, (o.bleed || 0) + 2);

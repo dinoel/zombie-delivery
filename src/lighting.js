@@ -6,6 +6,7 @@ const { ctx, W, H, len, torchHand, gunHand } = window.TownGame.core;
 const quality = window.TownGame.quality;
 const { bodyPointWorld } = window.TownGame.carPhysics;
 const { solidsNear, treesNear, softNear } = window.TownGame.physics;
+const { lampGlow } = window.TownGame.world;
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
 
@@ -24,6 +25,9 @@ const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .
 const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
 const RGB_CASH = [.66, .9, .69];
 const LAMP_RANGE = 205;                               // Reach of one street lamp over the road.
+// Lamps used to flatten the night into an evenly lit stage. A street should be walkable and
+// still feel like somewhere you would rather not be standing, so they throw about a third less.
+const LAMP_INTENSITY = .85;
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
 const MAX_FOLIAGE_LOBES = 8;
@@ -198,7 +202,10 @@ function collectLights(g, camx, camy) {
   // keeps its mast and leaves the road to the flashlight.
   for (const l of g.lamps) {
     if (l.broken) continue;
-    add(l.hx, l.hy, LAMP_RANGE, l.lampRgb || RGB_LAMP, 1.5 * (l.lampPower || 1), .3, .97, 0, 0, 5, 6);
+    const glow = lampGlow(l, g.time);
+    if (glow < .02) continue;
+    add(l.hx, l.hy, LAMP_RANGE * (.72 + glow * .28), l.lampRgb || RGB_LAMP,
+        LAMP_INTENSITY * (l.lampPower || 1) * glow, .3, .97, 0, 0, 5, 6);
   }
   for (const c of g.cars) {
     if (!legacyPerf && (c.x + 270 < camx || c.y + 270 < camy || c.x - 270 > camx + W || c.y - 270 > camy + H)) continue;

@@ -19,12 +19,15 @@ const CAR_BUILDS = Object.freeze([
   Object.freeze({ name: 'standard', mass: 1, stiffness: 1, durability: 1, speed: 1 }),
   Object.freeze({ name: 'heavy', mass: 1.38, stiffness: 1.36, durability: 1.32, speed: .88 })
 ]);
+// Street lighting in a town like this is sodium, not daylight: the whole range sits in the
+// yellows, and the coolest lamp on the block is a tired white rather than anything blue. The
+// spread is kept because a street where every lamp matches looks designed instead of built.
 const LAMP_TEMPERATURES = Object.freeze([
-  Object.freeze({ rgb: Object.freeze([1, .64, .32]), bulb: '#ffd088', power: 1.04 }),
-  Object.freeze({ rgb: Object.freeze([1, .77, .47]), bulb: '#ffe0a0', power: 1.02 }),
-  Object.freeze({ rgb: Object.freeze([1, .9, .72]), bulb: '#fff0c5', power: 1 }),
-  Object.freeze({ rgb: Object.freeze([.92, .96, 1]), bulb: '#f0f7ff', power: .98 }),
-  Object.freeze({ rgb: Object.freeze([.76, .87, 1]), bulb: '#d6e8ff', power: .95 })
+  Object.freeze({ rgb: Object.freeze([1, .52, .17]), bulb: '#ffbe62', power: 1.04 }),
+  Object.freeze({ rgb: Object.freeze([1, .62, .25]), bulb: '#ffcc78', power: 1.02 }),
+  Object.freeze({ rgb: Object.freeze([1, .71, .34]), bulb: '#ffd68e', power: 1 }),
+  Object.freeze({ rgb: Object.freeze([1, .79, .46]), bulb: '#ffe1a6', power: .98 }),
+  Object.freeze({ rgb: Object.freeze([1, .88, .62]), bulb: '#ffecc4', power: .95 })
 ]);
 // Everything below is tuned per unit of area rather than per district, so the density of
 // houses, trees, traffic, and the horde survives any change to the road grid. The
@@ -42,6 +45,7 @@ const FURNITURE_NODE_CLEARANCE = ROAD * 1.15;
 // A street lamp is a mast on the kerb with a bracket reaching out over the asphalt, so the
 // pool of light lands on the lane rather than on the pavement behind it.
 const LAMP_ARM = 38;
+const LAMP_FAULTY_SHARE = .16;                    // Roughly one lamp in six is failing.
 const LAMP_HEAD_R = 6.5;                          // The glass a bullet has to find.
 const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
 const CROSSWALK_MIN_GAP = ROAD * .74;
@@ -49,12 +53,27 @@ const CROSSWALK_MIN_GAP = ROAD * .74;
 // One lamp: the mast stands where it was placed, the head hangs at the end of the bracket,
 // and the light is emitted from the head. A broken lamp keeps its geometry and loses its glow.
 function makeLamp(x, y, armX, armY, temperature, arm = LAMP_ARM) {
+  // One draw, as before. Whether the bulb is on its way out is read off that same number rather
+  // than spending another, which keeps the district's random stream exactly where it was.
+  const seed = Math.random();
   return {
     t: 'lamp', x, y, arm,
     hx: x + armX * arm, hy: y + armY * arm, ang: Math.atan2(armY, armX), headR: LAMP_HEAD_R,
     lampRgb: temperature.rgb, bulb: temperature.bulb, lampPower: temperature.power,
-    broken: false, seed: Math.random()
+    broken: false, faulty: seed < LAMP_FAULTY_SHARE, seed
   };
+}
+
+// A bulb on its way out does not blink on a beat. It sits low, wavers, and every few seconds
+// drops almost out before catching again. Three waves whose periods do not divide into each
+// other never settle into a rhythm, and the whole thing is a function of the district clock and
+// the lamp's own seed — so it costs no random draw, and two machines sharing a district flicker
+// in step without a byte crossing between them.
+function lampGlow(l, time) {
+  if (!l.faulty) return 1;
+  const t = time * (1.7 + l.seed * 2.6) + l.seed * 37;
+  const w = Math.sin(t) + Math.sin(t * 2.31) + Math.sin(t * 5.77);
+  return w < -1.7 ? .1 : clamp(.78 + w * .07, 0, 1);
 }
 
 function sidewalkPoint(roads, edge, distance, side) {
@@ -859,7 +878,7 @@ function renderStatic(g) {
 // A street lamp from above: the mast on the kerb, the bracket reaching out over the asphalt,
 // and the lantern at its end. The ground shadow falls the same way for every lamp no matter
 // which way its bracket points, which is what makes the arm read as hanging above the street.
-function drawLamp(c, l) {
+function drawLamp(c, l, glow = 1) {
   c.fillStyle = 'rgba(0,0,0,.22)';
   c.beginPath(); c.ellipse(l.x + 5, l.y + 7, 6, 4, 0, 0, 6.283); c.fill();
   if (l.arm) {
@@ -882,10 +901,12 @@ function drawLamp(c, l) {
   roundRect(c, head - 8, -4.6, 15, 9.2, 3.4); c.fill();
   c.strokeStyle = 'rgba(10,12,16,.6)'; c.lineWidth = 1; c.stroke();
   if (!l.broken) {
+    c.globalAlpha = .35 + glow * .65;              // The glass dims with the light it is throwing.
     c.fillStyle = l.bulb || '#ffe9a8';
     c.beginPath(); c.ellipse(head - .6, 0, 5, 3, 0, 0, 6.283); c.fill();
     c.fillStyle = 'rgba(255,255,255,.6)';
     c.beginPath(); c.ellipse(head - 1.6, -.7, 2.2, 1.3, 0, 0, 6.283); c.fill();
+    c.globalAlpha = 1;
   } else {
     c.fillStyle = '#14181e';                       // An empty socket where the glass was.
     c.beginPath(); c.ellipse(head - .6, 0, 5, 3, 0, 0, 6.283); c.fill();
@@ -1100,7 +1121,7 @@ function drawCarShape(c, car) {
 }
 
 return Object.freeze({
-  buildTown, makeCourier, layoutChecksum, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
+  buildTown, makeCourier, layoutChecksum, lampGlow, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
 });
 })();
 

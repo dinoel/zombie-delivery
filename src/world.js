@@ -167,11 +167,14 @@ function makeCourier(start, index, torch) {
     walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
     torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
     takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
-    torchSeen: null, sneakSeen: null,             // Adopted from the press counters on the first frame.
+    torchSeen: null, sneakSeen: null, weaponSeen: null,   // Adopted from the press counters on the first frame.
+    // What is in their hands. Zero is the pistol and the only thing a night shift ever issues;
+    // madness also hands out a flamethrower, and the courier can put one down for the other.
+    weapon: 0, flaming: false,
     // A courier always has a record, even before anyone has told it anything: standing still,
     // holding nothing. A partner whose first packet has not landed yet must not stop the frame.
     in: { n: 0, x: 0, y: 0, m: 0, run: false, fire: false, finish: false,
-          aimScreen: false, sx: 0, sy: 0, tx: 0, ty: 0, torchSeq: 0, sneakSeq: 0 },
+          aimScreen: false, sx: 0, sy: 0, tx: 0, ty: 0, torchSeq: 0, sneakSeq: 0, weaponSeq: 0 },
     reviveT: 0,                                   // How long a partner has been kneeling over them.
     hp: HP_MAX, hpMax: HP_MAX, ammo: 24, down: false,
     carried: 0, handsFull: null, finishTarget: null,
@@ -196,6 +199,7 @@ function resetZombie(z, x, y) {
   z.walk = rnd(0, 6); z.hit = 0; z.kx = 0; z.ky = 0; z.mvx = 0; z.mvy = 0;
   z.lostArms = 0; z.headless = false; z.silent = false;
   z.bleed = 0; z.bleedCd = 0; z.recoil = 0;
+  z.burn = 0; z.burnCd = 0; z.litBy = null; z.panicWander = 0;   // Nobody comes off the bench alight.
   z.alert = 0; z.tx = 0; z.ty = 0; z.hunt = 0; z.notice = 0; z.moan = rnd(0, 3);
   z.throwCd = rnd(1.8, 4.8); z.throwWind = 0; z.throwAimX = 0; z.throwAimY = 0;
   z.flankTimer = rnd(.6, 2.2); z.pressure = 0;
@@ -790,7 +794,7 @@ function buildTown(level, couriers = 1, madness = false) {
     players, p: players[0], coopLocal,              // The local courier; the rest of the shift is alongside.
     madness, reserve, ground,                       // The bench, and the places it can walk on from.
     spawnClock: madness ? MADNESS_FIRST : 0, spawned: 0,
-    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
+    bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [], flames: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
     headKicks: 0,

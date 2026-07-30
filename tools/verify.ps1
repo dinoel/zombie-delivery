@@ -74,6 +74,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Madness test failed:`n$madnessTest")
   }
+
+  $flamethrowerTest = & node (Join-Path $PSScriptRoot 'test-flamethrower.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Flamethrower test failed:`n$flamethrowerTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -82,21 +87,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260730-73',
-  'src/core.js?v=20260730-73',
-  'src/quality.js?v=20260730-73',
-  'src/audio.js?v=20260730-73',
-  'src/car-physics.js?v=20260730-73',
-  'src/environment.js?v=20260730-73',
-  'src/world.js?v=20260730-73',
-  'src/physics.js?v=20260730-73',
-  'src/input.js?v=20260730-73',
-  'src/gameplay.js?v=20260730-73',
-  'src/lighting.js?v=20260730-73',
-  'src/entities.js?v=20260730-73',
-  'src/render.js?v=20260730-73',
-  'src/net.js?v=20260730-73',
-  'src/main.js?v=20260730-73'
+  'src/namespace.js?v=20260730-74',
+  'src/core.js?v=20260730-74',
+  'src/quality.js?v=20260730-74',
+  'src/audio.js?v=20260730-74',
+  'src/car-physics.js?v=20260730-74',
+  'src/environment.js?v=20260730-74',
+  'src/world.js?v=20260730-74',
+  'src/physics.js?v=20260730-74',
+  'src/input.js?v=20260730-74',
+  'src/gameplay.js?v=20260730-74',
+  'src/lighting.js?v=20260730-74',
+  'src/entities.js?v=20260730-74',
+  'src/render.js?v=20260730-74',
+  'src/net.js?v=20260730-74',
+  'src/main.js?v=20260730-74'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }

@@ -324,8 +324,36 @@ const SND = (() => {
     rainGain.gain.setTargetAtTime(muted ? 0 : level * .17, ac.currentTime, .5);
   }
 
+  // The flamethrower, on the same principle as the rain: one source for the whole game with a
+  // gain that is moved rather than retriggered. Everything else here is a one-shot, and a roar
+  // built out of one-shots is a stutter — a sustained sound has to be a sustained source.
+  //
+  // Two layers, because a jet of burning fuel is two things at once: a low roar that carries, and
+  // a hiss at the mouth that does not. The gains ease rather than jump, so letting go of the
+  // trigger sounds like a flame going out instead of a switch.
+  let flameSrc = null, flameLow = null, flameHiss = null;
+  function flame(level) {
+    if (!ac) return;
+    if (!flameSrc) {
+      flameSrc = ac.createBufferSource(); flameSrc.buffer = buf; flameSrc.loop = true;
+      const lp = ac.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = 380; lp.Q.value = 1.6;
+      flameLow = ac.createGain(); flameLow.gain.value = 0;
+      flameSrc.connect(lp); lp.connect(flameLow); flameLow.connect(master);
+
+      const bp = ac.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = .45;
+      flameHiss = ac.createGain(); flameHiss.gain.value = 0;
+      flameSrc.connect(bp); bp.connect(flameHiss); flameHiss.connect(master);
+      flameSrc.start();
+    }
+    const on = muted ? 0 : level;
+    flameLow.gain.setTargetAtTime(on * .5, ac.currentTime, .06);
+    flameHiss.gain.setTargetAtTime(on * .2, ac.currentTime, .04);
+  }
+
   return {
-    init, play, rain,
+    init, play, rain, flame,
     listen: (x, y) => { ear.x = x; ear.y = y; },
     get muted() { return muted; },
     toggle() {
@@ -333,6 +361,7 @@ const SND = (() => {
       gameStorage.set(STORAGE_KEYS.mute, muted ? '1' : '0');
       if (master) master.gain.setTargetAtTime(muted ? 0 : .55, ac.currentTime, .05);
       if (rainGain) rainGain.gain.setTargetAtTime(0, ac.currentTime, .05);
+      if (flameLow) { flameLow.gain.setTargetAtTime(0, ac.currentTime, .05); flameHiss.gain.setTargetAtTime(0, ac.currentTime, .05); }
       return muted;
     }
   };

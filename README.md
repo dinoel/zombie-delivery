@@ -99,10 +99,33 @@ Noticing every round re-pointed everything within four hundred pixels at the car
 second, which glued the whole street to it and had all three patrols pulled apart inside half a
 minute.
 
+The courier is issued a second weapon for it. `Q` swaps between the pistol and a flamethrower —
+the pistol stays because it is still the only thing that breaks a lamp or sets off a tank's head,
+and fuel is free for the same reason rounds are.
+
+The whole weapon is a query rather than a thing. Once a frame the cone in front of the gun hand is
+asked who is standing in it: within 155 pixels, inside a 24-degree half-angle, with a clear line —
+the same line-of-fire check the patrol uses. Nothing is created and nothing is tracked, so nothing
+new goes on the wire: holding the trigger is one bit in the courier's snapshot, and a peer that
+knows where somebody is standing, which way they are facing and that they are firing draws the
+entire jet for itself. The flames on screen are decoration and no rule ever reads them.
+
+The stream itself barely hurts. What kills is that a body walks away on fire, taking the street's
+attention with it — a burning zombie is loud, and the horde follows a noise. It only bolts once it
+is properly alight: bolting on the first spark made the weapon useless, because a body was singed,
+left the cone within a few frames and came back a second later barely hurt, so the stream never got
+to soak anybody. Held on someone it is fatal to anything but a tank; brushed across a crowd it
+leaves several of them running in different directions with the rest of the horde chasing them.
+
+It does not out-clear the spawner, which was the thing worth checking. Measured over two and a half
+minutes against an idle courier as the control: the flame roughly a third ahead on kills through
+the first half-minute — twenty-two on the street against thirty-one — and level from a minute on,
+with the street reaching its cap of sixty-four at ninety seconds either way.
+
 The numbers worth turning are together in `src/gameplay.js`: `MADNESS_LIVE_CAP`, `MADNESS_SLOW`,
 `MADNESS_FAST`, `MADNESS_RAMP` and `MADNESS_BURST` for the horde, `GUNS`, `MG_ROF`, `MG_BURST`,
-`MG_PAUSE` and `MG_SWING` for the gun, with the depth of the bench as `MADNESS_RESERVE` in
-`src/world.js`.
+`MG_PAUSE` and `MG_SWING` for the patrol gun, and `FLAME_*`, `BURN_*` and `PANIC_*` for the
+flamethrower — with the depth of the bench as `MADNESS_RESERVE` in `src/world.js`.
 
 ## Keeping the district reproducible
 

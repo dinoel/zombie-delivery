@@ -24,6 +24,7 @@ const RGB_BEACON_BLUE = [.24, .38, 1], RGB_ROOF_RED = [1, .2, .24], RGB_ROOF_BLU
 const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .82, .35];
 const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
 const RGB_CASH = [.66, .9, .69];
+const RGB_FLAME = [1, .62, .22];
 const LAMP_RANGE = 205;                               // Reach of one street lamp over the road.
 // Lamps used to flatten the night into an evenly lit stage. A street should be walkable and
 // still feel like somewhere you would rather not be standing, so they throw about a third less.
@@ -279,7 +280,18 @@ function collectLights(g, camx, camy) {
     }
     add(courier.x, courier.y, lit ? 74 : 52, RGB_WARM, lit ? .5 : .3, .1, lit ? .8 : .6, 0, 0, 0, 9); // Pool around the feet.
     if (courier.muzzle > 0) { const h = gunHand(courier); add(h.x, h.y, 190, RGB_MUZZLE, 1.7, .5, 1, 0, 0, 16, 10); }
+    // A jet of burning fuel is the brightest thing in the district while it lasts, and it lights
+    // the cone it is filling rather than a circle around the courier. The flashlight's shape with
+    // a much hotter colour, a shorter reach and a wider mouth.
+    if (courier.flaming && !courier.down) {
+      const h = gunHand(courier);
+      add(h.x, h.y, 210, RGB_FLAME, 1.9, .42, 1, courier.aim, .5, 14, 10);
+    }
   }
+  // Each body that is alight carries its own. A street with four of them running across it is lit
+  // by them, which is most of what makes the weapon worth firing at night.
+  for (const z of g.zombies) if (!z.gone && z.burn > 0)
+    add(z.x, z.y, 96, RGB_FLAME, .95, .4, .8, 0, 0, 0, 6);
   for (const s of g.zombieShots) add(s.x, s.y, 23 + s.r, s.light || RGB_FILTH, .75, .28, .62, 0, 0, 0, 8);
   for (const b of g.parcels) if (b.state === 'ground') add(b.x, b.y, 46, RGB_PARCEL, .7, .24, .8, 0, 0, 0, 5);
   for (const a of g.ammoBoxes) add(a.x, a.y, 42, RGB_AMMO, .6, .22, .78, 0, 0, 0, 5);

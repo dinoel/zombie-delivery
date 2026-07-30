@@ -53,6 +53,34 @@ function drawCarSmoke(g, camx, camy) {
   ctx.globalAlpha = 1;
 }
 
+// Fire is drawn the way a round in flight is: above the night pass rather than inside it, because
+// a flame is a light and not a painted surface. Inside the lighting the whole jet was multiplied
+// down to the brightness of the asphalt it was crossing.
+//
+// Additive, and hottest where it leaves the muzzle. A particle cools as it ages — white to
+// yellow to orange to a dull red — which is what makes the jet read as having a near end and a
+// far end rather than as a spray of identical dots.
+function drawFlames(g, camx, camy) {
+  if (!g.flames.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const f of g.flames) {
+    const x = f.x - camx, y = f.y - camy;
+    if (x < -40 || y < -40 || x > W + 40 || y > H + 40) continue;
+    const life = clamp(f.l / f.max, 0, 1);
+    // The core stays white for the first third of a particle's life and then falls away.
+    const heat = Math.pow(life, .7);
+    const r = Math.round(255 * Math.min(1, .55 + heat));
+    const green = Math.round(60 + 190 * heat * heat);
+    const blue = Math.round(20 + 150 * Math.pow(heat, 6));
+    ctx.globalAlpha = .1 + .55 * heat;
+    ctx.fillStyle = `rgb(${r},${green},${blue})`;
+    ctx.beginPath(); ctx.arc(x, y, f.r, 0, 6.283); ctx.fill();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 function drawZombiePart(part) {
   const height = Math.max(0, part.h), size = part.size || 1;
   ctx.globalAlpha = Math.min(1, part.l * .5);
@@ -496,6 +524,7 @@ function draw(g) {
   drawGlowThroughFog(g, camx, camy);
   drawBlastOverlays(g, camx, camy);
   drawCarSmoke(g, camx, camy);
+  drawFlames(g, camx, camy);
   drawTracers(g, camx, camy);
   if (g.weather.flash > 0) {                       // Lightning flashes above the fog layer.
     ctx.fillStyle = `rgba(226,238,255,${Math.min(.55, g.weather.flash * g.weather.flash * .7)})`;

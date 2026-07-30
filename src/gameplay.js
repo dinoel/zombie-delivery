@@ -78,6 +78,76 @@ function fire(g, p) {
   SND.play('shot', p.x, p.y);
 }
 
+// ---------- the flamethrower ----------
+//
+// The stream is a query, not a thing. Nothing is created and nothing is tracked: once a frame the
+// cone in front of the gun hand is asked who is standing in it, and that is the whole weapon. The
+// flames on screen are decoration and no rule ever looks at them — which is also why none of this
+// goes on the wire. A peer that knows where a courier is standing, which way they are aiming and
+// that they are holding the trigger can draw the entire thing for itself.
+//
+// It is short, wide and slow to kill. What it is for is not the body in front of you; it is that
+// the body walks away on fire and takes the street's attention with it.
+const FLAME_REACH = 155;
+const FLAME_SPREAD = .42;         // Half-angle. Wide enough that aiming is barely a skill at this range.
+const FLAME_DPS = 1;              // The stream itself barely hurts. It is not what kills anybody.
+const FLAME_FALLOFF = .45;        // What is left of that at the tip of the stream.
+const FLAME_IGNITE = 8;           // Seconds of burning added per second of contact,
+const FLAME_BURN_MAX = 7;         // and the most a body can be carrying at once.
+const FLAME_NOISE = 210;          // A roar, but a much quieter one than a gunshot.
+
+// What being on fire costs, and what it does to whoever is wearing it. The damage is slow on
+// purpose: a full seven seconds of burning is worth about nine hits, so a walker is finished by
+// it, a brute needs a proper soaking and a tank needs the stream held on it more than once.
+const BURN_TICK = .4;
+const BURN_DAMAGE = .5;
+const BURN_NOISE = 175;           // Loud enough to keep pulling the street after it.
+const PANIC_SPEED = 1.5;          // Running rather than walking.
+const PANIC_WANDER = 2.2;         // Radians a second the heading drifts: panic, not a withdrawal.
+// How far alight something has to be before it stops caring about the courier. Bolting on the
+// first spark made the weapon useless: a body was singed, fled the cone within a few frames, and
+// walked back a second later barely hurt, so the stream never got to soak anybody. A body has to
+// be properly alight before it panics — which also means walking into the stream and staying
+// there is what sets somebody on fire, rather than brushing past them.
+const PANIC_AT = 2;
+
+// Everything the stream is touching this frame. Kept apart from what it does to them so the same
+// answer can drive damage on one end and nothing at all on the other.
+function flameCone(g, p) {
+  const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x);
+  const ca = Math.cos(a), sa = Math.sin(a), limit = Math.cos(FLAME_SPREAD);
+  const caught = [];
+  for (const z of g.zombies) {
+    if (z.gone) continue;
+    const dx = z.x - h.x, dy = z.y - h.y, d = Math.hypot(dx, dy) || 1;
+    if (d > FLAME_REACH + z.r) continue;
+    // A body close enough to touch is in it regardless of the arc: fire does not miss at arm's
+    // length, and a courier being eaten should not have to be pointing accurately.
+    if (d > 26 && (dx * ca + dy * sa) < d * limit) continue;
+    if (shotBlocked(g, h.x, h.y, z.x, z.y)) continue;   // Fire does not go through a wall either.
+    caught.push({ z, reach: clamp(d / FLAME_REACH, 0, 1) });
+  }
+  return { x: h.x, y: h.y, a, caught };
+}
+
+function burnWithFlame(g, p, dt) {
+  const cone = flameCone(g, p);
+  g.spawnGrace = 0;                             // Opening up voluntarily ends the quiet start.
+  for (const { z, reach } of cone.caught) {
+    const heat = 1 - reach * (1 - FLAME_FALLOFF);
+    damageZombie(g, z, FLAME_DPS * heat * dt, Math.cos(cone.a), Math.sin(cone.a));
+    z.burn = Math.min(FLAME_BURN_MAX, (z.burn || 0) + FLAME_IGNITE * heat * dt);
+    z.litBy = p;                                // Whoever to run from. Derived, never streamed.
+    z.hit = .12; z.alert = 6;
+    if (z.hp <= 0) killZombie(g, z);
+  }
+  // Quieter than a shot and far more constant, so it is made once every few frames rather than
+  // every one: a roar that re-pointed the street sixty times a second would be a siren.
+  p.flameNoiseCd = (p.flameNoiseCd || 0) - dt;
+  if (p.flameNoiseCd <= 0) { p.flameNoiseCd = .35; makeNoise(g, p.x, p.y, FLAME_NOISE, 4); }
+  return cone;
+}
+
 function throwFilth(g, z) {
   const spec = z.shot;
   const dx = z.throwAimX - z.x, dy = z.throwAimY - z.y;
@@ -477,6 +547,7 @@ function breakLamp(g, l) {
   return true;
 }
 
+const BURNT_DEBRIS = ['#2b2724', '#4a423c', '#ff7a2e', '#8a7d72', '#1d1a18', '#ffc46b'];
 function killZombie(g, z) {
   if (z.gone) return;
   z.hp = 0;
@@ -485,8 +556,12 @@ function killZombie(g, z) {
   dropCash(g, z);
   addGroundBlood(g, z.x, z.y, z.stain, z.kind === 'brute' ? 14 : 10);
   sprayZombieBlood(g, z, z.x, z.y, Math.cos(z.ang), Math.sin(z.ang), z.kind === 'brute' ? 22 : 17, 1.08);
+  // A body that goes down on fire comes apart as ash and embers rather than as blood. The same
+  // draws are made either way, only the colours differ, so a district that never sees a
+  // flamethrower produces the identical frame it always did.
+  const debris = z.burn > 0 ? BURNT_DEBRIS : z.blood;
   for (let k = 0; k < 18; k++)
-    g.parts.push({ x: z.x, y: z.y, vx: rnd(-170, 170), vy: rnd(-170, 170), l: rnd(.3, .8), c: pick(z.blood), s: rnd(2, 5) });
+    g.parts.push({ x: z.x, y: z.y, vx: rnd(-170, 170), vy: rnd(-170, 170), l: rnd(.3, .8), c: pick(debris), s: rnd(2, 5) });
   const drop = Math.random();
   if (drop < .48) g.ammoBoxes.push({ x: z.x, y: z.y, batt: drop < .14, n: 7, ph: Math.random() * 6.283 });
   SND.play(z.silent ? 'hit' : 'die', z.x, z.y, z.seed);
@@ -744,7 +819,9 @@ function stepCourier(g, p, dt, predicted = false) {
   }
   // A courier stepping into a district adopts whatever the counters already read. They keep
   // climbing across districts, and presses made before this shift are not theirs to act on.
-  if (!predicted && p.torchSeen === null) { p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; }
+  if (!predicted && p.torchSeen === null) {
+    p.torchSeen = inp.torchSeq; p.sneakSeen = inp.sneakSeq; p.weaponSeen = inp.weaponSeq || 0;
+  }
   // A press is only a press the first time it is seen. The rules decide what it means, which is
   // why the flashlight can be switched on here and switched off by a flat battery below.
   if (!predicted && inp.torchSeq !== p.torchSeen) {
@@ -753,6 +830,14 @@ function stepCourier(g, p, dt, predicted = false) {
     SND.play(p.torch && p.batt > 0 ? 'click' : 'empty');
   }
   if (!predicted && inp.sneakSeq !== p.sneakSeen) { p.sneakSeen = inp.sneakSeq; p.sneakToggle = !p.sneakToggle; }
+  // Swapping weapons is a press like the others, and it is read even where there is nothing to
+  // swap to: the counter has to be kept level with the keyboard, or a night shift spent leaning
+  // on the key would put a flamethrower in the courier's hands the moment a madness district
+  // started. Only what the press means depends on the mode.
+  if (!predicted && (inp.weaponSeq || 0) !== p.weaponSeen) {
+    p.weaponSeen = inp.weaponSeq || 0;
+    if (g.madness) { p.weapon = p.weapon ? 0 : 1; SND.play('click', p.x, p.y); }
+  }
 
   if (!predicted) p.inv = Math.max(0, p.inv - dt);
 
@@ -834,9 +919,14 @@ function stepCourier(g, p, dt, predicted = false) {
 function actCourier(g, p, dt) {
   p.cool = Math.max(0, p.cool - dt);
   p.muzzle = Math.max(0, p.muzzle - dt);
-  if (p.down) { p.finishTarget = null; return; }
+  if (p.down) { p.finishTarget = null; p.flaming = false; return; }
   const wantFire = p.in.fire;
-  if (wantFire && p.cool <= 0 && (g.madness || p.ammo > 0) && !g.done) fire(g, p);
+  // The flamethrower has no cooldown and nothing to count: it simply burns for as long as the
+  // trigger is held. `flaming` is what a watching peer is told, and the only thing about this
+  // weapon that travels.
+  p.flaming = p.weapon === 1 && wantFire && !g.done;
+  if (p.flaming) burnWithFlame(g, p, dt);
+  else if (wantFire && p.weapon === 0 && p.cool <= 0 && (g.madness || p.ammo > 0) && !g.done) fire(g, p);
 
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
@@ -1371,6 +1461,21 @@ function update(g, dt) {
       addBloodDrop(g, z, z.x + rnd(-4, 4), z.y + rnd(-4, 4),
         rnd(-18, 18), rnd(-18, 18), rnd(18, 42), rnd(1.2, 2.6), rnd(1, 4));
     }
+    // A body that is alight keeps taking the fire with it. This is where the flamethrower does
+    // most of its killing: the stream itself barely hurts, and what finishes a walker is the
+    // twenty seconds it spends running around the district on fire.
+    if (z.burn > 0) {
+      z.burn = Math.max(0, z.burn - dt);
+      z.burnCd = (z.burnCd || 0) - dt;
+      if (z.burnCd <= 0) {
+        z.burnCd = BURN_TICK;
+        damageZombie(g, z, BURN_DAMAGE, Math.cos(z.ang), Math.sin(z.ang));
+        // Burning is loud. A body running down the street screaming pulls the rest of the horde
+        // after it, which is the reason to set one alight rather than simply shoot it.
+        makeNoise(g, z.x, z.y, BURN_NOISE, 3, false, z);
+        if (z.hp <= 0) { killZombie(g, z); continue; }
+      }
+    } else if (z.litBy) z.litBy = null;
     // During the opening seconds, the district ignores the spawn and starting beam.
     const canNotice = !g.done && g.spawnGrace <= 0;
     const lightRange = z.guardParcel >= 0 ? 275 : 400;
@@ -1438,7 +1543,20 @@ function update(g, dt) {
     }
 
     let ax, ay, chase = false;
-    if (z.rival) {                                    // Settle the score with whoever splattered you.
+    // Nothing outranks being on fire. A burning body stops hunting anybody and runs — away from
+    // whoever lit it, and blindly if there is nobody to run from. It keeps whatever it hits on
+    // the way, which is the point: a torched brute is a fast, loud, uncontrollable thing crossing
+    // the street rather than a corpse.
+    if (z.burn > PANIC_AT && !z.dumb) {
+      const from = z.litBy && !z.litBy.down ? z.litBy : z.prey;
+      const fx = z.x - from.x, fy = z.y - from.y, fd = Math.hypot(fx, fy) || 1;
+      // The heading wanders, so it does not simply retreat in a straight line the way a courier
+      // backing off would. It is panicking, not withdrawing.
+      z.panicWander = (z.panicWander || 0) + rnd(-PANIC_WANDER, PANIC_WANDER) * dt;
+      const pa = Math.atan2(fy / fd, fx / fd) + z.panicWander;
+      ax = Math.cos(pa); ay = Math.sin(pa); chase = true;
+    }
+    else if (z.rival) {                               // Settle the score with whoever splattered you.
       const rx = z.rival.x - z.x, ry = z.rival.y - z.y, rd = Math.hypot(rx, ry) || 1;
       ax = rx / rd; ay = ry / rd; chase = true;
     }
@@ -1499,6 +1617,11 @@ function update(g, dt) {
       // Brief recoil after a bite prevents the pursuer from stepping back immediately.
       ax = ay = 0;
       moveScale = 0;
+      z.throwWind = 0;
+    } else if (z.burn > PANIC_AT) {
+      // Properly alight outranks everything a body might otherwise be doing. It does not dodge,
+      // it does not line up a throw, and it is not walking.
+      moveScale = PANIC_SPEED;
       z.throwWind = 0;
     } else if (z.dodgeTime > 0) {
       // A lateral dodge leaves the firing line while preserving slight forward pressure.
@@ -2061,6 +2184,10 @@ function update(g, dt) {
   }
 
   ageDebris(g, dt);
+  // Fire is made after the rules have decided who is on it, so a body lit this frame is already
+  // burning in the picture rather than a frame behind it.
+  showFire(g, dt);
+  ageFlames(g, dt);
 
   drawHud(g);
 }
@@ -2172,6 +2299,68 @@ function ageCarSmoke(g, dt) {
   }
 }
 
+// Flame particles are pure decoration and are never streamed: both ends make their own from the
+// courier's position, aim and trigger, which is the whole reason a flamethrower costs nothing on
+// the wire. They live briefly, spread as they travel and cool from white through orange to smoke.
+function ageFlames(g, dt) {
+  for (let i = g.flames.length - 1; i >= 0; i--) {
+    const f = g.flames[i];
+    f.l -= dt;
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    f.vx *= Math.pow(.28, dt); f.vy *= Math.pow(.28, dt);   // The jet loses its push quickly.
+    f.vy -= f.rise * dt;                                    // What is left of it climbs.
+    f.r += dt * f.growth;
+    if (f.l <= 0) g.flames.splice(i, 1);
+  }
+}
+
+const FLAME_PARTICLES = 5;        // Per frame while the trigger is held, at sixty of them a second.
+const FLAME_CAP = 190;
+// The jet, made where the rules would have made it and made again by a peer that ran no rules.
+// It takes the cone rather than the courier so the host does not compute the same angle twice.
+function emitFlame(g, x, y, a, dt) {
+  const n = Math.min(FLAME_PARTICLES, FLAME_CAP - g.flames.length);
+  for (let k = 0; k < n; k++) {
+    const spread = rnd(-FLAME_SPREAD, FLAME_SPREAD) * rnd(.35, 1);
+    const dir = a + spread, speed = rnd(180, 420);
+    g.flames.push({
+      x: x + Math.cos(a) * rnd(4, 12), y: y + Math.sin(a) * rnd(4, 12),
+      vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed,
+      l: rnd(.2, .46), max: .46, r: rnd(2.5, 5.5), growth: rnd(26, 52), rise: rnd(8, 26)
+    });
+  }
+}
+
+// A body that is alight trails its own fire, smaller and slower than the jet that started it.
+function emitBurning(g, z, dt) {
+  z.flameCd = (z.flameCd || 0) - dt;
+  if (z.flameCd > 0 || g.flames.length >= FLAME_CAP) return;
+  z.flameCd = .05;
+  const a = rnd(0, 6.283), reach = rnd(0, z.r * .8);
+  g.flames.push({
+    x: z.x + Math.cos(a) * reach, y: z.y + Math.sin(a) * reach,
+    vx: z.mvx * .3 + rnd(-22, 22), vy: z.mvy * .3 + rnd(-22, 22),
+    l: rnd(.26, .5), max: .5, r: rnd(2.2, 4.6), growth: rnd(14, 30), rise: rnd(28, 62)
+  });
+}
+
+// Everything on fire this frame, on whichever end is looking at it. The host has already run the
+// rules and the guest has not, but the picture is made from the same three facts either way.
+//
+// It is drawn along `aim` rather than the exact line the damage cone uses, because `aim` is what
+// crosses the wire — a guest is never told where a partner's mouse is pointing, only which way
+// they are facing. The two differ by the offset between the body and the hand, which at this
+// range disappears inside a cone this wide.
+function showFire(g, dt) {
+  for (const p of g.players) {
+    if (!p.flaming || p.down) continue;
+    const h = gunHand(p);
+    emitFlame(g, h.x, h.y, p.aim, dt);
+  }
+  for (const z of g.zombies) if (!z.gone && z.burn > 0) emitBurning(g, z, dt);
+  SND.flame(g.players.some(p => p.flaming && !p.down) ? 1 : 0);
+}
+
 function ageBlasts(g, dt) {
   for (let i = g.blasts.length - 1; i >= 0; i--) {
     const blast = g.blasts[i];
@@ -2218,6 +2407,8 @@ function presentFrame(g, dt) {
   ageCarSmoke(g, dt);
   ageBlasts(g, dt);
   ageDebris(g, dt);
+  showFire(g, dt);
+  ageFlames(g, dt);
   // The muzzle flash on a patrol car is lit by the rule that fires the gun and put out by the
   // frame that follows. A peer that runs no rules still has to put it out, and has to do so
   // before the notes are read, or a flash lit this frame would be dark by the time it is drawn.
@@ -2260,7 +2451,8 @@ function drawHud(g) {
   const p = g.p;
   UI.level.textContent = g.level;
   UI.parcels.textContent = p.carried ? `${g.delivered}/${g.need} +${p.carried}` : `${g.delivered}/${g.need}`;
-  UI.ammo.textContent = g.madness ? '∞' : p.ammo;
+  // Madness never counts rounds, so the slot says what is in the courier's hands instead.
+  UI.ammo.textContent = g.madness ? (p.weapon === 1 ? 'FLAME' : '∞') : p.ammo;
   UI.hp.textContent = '♥'.repeat(Math.max(0, p.hp)) + '·'.repeat(clamp(p.hpMax - p.hp, 0, p.hpMax));
   // On a shift of two, how the other one is doing is worth a glance without looking away from
   // the street. Alone, the readout is not there at all rather than saying nothing.

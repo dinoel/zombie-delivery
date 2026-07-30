@@ -10,7 +10,7 @@ const SND = window.TownGame.audio;
 // rules flip the flashlight themselves when the battery dies. Counting presses instead lets the
 // same record describe a local key and a key pressed across a network, and lets whoever owns the
 // simulation decide what the press means.
-let torchPresses = 0, sneakPresses = 0;
+let torchPresses = 0, sneakPresses = 0, weaponPresses = 0;
 
 // ---------- input ----------
 addEventListener('keydown', e => {
@@ -18,6 +18,7 @@ addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) e.preventDefault();
   if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyF') torchPresses++;
   if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyC') sneakPresses++;
+  if (!runtime.keys[code] && runtime.state === 'play' && runtime.game && code === 'KeyQ') weaponPresses++;
   if (!runtime.keys[code] && code === 'KeyM') SND.toggle();
   // Pause freezes the district but keeps the frame on screen. A district shared with somebody
   // else belongs to both of them, so only the end running the rules may stop it — a guest that
@@ -31,7 +32,7 @@ addEventListener('keydown', e => {
       return;
     }
     runtime.state = runtime.state === 'play' ? 'paused' : 'play';
-    if (runtime.state === 'paused') SND.rain(0);
+    if (runtime.state === 'paused') { SND.rain(0); SND.flame(0); }
     if (net) net.sendPause(runtime.state === 'paused');
     runtime.keys[code] = 1;
     return;                                   // A paused game must not also fire or start a district.
@@ -137,18 +138,19 @@ function readLocalInput(g, p) {
   rec.finish = !!runtime.keys.KeyE;
   rec.aimScreen = runtime.mouse.active;
   rec.sx = runtime.mouse.sx; rec.sy = runtime.mouse.sy;
-  rec.torchSeq = torchPresses; rec.sneakSeq = sneakPresses;
+  rec.torchSeq = torchPresses; rec.sneakSeq = sneakPresses; rec.weaponSeq = weaponPresses;
   return rec;
 }
 
 // The partner in the local harness. Two couriers on one keyboard is not a way to play — there
 // is one screen, one camera and one mouse — but it is the only way to exercise the rules that
 // exist solely because there are two of them, without a network in the way.
-let partnerTorch = 0, partnerSneak = 0;
+let partnerTorch = 0, partnerSneak = 0, partnerWeapon = 0;
 addEventListener('keydown', e => {
   if (runtime.keys[e.code] || runtime.state !== 'play' || !runtime.game) return;
   if (e.code === 'Slash') partnerTorch++;
   if (e.code === 'Period') partnerSneak++;
+  if (e.code === 'Comma') partnerWeapon++;
 });
 function readSecondInput(g, p) {
   const keys = runtime.keys;
@@ -165,7 +167,7 @@ function readSecondInput(g, p) {
   rec.fire = !!keys.Numpad0 || !!keys.ControlRight;
   rec.finish = !!keys.Numpad1;
   rec.aimScreen = false;                     // No second mouse: the partner shoots where they walk.
-  rec.torchSeq = partnerTorch; rec.sneakSeq = partnerSneak;
+  rec.torchSeq = partnerTorch; rec.sneakSeq = partnerSneak; rec.weaponSeq = partnerWeapon;
   return rec;
 }
 

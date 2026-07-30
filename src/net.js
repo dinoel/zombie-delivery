@@ -202,7 +202,7 @@ function encodeSnapshot(g, ack) {
   for (const z of g.zombies) {
     if (z.gone) continue;
     live.push([z.id, q1(z.x), q1(z.y), q2(z.ang), z.hp, q2(z.notice), q2(z.hunt), q1(z.walk),
-      flag(z.headless, 0) | flag(z.silent, 1) | ((z.lostArms || 0) << 2)]);
+      flag(z.headless, 0) | flag(z.silent, 1) | ((z.lostArms || 0) << 2), q2(z.burn || 0)]);
   }
   return {
     t: 's', ack, k: ++snapshotSerial,
@@ -211,7 +211,11 @@ function encodeSnapshot(g, ack) {
     pl: g.players.map(p => [q1(p.x), q1(p.y), q1(p.vx), q1(p.vy), q2(p.ang), q2(p.aim),
       p.hp, p.ammo, q2(p.batt), q2(p.stam), p.carried, q2(p.inv), q2(p.stagger), q1(p.walk),
       q2(p.reviveT),
-      flag(p.torch, 0) | flag(p.sneaking, 1) | flag(p.running, 2) | flag(p.moving, 3) | flag(p.down, 4)]),
+      // Holding the trigger on the flamethrower is one bit, and it is the whole weapon on the
+      // wire. There is no flame entity to send: the far end has a position, an aim and this, and
+      // draws the entire jet for itself.
+      flag(p.torch, 0) | flag(p.sneaking, 1) | flag(p.running, 2) | flag(p.moving, 3) |
+      flag(p.down, 4) | flag(p.flaming, 5)]),
     z: live,
     // The fuse travels because it is the only warning a wreck gives before it goes up, and a
     // guest reading it a beat late is a guest standing next to a car it thought was safe.
@@ -265,6 +269,7 @@ function applySnapshot(g, s) {
     p.inv = row[11]; p.stagger = row[12]; p.reviveT = row[14];
     p.torch = has(bits, 0); p.sneaking = has(bits, 1);
     p.running = has(bits, 2); p.moving = has(bits, 3); p.down = has(bits, 4);
+    p.flaming = has(bits, 5);
   }
 
   // The roster was built from the seed, so nothing is created here — the horde is only narrowed
@@ -277,6 +282,7 @@ function applySnapshot(g, s) {
     z.x = row[1]; z.y = row[2]; z.ang = row[3]; z.walk = row[7];
     z.hp = row[4]; z.notice = row[5]; z.hunt = row[6];
     z.headless = has(row[8], 0); z.silent = has(row[8], 1); z.lostArms = row[8] >> 2;
+    z.burn = row[9];
     z.gone = false;
     g.zombies.push(z);
   }

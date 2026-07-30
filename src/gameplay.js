@@ -324,6 +324,22 @@ function damageZombie(g, z, amount, dx, dy) {
   updateZombieDismemberment(g, z, dx, dy);
 }
 
+// What one round does where it lands. Lifted out of the bullet loop when rounds learned to go
+// through more than one body, so a heavy round does to the third body exactly what it did to the
+// first — the same wound, the same shove, the same reason to turn on whoever fired it.
+function hitZombieWithBullet(g, b, z) {
+  const bulletSpeed = Math.hypot(b.vx, b.vy) || 1;
+  const dmg = b.dmg || 1;
+  damageZombie(g, z, dmg, b.vx, b.vy); z.hit = .2; z.alert = 6;
+  z.kx += b.vx * .12 * dmg; z.ky += b.vy * .12 * dmg;
+  z.bleed = Math.min(7, (z.bleed || 0) + (z.kind === 'brute' ? 3.8 : 2.7) * dmg);
+  z.bleedCd = 0;
+  if (b.own) { z.foeCar = b.own; z.foeCd = rnd(2.2, 3.6); }   // Being shot at makes the shooter the new target.
+  sprayZombieBlood(g, z, b.x, b.y, b.vx / bulletSpeed, b.vy / bulletSpeed,
+    z.kind === 'brute' ? 18 : 14, z.kind === 'brute' ? 1.08 : 1);
+  if (z.hp <= 0) killZombie(g, z); else SND.play('hit', b.x, b.y);
+}
+
 // Continuous bullet-to-circle intersection: at low FPS one bullet step is longer
 // than a zombie body, so endpoint-only tests allowed shots to pass through.
 function segmentCircleT(x1, y1, x2, y2, cx, cy, radius) {
@@ -381,12 +397,45 @@ function killZombie(g, z) {
 }
 
 // ---------- patrol gunfire ----------
-const COP_RANGE = 330;            // Anything further is hopeless from a moving car.
 const COP_CD = [.42, .8];         // Cadence, not an ammunition count: the patrol never runs dry.
-const COP_DMG = .5;               // Half a hit, so a standard walker takes four.
-const COP_BV = 700;
 const COP_AGGRO = 250;            // A patrol closer than this becomes a target for the horde.
 const COP_DROP = 420;             // And is forgotten past this range.
+
+// What a patrol is holding. A night shift issues the service weapon out of a side window; madness
+// bolts a heavy gun to the roof and hands the crew a belt nobody counts. Firing is one code path
+// and the difference between the two is a row here rather than a branch inside it.
+//
+// The heavy gun is deliberately worse per round than an aimed service shot. It gets its effect
+// from how many rounds there are: a burst that lands three from nine reads as a machine gun,
+// while one that landed eight would read as a turret and would empty a street faster than
+// madness can fill it. What it does have is weight — a round goes through the body it hits and
+// keeps going, so a queue of the horde walking at the car is a bad place to stand rather than a
+// wall the patrol has to chew through one at a time.
+const GUNS = Object.freeze({
+  service: Object.freeze({
+    speed: 700, dmg: .5,          // Half a hit, so a standard walker takes four.
+    range: 330,                   // Anything further is hopeless from a moving car.
+    pierce: 0, phantom: true,     // A miss is not a real round; see below.
+    acc: .45, sway: .1,           // Hit chance standing still, and what a car at full speed costs.
+    wild: [6, 32], drift: 4,      // Pixels a miss is thrown wide by, and the wobble left on an aimed one.
+    flash: .07, sparks: 3, noise: 300, roof: false, sound: 'copshot'
+  }),
+  heavy: Object.freeze({
+    speed: 1050, dmg: 2,          // A walker in one round, a brute in two, a tank in five.
+    range: 430,
+    pierce: 2, phantom: false,    // Every round is real: a burst into a crowd should find somebody.
+    acc: .3, sway: .12,
+    wild: [10, 52], drift: 9,
+    flash: .055, sparks: 6, noise: 420, roof: true, sound: 'mgshot'
+  })
+});
+const MG_ROF = .075;              // Seconds between rounds while the trigger is held.
+const MG_BURST = [5, 12];         // How many go before the gunner lets go of it,
+const MG_PAUSE = [1.2, 2.4];      // and how long the barrel gets before the next burst.
+const MG_SWING = 3.4;             // Radians a second the mount can traverse. It is the real limit on
+                                  // the gun: it cannot snap from one body to the next, so the rounds
+                                  // walk across the street and some of them land on the way.
+const TAU = Math.PI * 2;
 
 // The patrol does not fire through houses, hedges, or parked cars.
 function shotBlocked(g, x0, y0, x1, y1) {
@@ -398,12 +447,12 @@ function shotBlocked(g, x0, y0, x1, y1) {
 }
 
 // Nearest zombie in the clear; only the closest few are ray-checked.
-function policeTarget(g, c) {
+function policeTarget(g, c, range) {
   const near = [];
   for (const z of g.zombies) {
     if (z.gone) continue;
     const dx = z.x - c.x, dy = z.y - c.y, d2 = dx * dx + dy * dy;
-    if (d2 <= COP_RANGE * COP_RANGE) near.push({ z, d2 });
+    if (d2 <= range * range) near.push({ z, d2 });
   }
   near.sort((a, b) => a.d2 - b.d2);
   for (let i = 0; i < near.length && i < 4; i++)
@@ -411,49 +460,88 @@ function policeTarget(g, c) {
   return null;
 }
 
-function policeFire(g, c, z) {
-  // Whichever side window faces the target; the muzzle follows the deformed body.
+// Where the roof mount is pointing. It traverses every frame rather than only on the frames it
+// fires, so a burst walks across the street from one body to the next instead of appearing
+// already lined up on it, and the rounds fired while it is still coming round go wide on their
+// own — no accuracy figure has to be invented for them.
+function swingMount(c, dt, gun) {
+  const z = c.copPrey;
+  if (!z || z.gone) return;
+  const flight = Math.hypot(z.x - c.x, z.y - c.y) / gun.speed;
+  const want = Math.atan2(z.y + z.mvy * flight - c.y, z.x + z.mvx * flight - c.x);
+  if (c.copAim === null) { c.copAim = want; return; }   // First sighting: the crew is already looking.
+  let d = want - c.copAim;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  c.copAim += clamp(d, -MG_SWING * dt, MG_SWING * dt);
+}
+
+function policeFire(g, c, z, gun) {
+  // A roof gun fires over the car in whatever direction the mount is pointing. The service weapon
+  // goes out of whichever side window faces the target, and its muzzle follows the deformed body.
   const side = ((z.x - c.x) * -c.hy + (z.y - c.y) * c.hx) > 0 ? 1 : -1;
-  const m = bodyPointWorld(c, 0, side * 8.3);
-  c.copSide = side; c.copFlash = .07;
+  const m = gun.roof ? bodyPointWorld(c, -7, 0) : bodyPointWorld(c, 0, side * 8.3);
+  c.copSide = side; c.copFlash = gun.flash;
 
   // A shot from a moving car is a bad shot. The nominal figure runs a few points above
   // the target band: some aimed shots are still eaten by hedges, traffic, and other bodies,
   // so the measured rate lands at roughly 40 % standing still and 30 % at full speed.
-  const acc = .45 - .1 * clamp(c.v / (c.baseMax || c.max || 1), 0, 1);
+  const acc = gun.acc - gun.sway * clamp(c.v / (c.baseMax || c.max || 1), 0, 1);
   const hitIntended = Math.random() < acc;
   const range = Math.hypot(z.x - m.x, z.y - m.y) || 1;
-  const flight = range / COP_BV;
+  const flight = range / gun.speed;
   const aimX = z.x + z.mvx * flight, aimY = z.y + z.mvy * flight;   // Lead, or the target simply walks out of the shot.
-  let a = Math.atan2(aimY - m.y, aimX - m.x);
+  let a = gun.roof ? c.copAim : Math.atan2(aimY - m.y, aimX - m.x);
   // The deflection is measured in pixels rather than degrees: a fixed angle still
   // lands on the target at close range, and the miss rate would drift with distance.
-  if (!hitIntended) a += (Math.random() < .5 ? -1 : 1) * (z.r + 7 + rnd(6, 32)) / range;
-  else a += rnd(-4, 4) / range;
+  if (!hitIntended) a += (Math.random() < .5 ? -1 : 1) * (z.r + 7 + rnd(gun.wild[0], gun.wild[1])) / range;
+  else a += rnd(-gun.drift, gun.drift) / range;
 
   const ca = Math.cos(a), sa = Math.sin(a);
-  // A miss stays a miss: without this the deflection lands on a neighbour in the crowd
-  // and the patrol's real hit rate climbs far above the intended one.
+  // A service miss stays a miss: without this the deflection lands on a neighbour in the crowd
+  // and the patrol's real hit rate climbs far above the intended one. The heavy gun is the other
+  // way round on purpose — it is spraying, so a round thrown wide is still a round in the air and
+  // whoever it finds is who it finds.
   g.bullets.push({
     x: m.x + ca * 7, y: m.y + sa * 7, px: m.x + ca * 7, py: m.y + sa * 7,
-    vx: ca * COP_BV, vy: sa * COP_BV, l: .5, own: c, dmg: COP_DMG, whiff: !hitIntended
+    vx: ca * gun.speed, vy: sa * gun.speed, l: .5, own: c, dmg: gun.dmg,
+    pierce: gun.pierce, heavy: gun.roof, whiff: gun.phantom && !hitIntended
   });
-  for (let k = 0; k < 3; k++)
+  for (let k = 0; k < gun.sparks; k++)
     g.parts.push({ x: m.x + ca * 8, y: m.y + sa * 8, vx: ca * rnd(30, 110) + rnd(-40, 40),
       vy: sa * rnd(30, 110) + rnd(-40, 40), l: rnd(.08, .2), c: '#cfe4ff', s: rnd(2, 3) });
-  SND.play('copshot', m.x, m.y);
-  makeNoise(g, c.x, c.y, 300, 4);          // Gunfire draws the horde to the car, not to the courier.
+  SND.play(gun.sound, m.x, m.y);
+  emit(g, EV.copshot, m.x, m.y, c.id, a, gun.roof ? 1 : 0, side);
+  // Gunfire draws the horde to the car, not to the courier. A burst is one noise rather than
+  // twelve, so the roof gun makes its own where the burst begins.
+  if (!gun.roof) makeNoise(g, c.x, c.y, gun.noise, 4);
 }
 
 function updatePoliceFire(g, c, dt) {
   c.copFlash = Math.max(0, c.copFlash - dt);
-  if (c.broken || g.done) return;
+  if (c.broken || g.done) { c.copPrey = null; return; }
+  const gun = g.madness ? GUNS.heavy : GUNS.service;
+  if (gun.roof) swingMount(c, dt, gun);
   c.copCd -= dt;
   if (c.copCd > 0) return;
-  const z = policeTarget(g, c);
-  if (!z) { c.copCd = .18; return; }        // Nothing in sight: check again shortly.
-  c.copCd = rnd(COP_CD[0], COP_CD[1]);
-  policeFire(g, c, z);
+  const z = policeTarget(g, c, gun.range);
+  c.copPrey = z;
+  if (!z) { c.copCd = .18; c.copBurst = 0; return; }   // Nothing in sight: check again shortly.
+  if (!gun.roof) { c.copCd = rnd(COP_CD[0], COP_CD[1]); policeFire(g, c, z, gun); return; }
+  // A belt is not fired one round at a time. The trigger goes down for a handful of them and
+  // then comes up, which is the whole difference between a machine gun and a fast pistol.
+  //
+  // The horde hears the burst, once, where it started. Noticing every round separately re-pointed
+  // everything within four hundred pixels at the car four times a second, which glued the whole
+  // street to it and had all three patrols pulled apart inside half a minute — the gun was
+  // drawing far more of the horde than it could possibly cut down.
+  if (c.copBurst <= 0) {
+    c.copBurst = Math.round(rnd(MG_BURST[0], MG_BURST[1]));
+    makeNoise(g, c.x, c.y, gun.noise, 4);
+  }
+  policeFire(g, c, z, gun);
+  c.copBurst--;
+  c.copCd = c.copBurst > 0 ? MG_ROF : rnd(MG_PAUSE[0], MG_PAUSE[1]);
 }
 
 // ---------- infighting ----------
@@ -1110,26 +1198,30 @@ function update(g, dt) {
       }
     }
     if (!gone && !b.whiff) {
-      let zombieHit = null, zombieT = 2;
+      // A round with weight behind it does not stop at the first body. Everything the flight path
+      // of this frame crosses is collected and struck in the order it is standing in, and the
+      // round only stops — back where the last one was — once it runs out of what it can push
+      // through. Ordinary rounds have nothing to push through and stop at the first, which is the
+      // same thing the nearest-hit search did before.
+      const line = [];
       for (const z of g.zombies) {
-        if (z.gone) continue;
+        if (z.gone || (b.through && b.through.indexOf(z) >= 0)) continue;
         const t = segmentCircleT(b.px, b.py, b.x, b.y, z.x, z.y, z.r + 3);
-        if (t !== null && t < zombieT) { zombieHit = z; zombieT = t; }
+        if (t !== null) line.push({ z, t });
       }
-      if (zombieHit) {
-      const z = zombieHit;
-      b.x = b.px + (b.x - b.px) * zombieT; b.y = b.py + (b.y - b.py) * zombieT;
-      const bulletSpeed = Math.hypot(b.vx, b.vy) || 1;
-      const dmg = b.dmg || 1;
-      damageZombie(g, z, dmg, b.vx, b.vy); z.hit = .2; z.alert = 6;
-      z.kx += b.vx * .12 * dmg; z.ky += b.vy * .12 * dmg;
-      z.bleed = Math.min(7, (z.bleed || 0) + (z.kind === 'brute' ? 3.8 : 2.7) * dmg);
-      z.bleedCd = 0;
-      if (b.own) { z.foeCar = b.own; z.foeCd = rnd(2.2, 3.6); }   // Being shot at makes the shooter the new target.
-      sprayZombieBlood(g, z, b.x, b.y, b.vx / bulletSpeed, b.vy / bulletSpeed,
-        z.kind === 'brute' ? 18 : 14, z.kind === 'brute' ? 1.08 : 1);
-      if (z.hp <= 0) killZombie(g, z); else SND.play('hit', b.x, b.y);
-      gone = 'z';
+      if (line.length) {
+        line.sort((a, o) => a.t - o.t);
+        const ex = b.x, ey = b.y;                 // Where this frame of flight would have ended.
+        for (const struck of line) {
+          b.x = b.px + (ex - b.px) * struck.t; b.y = b.py + (ey - b.py) * struck.t;
+          hitZombieWithBullet(g, b, struck.z);
+          if (!b.pierce) { gone = 'z'; break; }
+          b.pierce--;
+          // The round is still travelling and it pushed the body along with it, so without a note
+          // of who it has already been through it would strike the same one again next frame.
+          (b.through || (b.through = [])).push(struck.z);
+        }
+        if (!gone) { b.x = ex; b.y = ey; }        // Through everybody, and still going.
       }
     }
     // A lantern hangs above the street, so it is the last thing a shot can meet: anything
@@ -1923,6 +2015,26 @@ function playEvents(g) {
       case EV.ring:
         g.rings.push({ x, y, r: 10, max: e[3], l: .55 });
         break;
+      // A patrol firing is the one loud thing a watching peer used to miss entirely: the rounds
+      // arrived in the snapshot as positions with nobody having fired them. With a machine gun on
+      // the roof that silence is the difference between a gunfight and a light show, so the note
+      // also carries which car and which way the mount was pointing — the guest never runs the
+      // targeting, and a turret frozen forwards while its barrel spits sideways is worse than none.
+      case EV.copshot: {
+        const heavy = e[5];
+        for (const c of g.cars) if (c.id === e[3]) {
+          c.copFlash = heavy ? GUNS.heavy.flash : GUNS.service.flash;
+          c.copSide = e[6];
+          if (heavy) c.copAim = e[4];
+          break;
+        }
+        SND.play(heavy ? 'mgshot' : 'copshot', x, y);
+        for (let k = 0; k < (heavy ? 6 : 3); k++)
+          g.parts.push({ x, y, vx: Math.cos(e[4]) * rnd(30, 110) + rnd(-40, 40),
+                         vy: Math.sin(e[4]) * rnd(30, 110) + rnd(-40, 40),
+                         l: rnd(.08, .2), c: '#cfe4ff', s: rnd(2, 3) });
+        break;
+      }
       case EV.down: SND.play('hurt', e[2], e[3]); break;
       case EV.revive: SND.play('pick', e[2], e[3]); break;
       case EV.deliver: SND.play('deliver', x, y); break;
@@ -1997,6 +2109,10 @@ function presentFrame(g, dt) {
   ageCarSmoke(g, dt);
   ageBlasts(g, dt);
   ageDebris(g, dt);
+  // The muzzle flash on a patrol car is lit by the rule that fires the gun and put out by the
+  // frame that follows. A peer that runs no rules still has to put it out, and has to do so
+  // before the notes are read, or a flash lit this frame would be dark by the time it is drawn.
+  for (const c of g.cars) if (c.copFlash > 0) c.copFlash = Math.max(0, c.copFlash - dt);
   playEvents(g);
   watchDistrictEnd(g);
   drawHud(g);

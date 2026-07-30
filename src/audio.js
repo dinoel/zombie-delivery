@@ -233,6 +233,21 @@ const SND = (() => {
                       crack(.075, 300, 95, .52 * v, P, .9, 'lowpass');
                       crack(.2, 880, 360, .1 * v, P, .6, 'bandpass', .012);
                       tone(112, 46, .07, 'triangle', .26 * v, P, 0, .001); break;
+      // The heavy gun on the madness patrol. Everything the service weapon has, an octave down and
+      // with the low end doing the work: the click is duller because a big round leaves slower,
+      // the body is longer, and there is a thump underneath that the pistol does not have. The
+      // street tail gets a bigger send than anything else in the game, because the one thing a
+      // heavy calibre does that nothing else does is come back off the buildings a moment later.
+      case 'mgshot': {
+        const j = rnd(.9, 1.12);
+        impulse(.55 * v, P, .55);
+        crack(.02, 3100 * j, 1400, .42 * v, P, .6, 'highpass', 0, .4);
+        crack(.11, 520 * j, 130, .78 * v, P, .8, 'lowpass', 0, .6);
+        crack(.055, 1500 * j, 480, .3 * v, P, .8, 'bandpass', .002, .45);
+        tone(74 * j, 32, .13, 'triangle', .52 * v, P, 0, .001, .35);   // The thump under it.
+        crack(.026, 240, 90, .34 * v, P, .7, 'lowpass', .05, .3);      // Bolt slamming home.
+        break;
+      }
       case 'hit':   crack(.09, 800, 190, .5 * v, P, 1.4, 'bandpass'); break;
       case 'wall':  crack(.05, 3800, 1700, .26 * v, P, 2.2, 'bandpass'); break;
       case 'die':   crack(.26, 620, 100, .5 * v, P, .9, 'bandpass');

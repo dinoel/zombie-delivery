@@ -67,10 +67,22 @@ function district(madness) {
   assert.ok(g.reserve.length > 40, `the bench should be deep (was ${g.reserve.length})`);
   assert.ok(g.ground && g.ground.length > 50, 'and there should be somewhere to arrive from');
 
-  const benchAtStart = g.reserve.length;
-  step(45, 1 / 60, true);
+  // How long the bench is says more about how hard the patrol is working than about where
+  // arrivals come from, so this watches identities instead: whoever ends up on the bench without
+  // having started there fell, and seeing one of those walk again is the whole promise of the
+  // mode — nobody is created and nobody is spent. The bench is a stack, so under real pressure it
+  // is the recently fallen that return rather than whoever has been waiting longest. That is
+  // fine, because a body coming off it has been put back to exactly how it was built.
+  const waiting = new Set(g.reserve);
+  const buried = new Set();
+  let recycled = 0;
+  for (let n = 0; n < 180; n++) {
+    step(.25, 1 / 60, true);
+    for (const z of g.reserve) if (!waiting.has(z)) buried.add(z);
+    for (const z of g.zombies) if (buried.has(z)) { recycled++; buried.delete(z); }
+  }
   assert.ok(g.spawned > 10, `arrivals should be steady inside a minute (spawned ${g.spawned})`);
-  assert.ok(g.reserve.length < benchAtStart, 'and they should have come off the bench');
+  assert.ok(recycled > 0, 'and a body that falls should come back out as somebody new');
   for (const z of g.zombies) {
     assert.ok(built.has(z.id), 'every zombie on the street must be one the district was built with');
     assert.ok(objects.has(z), 'and must be the same object, not a copy of it');
@@ -108,6 +120,98 @@ function district(madness) {
   assert.ok(g.zombies.length <= 64, `and stay inside its cap (was ${g.zombies.length})`);
   assert.ok(g.spawned > 60, `arrivals should keep coming for as long as it runs (spawned ${g.spawned})`);
   assert.ok(g.reserve.length > 0, 'and the bench should never run dry and quietly end the mode');
+}
+
+{
+  // The patrol carries a different weapon in madness, and it is a different weapon rather than
+  // the same one fired faster: it goes on the roof, it goes through bodies, and the belt is never
+  // counted. A night shift must not have picked any of that up.
+  const shift = district(false), mad = district(true);
+  const shiftPatrol = shift.g.cars.filter(c => c.police);
+  const madPatrol = mad.g.cars.filter(c => c.police);
+  assert.ok(madPatrol.length > 0, 'madness should still put a patrol on the street');
+  assert.equal(shiftPatrol.length, madPatrol.length, 'and the same number of them');
+  assert.ok(shiftPatrol.every(c => !c.roofGun), 'a night shift patrol carries the service weapon');
+  assert.ok(madPatrol.every(c => c.roofGun), 'a madness patrol carries the gun on the roof');
+
+  // Every round a patrol puts up in a minute, recorded as it leaves rather than read off the
+  // object afterwards: a heavy round spends its penetration on the way and would look like an
+  // ordinary one by the time the run ends.
+  const rounds = gun => {
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < 60 * 60; i++) {
+      gun.step(1 / 60, 1 / 60, true);
+      for (const b of gun.g.bullets) if (b.own && !seen.has(b)) {
+        seen.add(b);
+        out.push({ heavy: !!b.heavy, pierce: b.pierce || 0, dmg: b.dmg, whiff: !!b.whiff });
+      }
+    }
+    return out;
+  };
+  const service = rounds(shift), heavy = rounds(mad);
+  assert.ok(service.length > 20 && heavy.length > 20,
+    `both patrols should have fired (${service.length} service, ${heavy.length} heavy)`);
+  assert.ok(heavy.length > service.length * 2,
+    `a machine gun should put out far more rounds than a service pistol ` +
+    `(${heavy.length} against ${service.length} in the same minute)`);
+  assert.ok(heavy.every(b => b.heavy && b.pierce > 0 && b.dmg >= 2),
+    'every madness round should be a heavy one that goes through what it hits');
+  assert.ok(service.every(b => !b.heavy && !b.pierce && b.dmg < 1),
+    'and no service round should have picked any of that up');
+  // A miss out of a service weapon is a phantom, so it cannot land on a neighbour and inflate the
+  // patrol's real hit rate. A burst into a crowd is the opposite case and every round is real.
+  assert.ok(service.some(b => b.whiff), 'a service patrol should still miss');
+  assert.ok(heavy.every(b => !b.whiff), 'while a burst puts real rounds in the air, hit or not');
+
+  assert.ok(madPatrol.every(c => !('copAmmo' in c)), 'nothing on the car counts rounds');
+}
+
+{
+  // The belt is never counted, which is what makes it a belt. A mode that quietly ran the patrol
+  // dry would look identical for the first minute, so this holds one car together on purpose and
+  // watches its rate of fire over four minutes rather than whether it survives them — the horde
+  // wrecking the crew is a different claim, and it would hide this one.
+  const { g, env } = district(true);
+  const car = g.cars.find(c => c.police);
+  const seen = new Set();
+  let early = 0, late = 0;
+  for (let i = 0; i < 240 * 60; i++) {
+    g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
+    car.broken = false; car.zombieLoad = 0;          // The crew is not what is being measured.
+    env.TownGame.gameplay.update(g, 1 / 60);
+    for (const b of g.bullets) if (b.own === car && !seen.has(b)) {
+      seen.add(b);
+      if (i < 60 * 60) early++; else if (i >= 180 * 60) late++;
+    }
+  }
+  assert.ok(early > 60, `a machine gun should put out real volume (${early} rounds in the first minute)`);
+  assert.ok(late > early * .6,
+    `and should be firing just as freely three minutes later (${early} then, ${late} now)`);
+}
+
+{
+  // A heavy round goes through the body it hits. Set up as a queue standing in a line, because
+  // that is exactly the case the gun exists for and the case a first-hit-only bullet gets wrong.
+  const { g, env } = district(true);
+  const line = g.zombies.slice(0, 4);
+  assert.ok(line.length === 4, 'the district should have bodies to line up');
+  for (let i = 0; i < line.length; i++) {
+    line[i].x = 600 + i * 40; line[i].y = 600; line[i].gone = false;
+    line[i].hp = line[i].maxHp = 20;            // Deep enough that nobody falls and leaves a gap.
+  }
+  for (const z of g.zombies) if (line.indexOf(z) < 0) { z.x = -4000; z.y = -4000; }
+  g.bullets.length = 0;
+  g.bullets.push({ x: 560, y: 600, px: 560, py: 600, vx: 1050, vy: 0, l: .5,
+                   own: g.cars[0], dmg: 2, pierce: 2, heavy: true });
+  const before = line.map(z => z.hp);
+  for (let i = 0; i < 30; i++) env.TownGame.gameplay.update(g, 1 / 60);
+  const hurt = line.filter((z, i) => z.hp < before[i]).length;
+  assert.equal(hurt, 3, `one heavy round should reach three of a queue of four (reached ${hurt})`);
+
+  // And the same round must not strike the same body twice as it travels through it.
+  assert.ok(line.every((z, i) => before[i] - z.hp <= 2),
+    'a round should wound each body it passes through exactly once');
 }
 
 {

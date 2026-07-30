@@ -289,8 +289,11 @@ function applySnapshot(g, s) {
     c.broken = has(row[10], 0);
   }
 
+  // Whether a round is heavy is not sent: in madness every patrol round is one, and outside it
+  // none of them are, so the one bit it would cost is a bit both ends already hold.
   rebuild(g.bullets, s.b, row => ({ x: row[0], y: row[1], px: row[0], py: row[1],
-    vx: row[2], vy: row[3], l: row[4], own: row[5] ? true : undefined }));
+    vx: row[2], vy: row[3], l: row[4], own: row[5] ? true : undefined,
+    heavy: !!(row[5] && g.madness) }));
   rebuild(g.zombieShots, s.f, row => ({ x: row[0], y: row[1], px: row[0], py: row[1],
     vx: row[2], vy: row[3], l: row[4], r: row[5], kind: row[6], spin: row[7] }));
   rebuild(g.cash, s.cs, row => ({ x: row[0], y: row[1], n: row[2], vx: 0, vy: 0, ph: row[0] * .1, tilt: 0 }));

@@ -80,9 +80,29 @@ take out — sixty-nine had arrived by seventy seconds, thirteen of them within 
 of the courier and twenty-five more still walking in. Later they come in twos and threes, since a
 street with traffic on it empties faster than one arrival at a time can fill.
 
+The patrol is issued for the occasion. Every patrol car carries a heavy gun on a roof mount
+instead of a service weapon out of the side window, on a belt nobody counts. It is a different
+weapon rather than the same one fired faster: a round is worth four of the old ones, leaves at
+half again the speed, and goes through the body it hits and on into the next two — which is what
+makes a queue walking at the car a bad place to stand rather than a wall the patrol has to chew
+through one at a time. Per round it is deliberately the worse weapon. The mount traverses at a
+fixed rate and cannot snap from one body to the next, so a burst walks across the street and the
+rounds fired while the barrel is still coming round go wide on their own.
+
+It changes the shape of a run rather than the ending of one. Measured over two and a half minutes
+on two seeds: for the first minute all three patrols are alive and hold the street down around
+thirty to forty while the arrivals ramp; between sixty and ninety seconds the horde gets on top of
+them one at a time; after that the street is at its cap and you are on your own. The crew is
+harder to pull out of the cab than an ordinary patrol, because a gun nobody sees working is not
+worth building — and the burst makes its noise once, where it began, rather than once per round.
+Noticing every round re-pointed everything within four hundred pixels at the car four times a
+second, which glued the whole street to it and had all three patrols pulled apart inside half a
+minute.
+
 The numbers worth turning are together in `src/gameplay.js`: `MADNESS_LIVE_CAP`, `MADNESS_SLOW`,
-`MADNESS_FAST`, `MADNESS_RAMP` and `MADNESS_BURST`, with the depth of the bench as
-`MADNESS_RESERVE` in `src/world.js`.
+`MADNESS_FAST`, `MADNESS_RAMP` and `MADNESS_BURST` for the horde, `GUNS`, `MG_ROF`, `MG_BURST`,
+`MG_PAUSE` and `MG_SWING` for the gun, with the depth of the bench as `MADNESS_RESERVE` in
+`src/world.js`.
 
 ## Keeping the district reproducible
 
@@ -196,6 +216,7 @@ The second gameplay pass adds survivability, stealth, and a livelier street:
 - traffic steers around a tank instead of flattening it; a collision costs half the tank's health but wrecks the car's front, and a second one leaves the vehicle barely driveable;
 - patrol cars shoot at zombies within 330 pixels, check the line of fire against houses, hedges, and traffic, lead moving targets, and lose accuracy with speed — about 40 % standing still and 30 % at full speed;
 - patrol gunfire draws the horde to the car rather than to the courier, and a nearby patrol becomes an alternative target for zombies;
+- in madness the patrol carries a roof-mounted heavy gun instead: five to twelve rounds at thirteen a second, then a second or two of quiet, each round worth four service rounds and passing through up to three bodies on its way;
 - a zombie splattered by a neighbour's throw turns on the thrower for eight to thirteen seconds,
   and blows between two of the horde land at thirty per cent of what the same blow costs a
   courier — at full strength a walker put another one down in half a second, which let a street

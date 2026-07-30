@@ -538,6 +538,10 @@ function buildTown(level, couriers = 1, madness = false) {
     c.police = true; c.col = '#eef2f7'; c.max *= 1.35; c.beacon = rnd(0, 6.283);
     c.mass *= 1.12; c.stiffness *= 1.12; c.durability *= 1.18;
     c.copCd = rnd(.3, 1.1); c.copFlash = 0; c.copSide = 1;   // Ammunition is unlimited; only the cadence is limited.
+    // Madness bolts a heavy gun to the roof. The mount has to traverse to point anywhere, so where
+    // it is pointing is state the car carries: null until the crew first sees something worth
+    // swinging onto, and held wherever the last burst left it after that.
+    c.roofGun = madness; c.copAim = null; c.copBurst = 0; c.copPrey = null;
   }
   for (const c of cars) c.baseMax = c.max;
 
@@ -1164,6 +1168,26 @@ function drawCarShape(c, car) {
     c.fillStyle = '#20242c'; roundRect(c, beacon.x - 3.8, beacon.y - 3, 7.6, 6, 1.5); c.fill();
     c.fillStyle = `rgba(255,70,70,${.25 + .75 * rp})`; c.fillRect(beacon.x - 3.2, beacon.y - 2.4, 3.2, 4.8);
     c.fillStyle = `rgba(90,140,255,${.25 + .75 * bp})`; c.fillRect(beacon.x, beacon.y - 2.4, 3.2, 4.8);
+  }
+
+  // The madness gun sits behind the beacon on a mount that turns, so it is drawn in its own frame
+  // rather than through the body mesh: a crumpled roof should dent around the pedestal, not bend
+  // the barrel. Only the pedestal is placed by the mesh; everything above it belongs to the gun.
+  if (car.roofGun) {
+    const base = M(-7, 0);
+    c.save();
+    c.translate(base.x, base.y);
+    c.rotate((car.copAim || 0) - Math.atan2(car.hy, car.hx));
+    c.fillStyle = '#20242c';
+    c.beginPath(); c.arc(0, 0, 4.8, 0, 6.283); c.fill();
+    c.fillStyle = '#2b3138';
+    roundRect(c, -5.5, -3.6, 10, 7.2, 1.4); c.fill();          // Receiver and belt box.
+    c.fillStyle = '#171a1f';
+    c.fillRect(3.5, -1.4, 12.5, 2.8);                          // Barrel,
+    c.fillRect(14.5, -2.3, 3.6, 4.6);                          // and the brake on the end of it.
+    c.fillStyle = 'rgba(120,132,146,.85)';
+    roundRect(c, -1.6, -5.6, 3.2, 11.2, 1); c.fill();          // Shield plate.
+    c.restore();
   }
 
   if (car.honk > 0 && !car.broken) {

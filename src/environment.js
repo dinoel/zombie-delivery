@@ -20,7 +20,7 @@ const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !==
 // memory of anybody firing. So each of those moments is also noted here, and a watching peer
 // replays the noise and the debris from the note instead of from a rule it never ran.
 const EV = Object.freeze({
-  shot: 0, hurt: 1, lamp: 2, blast: 3, ring: 4, down: 5, revive: 6, deliver: 7
+  shot: 0, hurt: 1, lamp: 2, blast: 3, ring: 4, down: 5, revive: 6, deliver: 7, copshot: 8
 });
 function emit(g, code, ...args) {
   if (g.events) g.events.push([code, ...args]);
@@ -610,7 +610,10 @@ function damageCarWithZombie(g, c, z, contact) {
   c.zombieLoad = (c.zombieLoad || 0) + mass;
   damageCar(g, c, hit.impact, hit.nx, hit.ny, 'zombie', hit.x, hit.y);
   SND.play('carHit', z.x, z.y);
-  const limit = (c.police ? 9.5 : 7.25) * (c.durability || 1);
+  // How many bodies a car comes apart under. A patrol carrying the madness gun takes far more,
+  // because it is going to be swarmed by design: the gun is what the horde walks toward, and a
+  // crew pulled out of the cab a few seconds after opening up is a gun nobody ever sees working.
+  const limit = (c.roofGun ? 21 : c.police ? 9.5 : 7.25) * (c.durability || 1);
   if (!c.broken && c.zombieLoad >= limit) disableCar(g, c, 'zombies');
 }
 

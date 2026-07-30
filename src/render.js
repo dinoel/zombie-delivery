@@ -117,34 +117,43 @@ const TRACER = [
   { reach: 1.5, width: 2.6, warm: 'rgba(255,224,140,.52)', cold: 'rgba(186,220,255,.46)' },
   { reach: .55, width: 1.3, warm: '#fff6d8', cold: '#eaf4ff' }
 ];
+// Three kinds of round can be in the air, and they should not look alike, because which one is
+// coming is worth knowing at a glance. The courier's is warm; a service round out of a patrol
+// window is cold and thin; a heavy round off a roof mount is the same cold at twice the width
+// with a longer tail behind it.
+const TRACER_PASSES = [
+  { own: false, heavy: false, tint: 'warm', scale: 1, stretch: 1, head: 1.7, dot: '#fffbe8' },
+  { own: true, heavy: false, tint: 'cold', scale: 1, stretch: 1, head: 1.7, dot: '#f4faff' },
+  { own: true, heavy: true, tint: 'cold', scale: 2.1, stretch: 1.35, head: 2.8, dot: '#ffffff' }
+];
 function drawTracers(g, camx, camy) {
   if (!g.bullets.length) return;
   ctx.lineCap = 'round';
-  for (let pass = 0; pass < 2; pass++) {
+  for (const pass of TRACER_PASSES) {
     for (const layer of TRACER) {
-      ctx.strokeStyle = pass ? layer.cold : layer.warm;
-      ctx.lineWidth = layer.width;
+      ctx.strokeStyle = layer[pass.tint];
+      ctx.lineWidth = layer.width * pass.scale;
       ctx.beginPath();
       let any = false;
       for (const b of g.bullets) {
-        if (!!b.own !== !!pass) continue;
+        if (!!b.own !== pass.own || !!b.heavy !== pass.heavy) continue;
         const hx = b.x - camx, hy = b.y - camy;
         if (hx < -60 || hy < -60 || hx > W + 60 || hy > H + 60) continue;
         // The tail is stretched back past where the round was a frame ago: at this speed one
         // frame of travel is barely ten pixels, which reads as a dash rather than a streak.
-        const dx = b.x - b.px, dy = b.y - b.py;
+        const dx = (b.x - b.px) * pass.stretch, dy = (b.y - b.py) * pass.stretch;
         ctx.moveTo(hx - dx * layer.reach, hy - dy * layer.reach);
         ctx.lineTo(hx, hy);
         any = true;
       }
       if (any) ctx.stroke();
     }
-    ctx.fillStyle = pass ? '#f4faff' : '#fffbe8';
+    ctx.fillStyle = pass.dot;
     for (const b of g.bullets) {
-      if (!!b.own !== !!pass) continue;
+      if (!!b.own !== pass.own || !!b.heavy !== pass.heavy) continue;
       const hx = b.x - camx, hy = b.y - camy;
       if (hx < -8 || hy < -8 || hx > W + 8 || hy > H + 8) continue;
-      ctx.beginPath(); ctx.arc(hx, hy, 1.7, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, pass.head, 0, 6.283); ctx.fill();
     }
   }
   ctx.lineCap = 'butt';
@@ -419,7 +428,23 @@ function draw(g) {
     ctx.translate(c.x, c.y);
     ctx.rotate(Math.atan2(c.hy, c.hx));
     drawCarShape(ctx, c);
-    if (c.copFlash > 0) {                              // Muzzle flash in the open side window.
+    if (c.copFlash > 0 && c.roofGun) {
+      // A gun with a brake on it does not throw the flash forward, it throws it sideways: the
+      // star at the muzzle is what says heavy calibre, more than the barrel does.
+      const a = clamp(c.copFlash / .055, 0, 1);
+      ctx.save();
+      ctx.translate(-7, 0);
+      ctx.rotate((c.copAim || 0) - Math.atan2(c.hy, c.hx));
+      ctx.fillStyle = `rgba(255,236,178,${.9 * a})`;
+      ctx.beginPath();
+      ctx.moveTo(18 + 15 * a, 0);
+      for (let k = 1; k < 7; k++) {                    // Six-pointed star, alternating long and short.
+        const ang = k * Math.PI / 3.5, reach = (k % 2 ? 5.5 : 11) * a + 4;
+        ctx.lineTo(18 + Math.cos(ang) * reach, Math.sin(ang) * reach);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (c.copFlash > 0) {                       // Muzzle flash in the open side window.
       const s = c.copSide, a = clamp(c.copFlash / .07, 0, 1);
       ctx.fillStyle = `rgba(255,241,200,${.85 * a})`;
       ctx.beginPath();

@@ -254,6 +254,12 @@ function collectLights(g, camx, camy) {
     if ((!c.broken || hazardOn) && lights.rearLeft > .22)
       add(rearLeft.x, rearLeft.y, hazardOn ? 43 : 30, tailRgb, (hazardOn ? .8 : .48) * lights.rearLeft, .22, .55, 0, 0, 0, 1, c);
     if (!c.police) continue;
+    // A heavy gun firing at night lights the street it is firing down. It goes in before the
+    // beacon so a burst reads as flashes over the top of the rotating light rather than under it.
+    if (c.copFlash > 0 && c.roofGun) {
+      const m = bodyPointWorld(c, -7, 0);
+      add(m.x, m.y, 250, RGB_MUZZLE, 2.1, .5, 1, c.copAim || 0, .9, 16, 10);
+    }
     if (c.broken && c.hazard <= 0) continue;
     // Beacon: two rotating beams with an additional pulse.
     const b = c.beacon || 0, pulse = .55 + .45 * Math.sin(b * 3.1);

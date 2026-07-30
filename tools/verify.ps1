@@ -72,21 +72,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260730-68',
-  'src/core.js?v=20260730-68',
-  'src/quality.js?v=20260730-68',
-  'src/audio.js?v=20260730-68',
-  'src/car-physics.js?v=20260730-68',
-  'src/environment.js?v=20260730-68',
-  'src/world.js?v=20260730-68',
-  'src/physics.js?v=20260730-68',
-  'src/input.js?v=20260730-68',
-  'src/gameplay.js?v=20260730-68',
-  'src/lighting.js?v=20260730-68',
-  'src/entities.js?v=20260730-68',
-  'src/render.js?v=20260730-68',
-  'src/net.js?v=20260730-68',
-  'src/main.js?v=20260730-68'
+  'src/namespace.js?v=20260730-69',
+  'src/core.js?v=20260730-69',
+  'src/quality.js?v=20260730-69',
+  'src/audio.js?v=20260730-69',
+  'src/car-physics.js?v=20260730-69',
+  'src/environment.js?v=20260730-69',
+  'src/world.js?v=20260730-69',
+  'src/physics.js?v=20260730-69',
+  'src/input.js?v=20260730-69',
+  'src/gameplay.js?v=20260730-69',
+  'src/lighting.js?v=20260730-69',
+  'src/entities.js?v=20260730-69',
+  'src/render.js?v=20260730-69',
+  'src/net.js?v=20260730-69',
+  'src/main.js?v=20260730-69'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -259,6 +259,12 @@ if ($relaySource.Contains('Sec-WebSocket-Extensions:')) {
 }
 
 $lightingCouriers = Get-Content -Raw -LiteralPath (Join-Path $project 'src\lighting.js')
+# A lamp points down: a compact patch on the asphalt plus a weak lift that casts nothing.
+foreach ($lampLightFeature in @('LAMP_POOL_R', 'LAMP_HAZE_R', 'haze.flat = true', '!l.flat', '!L.flat')) {
+  if (-not $lightingCouriers.Contains($lampLightFeature)) {
+    $problems.Add("Street lamp light is missing its shape: $lampLightFeature")
+  }
+}
 $renderSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src/render.js')
 if (-not $renderSource.Contains('function drawTracers(') -or
     -not $renderSource.Contains('drawTracers(g, camx, camy)')) {

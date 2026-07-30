@@ -28,6 +28,17 @@ const LAMP_RANGE = 205;                               // Reach of one street lam
 // Lamps used to flatten the night into an evenly lit stage. A street should be walkable and
 // still feel like somewhere you would rather not be standing, so they throw about a third less.
 const LAMP_INTENSITY = .85;
+// A street lamp points down. From above that is a compact patch on the asphalt under the head,
+// not something spraying sideways across the map, and along a street you should be able to count
+// the patches. Around each one there is a soft lift — the haze a lamp puts into the air — which
+// keeps the road from going black between lamps without being light anyone could read a street by.
+// Two sources per lamp, because those are two different things: one you can see by, and one you
+// can only just see.
+const LAMP_POOL_R = 88;                               // The lit patch itself.
+const LAMP_POOL_INT = 1.55;
+const LAMP_POOL_REACH = 13;                           // A head tilts down and a little out over the road.
+const LAMP_HAZE_R = 220;                              // The lift around it.
+const LAMP_HAZE_INT = .2;
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
 const MAX_FOLIAGE_LOBES = 8;
@@ -193,8 +204,10 @@ function collectLights(g, camx, camy) {
   const out = [];
   const add = (x, y, r, rgb, int, tint, punch, ang, spread, soft, priority = 1, skip) => {
     if (!legacyPerf && (x + r < camx || y + r < camy || x - r > camx + W || y - r > camy + H)) return;
-    out.push({ x, y, r, rgb, int, tint, punch, ang: ang || 0, spread: spread || 0,
-               soft: soft || 0, priority, skip });
+    const light = { x, y, r, rgb, int, tint, punch, ang: ang || 0, spread: spread || 0,
+                    soft: soft || 0, priority, skip };
+    out.push(light);
+    return light;                                     // Handed back so a caller can mark it flat.
   };
 
   // A working street lamp is the main light on the block: it hangs over the asphalt and
@@ -204,8 +217,14 @@ function collectLights(g, camx, camy) {
     if (l.broken) continue;
     const glow = lampGlow(l, g.time);
     if (glow < .02) continue;
-    add(l.hx, l.hy, LAMP_RANGE * (.72 + glow * .28), l.lampRgb || RGB_LAMP,
-        LAMP_INTENSITY * (l.lampPower || 1) * glow, .3, .97, 0, 0, 5, 6);
+    const rgb = l.lampRgb || RGB_LAMP, power = (l.lampPower || 1) * glow;
+    // The haze goes in first so the patch sits nearer the front of the list and keeps its shadows.
+    const haze = add(l.hx, l.hy, LAMP_HAZE_R, rgb,
+                     LAMP_INTENSITY * LAMP_HAZE_INT * power, .26, .4, 0, 0, 0, 4);
+    if (haze) haze.flat = true;                       // A glow in the air casts nothing.
+    add(l.hx + Math.cos(l.ang) * LAMP_POOL_REACH, l.hy + Math.sin(l.ang) * LAMP_POOL_REACH,
+        LAMP_POOL_R * (.82 + glow * .18), rgb,
+        LAMP_INTENSITY * LAMP_POOL_INT * power, .34, .98, 0, 0, 5, 6);
   }
   for (const c of g.cars) {
     if (!legacyPerf && (c.x + 270 < camx || c.y + 270 < camy || c.x - 270 > camx + W || c.y - 270 > camy + H)) continue;
@@ -299,7 +318,7 @@ function drawLight2D(g, camx, camy) {
   for (let i = 0; i < g.lit.length; i++) {
     const l = g.lit[i];
     const col = `rgba(${Math.round(l.rgb[0] * 255)},${Math.round(l.rgb[1] * 255)},${Math.round(l.rgb[2] * 255)},%a)`;
-    const shadows = i < profile.shadowLights;
+    const shadows = i < profile.shadowLights && !l.flat;
     if (!legacyPerf && !shadows)
       paintLightDirect(camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread);
     else paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip, shadows);
@@ -554,7 +573,7 @@ function drawLightGL(g, camx, camy) {
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(bx, H - (by + bh), bw, bh);             // GL coordinates start at the bottom.
 
-    const shadows = li < profile.shadowLights;
+    const shadows = li < profile.shadowLights && !L.flat;
     const occ = shadows && r > 20 ? occNear(g, L.x, L.y, r, L.skip, profile.foliageShadows) : null;
     const foliageCount = profile.foliageShadows && occ
       ? buildFoliageData(occ, L.x, L.y, camx, camy, R.foliageData) : 0;

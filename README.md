@@ -208,6 +208,14 @@ Street lighting is a working part of the district:
   step without a byte crossing between them;
 - the palette is sodium rather than daylight — the whole range sits in the yellows and the
   coolest lamp on a block is a tired white, not a blue one;
+- a lamp points down, so it is two sources rather than one: a compact patch of light on the
+  asphalt under the head, and a much wider, much weaker lift around it — the haze a lamp puts
+  into the air, which keeps a street from going black between lamps without being light anyone
+  could read it by. Measured outward from an isolated lamp, the ground runs 137 luma at the
+  centre, 49 by sixty pixels and about 29 from ninety pixels out to two hundred and fifty, against
+  5 where no lamp reaches at all. The haze casts no shadows, because a glow in the air should not.
+  `LAMP_POOL_R`, `LAMP_POOL_INT`, `LAMP_HAZE_R` and `LAMP_HAZE_INT` in `src/lighting.js` are the
+  four numbers worth turning;
 - a roof is the one surface facing the sky, so it is lit by the sky and by nothing else: no
   street lamp reaches up there, but moonlight does, and a row of houses reads as slate and
   tile rather than as holes cut out of the street.

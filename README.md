@@ -58,6 +58,32 @@ Add `?lag=200` to the URL on either end to put a round trip and some jitter back
 
 On screen, a shift of two reads as one: the HUD carries a compact partner line beside your own health, an arrow points to the partner whenever they are off screen and turns red the moment they go down, and a fallen courier is marked where they fell with a ring that fills as you stand over them. Only the host can pause a shared district — a guest that paused alone would sit watching a still frame while snapshots piled up behind it — and the other end is told so rather than being left to wonder. Neither end runs the rules for ending a district, so the guest watches for the moment the shift is won or lost and puts up the same screen, reading the totals off the district it already has.
 
+## Madness
+
+`MADNESS` on the start screen is the same district with two rules changed: rounds are free, and
+the horde keeps arriving and arrives faster as the night goes on. It works alone or on a shift of
+two — the host chooses, and the choice travels with the seed, because a district built the other
+way is a different district and the fingerprint would say so a moment later anyway.
+
+Nothing is ever created. A snapshot names entities by id and the far end only updates what it
+already holds, so a horde that grew would be a horde a guest could not see. Instead the district
+is built with a reserve nobody is simulating; arrivals come off that bench and bodies go back
+onto it, which is why the mode outlasts the reserve rather than running it dry. A latecomer is
+put back to exactly how it stood when the district was built — what a type decides is left alone,
+only what a life did to it is undone.
+
+They arrive further away than a screen is wide, because something appearing in front of a courier
+reads as a bug rather than as pressure, and they walk in already knowing roughly where the shift
+is. Measured from a standing start: the street goes from forty on it to the cap of sixty-four
+within about a minute and holds there, with arrivals replacing what the traffic and the courier
+take out — sixty-nine had arrived by seventy seconds, thirteen of them within four hundred pixels
+of the courier and twenty-five more still walking in. Later they come in twos and threes, since a
+street with traffic on it empties faster than one arrival at a time can fill.
+
+The numbers worth turning are together in `src/gameplay.js`: `MADNESS_LIVE_CAP`, `MADNESS_SLOW`,
+`MADNESS_FAST`, `MADNESS_RAMP` and `MADNESS_BURST`, with the depth of the bench as
+`MADNESS_RESERVE` in `src/world.js`.
+
 ## Keeping the district reproducible
 
 Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.
@@ -89,7 +115,7 @@ The script reads the load order out of `index.html`, so a new subsystem is picke
 
 terser is fetched on demand through `npx` and pinned to one version, so the build needs a network connection the first time and produces the same output on every run afterwards. Without terser the bundle is still written, unminified, and the script says so. Nothing about this is required to play the game.
 
-Current output: 339 kB of JavaScript compresses to 166 kB, and the whole page is 183 kB — 66 kB gzipped. The bundle is the game only; co-op additionally needs `tools/relay.js` running somewhere both players can reach.
+Current output: 358 kB of JavaScript compresses to 170 kB, and the whole page is 188 kB — 68 kB gzipped. The bundle is the game only; co-op additionally needs `tools/relay.js` running somewhere both players can reach.
 
 `dist/` is generated and is not tracked.
 

@@ -25,7 +25,8 @@ const UI = Object.freeze({
   joinBtn: $('joinBtn'),
   netStatus: $('netStatus'),
   partner: $('partner'),
-  partnerBox: $('partnerBox')
+  partnerBox: $('partnerBox'),
+  mode: $('modeSelect')
 });
 
 const STORAGE_KEYS = Object.freeze({ mute: 'townMute', best: 'townBest', quality: 'townQuality' });

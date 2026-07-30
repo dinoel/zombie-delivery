@@ -161,7 +161,7 @@ function hostDistrict(level) {
 function declareLayout(g, sum) {
   if (role === 'host') {
     hostChecksum = sum;
-    send({ t: 'start', proto: PROTOCOL, level: g.level, seed: g.seed, sum });
+    send({ t: 'start', proto: PROTOCOL, level: g.level, seed: g.seed, madness: !!g.madness, sum });
     phase = 'playing';
   } else if (role === 'guest') {
     send({ t: 'ready', proto: PROTOCOL, sum });
@@ -341,7 +341,10 @@ function applyParts(g, rows) {
 }
 
 function zombieIndex(g) {
-  if (!g.zombieById) g.zombieById = new Map(g.zombies.map(z => [z.id, z]));
+  // Built from the bench as well as the street, because madness takes bodies off the bench and a
+  // snapshot will name one the moment it does.
+  if (!g.zombieById)
+    g.zombieById = new Map(g.zombies.concat(g.reserve || []).map(z => [z.id, z]));
   return g.zombieById;
 }
 function carIndex(g) {

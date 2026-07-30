@@ -25,6 +25,7 @@ const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
 } = window.TownGame.carPhysics;
 const { readLocalInput, readSecondInput } = window.TownGame.input;
+const { resetZombie } = window.TownGame.world;
 
 const FILTH_MIN_RANGE = 145;
 const FILTH_MAX_RANGE = 360;
@@ -61,7 +62,8 @@ function fire(g, p) {
   const h = gunHand(p), a = Math.atan2(p.ty - h.y, p.tx - h.x) + rnd(-.045, .045);
   const hx = Math.cos(a), hy = Math.sin(a);
   g.spawnGrace = 0;                           // Firing voluntarily ends the quiet start.
-  p.ammo--; p.cool = FIRE_CD; p.muzzle = .08;
+  if (!g.madness) p.ammo--;                   // Madness does not count rounds.
+  p.cool = FIRE_CD; p.muzzle = .08;
   shakeAt(g, p.x, p.y, .3);
   emit(g, EV.shot, h.x, h.y, a);
   warnZombiesOfShot(g, h.x, h.y, hx, hy);
@@ -650,7 +652,7 @@ function actCourier(g, p, dt) {
   p.muzzle = Math.max(0, p.muzzle - dt);
   if (p.down) { p.finishTarget = null; return; }
   const wantFire = p.in.fire;
-  if (wantFire && p.cool <= 0 && p.ammo > 0 && !g.done) fire(g, p);
+  if (wantFire && p.cool <= 0 && (g.madness || p.ammo > 0) && !g.done) fire(g, p);
 
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
@@ -689,6 +691,60 @@ function reviveCouriers(g, dt) {
     p.inv = 2.2; p.vx = p.vy = p.kx = p.ky = 0;
     SND.play('pick', p.x, p.y);
     emit(g, EV.revive, p.id, p.x, p.y);
+  }
+}
+
+// ---------- madness ----------
+//
+// The horde keeps arriving, and arrives faster as the night goes on. Nobody is created: the
+// district was built with a reserve on the bench, and this takes them off it, which is what lets
+// a snapshot still name every zombie by an id the far end already has.
+//
+// They arrive where nobody is looking. Something that appeared in front of a courier would read
+// as a bug rather than as pressure, so an arrival has to be further away than a screen is wide,
+// and it walks in already knowing roughly where the shift is.
+const MADNESS_LIVE_CAP = 64;                  // What the frame can carry at once.
+const MADNESS_SLOW = 1.9;                     // Seconds between arrivals at the start,
+const MADNESS_FAST = .3;                      // and at their most relentless.
+const MADNESS_RAMP = 110;                     // How long it takes to get from one to the other.
+const MADNESS_BURST = 2.6;                    // How many arrive at once by the end. Traffic thins
+                                              // the street faster than one at a time can fill it.
+const MADNESS_MIN_GAP = 520;                  // Further from every courier than a screen is wide.
+
+function madnessArrival(g) {
+  const ground = g.ground;
+  if (!ground || !ground.length) return null;
+  for (let tries = 0; tries < 24; tries++) {
+    const spot = ground[(Math.random() * ground.length) | 0];
+    let clear = true;
+    for (const p of g.players) {
+      const dx = p.x - spot.x, dy = p.y - spot.y;
+      if (dx * dx + dy * dy < MADNESS_MIN_GAP * MADNESS_MIN_GAP) { clear = false; break; }
+    }
+    if (clear) return spot;
+  }
+  return null;                                // Nowhere far enough this tick; try again on the next.
+}
+
+function spawnMadness(g, dt) {
+  if (!g.madness || g.done || g.dead) return;
+  g.spawnClock -= dt;
+  if (g.spawnClock > 0) return;
+  const ramp = clamp(g.time / MADNESS_RAMP, 0, 1);
+  g.spawnClock = MADNESS_SLOW + (MADNESS_FAST - MADNESS_SLOW) * ramp;
+  // Later they come in twos and threes, because a street with traffic on it empties faster than
+  // one arrival at a time can fill.
+  const burst = 1 + Math.floor(ramp * MADNESS_BURST);
+  for (let n = 0; n < burst; n++) {
+    if (!g.reserve.length || g.zombies.length >= MADNESS_LIVE_CAP) return;
+    const spot = madnessArrival(g);
+    if (!spot) return;
+    const z = resetZombie(g.reserve.pop(), spot.x, spot.y);
+    // They walk in already heading for the shift, the way a remembered noise would send them.
+    const target = nearestCourier(g, z.x, z.y) || g.p;
+    z.alert = 5; z.tx = target.x; z.ty = target.y;
+    g.zombies.push(z);
+    g.spawned++;
   }
 }
 
@@ -1376,7 +1432,13 @@ function update(g, dt) {
     courier.stealthNotice = detectedBy[courier.id] ? 1 : noticeBy[courier.id];
     courier.stealthWatchers = watchersBy[courier.id];
   }
-  for (let i = g.zombies.length - 1; i >= 0; i--) if (g.zombies[i].gone) g.zombies.splice(i, 1);
+  for (let i = g.zombies.length - 1; i >= 0; i--) {
+    if (!g.zombies[i].gone) continue;
+    // In madness nobody is gone for good: the bench takes the body and sends it out as somebody new.
+    if (g.madness) g.reserve.push(g.zombies[i]);
+    g.zombies.splice(i, 1);
+  }
+  spawnMadness(g, dt);
 
   // Filth projectiles move slowly, break on the environment, and remain dodgeable.
   for (let i = g.zombieShots.length - 1; i >= 0; i--) {
@@ -1973,7 +2035,7 @@ function drawHud(g) {
   const p = g.p;
   UI.level.textContent = g.level;
   UI.parcels.textContent = p.carried ? `${g.delivered}/${g.need} +${p.carried}` : `${g.delivered}/${g.need}`;
-  UI.ammo.textContent = p.ammo;
+  UI.ammo.textContent = g.madness ? '∞' : p.ammo;
   UI.hp.textContent = '♥'.repeat(Math.max(0, p.hp)) + '·'.repeat(clamp(p.hpMax - p.hp, 0, p.hpMax));
   // On a shift of two, how the other one is doing is worth a glance without looking away from
   // the street. Alone, the readout is not there at all rather than saying nothing.

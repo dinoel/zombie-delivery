@@ -46,6 +46,13 @@ const FURNITURE_NODE_CLEARANCE = ROAD * 1.15;
 // pool of light lands on the lane rather than on the pavement behind it.
 const LAMP_ARM = 38;
 const LAMP_FAULTY_SHARE = .16;                    // Roughly one lamp in six is failing.
+
+// ---------- madness ----------
+// The bench, and how fast it empties. A body that falls goes back on the bench and comes out
+// again as somebody else, so the reserve is a limit on how many can be on the street at once
+// rather than on how long the mode lasts.
+const MADNESS_RESERVE = 96;
+const MADNESS_FIRST = 3;                          // Seconds of quiet before the first arrival.
 const LAMP_HEAD_R = 6.5;                          // The glass a bullet has to find.
 const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
 const CROSSWALK_MIN_GAP = ROAD * .74;
@@ -172,6 +179,34 @@ function makeCourier(start, index, torch) {
   };
 }
 
+// Put a zombie back to how it stood the moment the district was built, at a new place.
+//
+// Madness never creates a zombie. It cannot: a snapshot names entities by id and the far end
+// only ever updates what it already has, so a horde that grew would be a horde the guest could
+// not see. Instead the district is built with a reserve nobody is simulating, and this is what
+// wakes one — and what takes a body and hands it back as somebody new, which is why madness can
+// go on longer than the reserve is deep.
+//
+// Everything a type decides — how it looks, how fast it is, what it throws — is left alone. Only
+// what a life did to it is undone.
+function resetZombie(z, x, y) {
+  z.x = x; z.y = y;
+  z.hp = z.maxHp; z.gone = false;
+  z.ang = rnd(0, 6.283); z.wdir = rnd(0, 6.283); z.wander = rnd(0, 2.5);
+  z.walk = rnd(0, 6); z.hit = 0; z.kx = 0; z.ky = 0; z.mvx = 0; z.mvy = 0;
+  z.lostArms = 0; z.headless = false; z.silent = false;
+  z.bleed = 0; z.bleedCd = 0; z.recoil = 0;
+  z.alert = 0; z.tx = 0; z.ty = 0; z.hunt = 0; z.notice = 0; z.moan = rnd(0, 3);
+  z.throwCd = rnd(1.8, 4.8); z.throwWind = 0; z.throwAimX = 0; z.throwAimY = 0;
+  z.flankTimer = rnd(.6, 2.2); z.pressure = 0;
+  z.dodgeTime = 0; z.dodgeCd = rnd(.25, 1.35);
+  z.surge = 0; z.surgeCd = rnd(.8, 2.8);
+  z.guardParcel = -1; z.guardX = 0; z.guardY = 0;      // A latecomer guards nothing; it just arrives.
+  z.foeCar = null; z.foeCd = rnd(0, 1.2); z.foeHitCd = 0; z.tankHitCd = 0;
+  z.rival = null; z.rivalCd = 0; z.prey = null;
+  return z;
+}
+
 // A fingerprint of the shape of a district, so two peers can prove they really did build the
 // same one before anybody starts walking around in it.
 //
@@ -189,6 +224,9 @@ function layoutChecksum(g) {
   for (const house of g.houses) { mix(house.cx); mix(house.cy); mix(house.hw); mix(house.hh); }
   for (const b of g.parcels) { mix(b.x); mix(b.y); mix(b.dest.x); mix(b.dest.y); }
   for (const z of g.zombies) { mix(z.x); mix(z.y); mix(z.hp); }
+  // The bench is part of the district too: two ends that disagree about it would disagree about
+  // every arrival for the rest of the run.
+  for (const z of (g.reserve || [])) { mix(z.x); mix(z.y); mix(z.hp); }
   for (const c of g.cars) { mix(c.x); mix(c.y); }
   for (const l of g.lamps) { mix(l.x); mix(l.y); }
   for (const p of g.players) { mix(p.x); mix(p.y); }
@@ -196,7 +234,7 @@ function layoutChecksum(g) {
 }
 
 // ---------- district generation ----------
-function buildTown(level, couriers = 1) {
+function buildTown(level, couriers = 1, madness = false) {
   const qaMode = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('qa') : '';
   const stealthQa = qaMode === 'stealth' || qaMode === 'stealth-walk' || qaMode === 'stealth-crawl';
   const R = makeRoads();
@@ -617,6 +655,15 @@ function buildTown(level, couriers = 1) {
     }
   }
 
+  // Madness keeps a reserve on the bench. It is built here, with the rest of the district and
+  // from the same seed, so both ends of a co-op session have the identical bodies waiting.
+  const liveCount = zombies.length;
+  if (madness) for (let i = 0; i < MADNESS_RESERVE; i++) addZombie(pick(onFoot.length ? onFoot : spots));
+  const reserve = zombies.splice(liveCount);
+  // Somewhere to put them. A thinned list of walkable spots is plenty for choosing an arrival and
+  // costs a fraction of keeping every cell the flood fill found.
+  const ground = madness ? (onFoot.length ? onFoot : spots).filter((_, i) => i % 3 === 0) : null;
+
   // Deterministic target for visual checks of blood sprays and stains.
   // Normal gameplay never enables this branch.
   if (qaMode === 'zombie-blood' && zombies.length) {
@@ -737,6 +784,8 @@ function buildTown(level, couriers = 1) {
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
     stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
     players, p: players[0], coopLocal,              // The local courier; the rest of the shift is alongside.
+    madness, reserve, ground,                       // The bench, and the places it can walk on from.
+    spawnClock: madness ? MADNESS_FIRST : 0, spawned: 0,
     bullets: [], zombieShots: [], splats: [], stains: [], bloodDrops: [], zombieParts: [], blasts: [], rings: [], splash: [], carSmoke: [],
     cash: [],                                                       // Notes dropped by the horde, not yet picked up.
     weather, killed: 0, earned: 0, filthThrown: 0, filthHits: 0, dodges: 0, surges: 0,
@@ -1125,7 +1174,8 @@ function drawCarShape(c, car) {
 }
 
 return Object.freeze({
-  buildTown, makeCourier, layoutChecksum, lampGlow, drawHouse, drawCarShape, drawLamp, sidewalkPoint, layoutCrosswalks
+  buildTown, makeCourier, resetZombie, layoutChecksum, lampGlow, drawHouse, drawCarShape, drawLamp,
+  sidewalkPoint, layoutCrosswalks
 });
 })();
 

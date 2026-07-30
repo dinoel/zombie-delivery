@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>COURIER</title>
-<link rel="stylesheet" href="styles/main.css?v=20260730-70">
+<link rel="stylesheet" href="styles/main.css?v=20260730-71">
 </head>
 <body>
 <div id="hud" aria-label="Game status">
@@ -118,6 +118,14 @@
             screen, and turns red the moment they go down. The district is only lost when neither
             of you is standing. Only the host can pause.
           </p>
+          <h3>Madness</h3>
+          <p>
+            Pick <span class="key">MADNESS</span> on the start screen for the same district with
+            two rules changed: you never count rounds, and the horde keeps arriving — slowly at
+            first, then in twos and threes as the night goes on. They walk in from further away
+            than the screen is wide, already heading roughly your way. Parcels still have to be
+            delivered; the district simply stops being somewhere you can wait.
+          </p>
           <h3>Ground and weather</h3>
           <p>
             Pavement is faster and louder; <span class="legend legend--rain">rain</span> muffles sound, while
@@ -135,6 +143,13 @@
       <span id="netStatus" aria-live="polite"></span>
     </div>
     <div class="quality-control">
+      <label for="modeSelect">MODE</label>
+      <select id="modeSelect">
+        <option value="shift">NIGHT SHIFT</option>
+        <option value="madness">MADNESS</option>
+      </select>
+    </div>
+    <div class="quality-control">
       <label for="qualitySelect">QUALITY</label>
       <select id="qualitySelect">
         <option value="auto">AUTO</option>
@@ -149,20 +164,20 @@
   </div>
 </div>
 <!-- Ordered classic scripts keep direct file:// launching available. -->
-  <script src="src/namespace.js?v=20260730-70"></script>
-  <script src="src/core.js?v=20260730-70"></script>
-  <script src="src/quality.js?v=20260730-70"></script>
-  <script src="src/audio.js?v=20260730-70"></script>
-  <script src="src/car-physics.js?v=20260730-70"></script>
-  <script src="src/environment.js?v=20260730-70"></script>
-  <script src="src/world.js?v=20260730-70"></script>
-  <script src="src/physics.js?v=20260730-70"></script>
-  <script src="src/input.js?v=20260730-70"></script>
-  <script src="src/gameplay.js?v=20260730-70"></script>
-  <script src="src/lighting.js?v=20260730-70"></script>
-  <script src="src/entities.js?v=20260730-70"></script>
-  <script src="src/render.js?v=20260730-70"></script>
-  <script src="src/net.js?v=20260730-70"></script>
-  <script src="src/main.js?v=20260730-70"></script>
+  <script src="src/namespace.js?v=20260730-71"></script>
+  <script src="src/core.js?v=20260730-71"></script>
+  <script src="src/quality.js?v=20260730-71"></script>
+  <script src="src/audio.js?v=20260730-71"></script>
+  <script src="src/car-physics.js?v=20260730-71"></script>
+  <script src="src/environment.js?v=20260730-71"></script>
+  <script src="src/world.js?v=20260730-71"></script>
+  <script src="src/physics.js?v=20260730-71"></script>
+  <script src="src/input.js?v=20260730-71"></script>
+  <script src="src/gameplay.js?v=20260730-71"></script>
+  <script src="src/lighting.js?v=20260730-71"></script>
+  <script src="src/entities.js?v=20260730-71"></script>
+  <script src="src/render.js?v=20260730-71"></script>
+  <script src="src/net.js?v=20260730-71"></script>
+  <script src="src/main.js?v=20260730-71"></script>
 </body>
 </html>

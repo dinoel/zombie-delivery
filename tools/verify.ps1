@@ -69,6 +69,11 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   if ($LASTEXITCODE -ne 0) {
     $problems.Add("Head blast test failed:`n$headBlastTest")
   }
+
+  $madnessTest = & node (Join-Path $PSScriptRoot 'test-madness.js') 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $problems.Add("Madness test failed:`n$madnessTest")
+  }
 }
 
 $indexPath = Join-Path $project 'index.html'
@@ -77,21 +82,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260730-70',
-  'src/core.js?v=20260730-70',
-  'src/quality.js?v=20260730-70',
-  'src/audio.js?v=20260730-70',
-  'src/car-physics.js?v=20260730-70',
-  'src/environment.js?v=20260730-70',
-  'src/world.js?v=20260730-70',
-  'src/physics.js?v=20260730-70',
-  'src/input.js?v=20260730-70',
-  'src/gameplay.js?v=20260730-70',
-  'src/lighting.js?v=20260730-70',
-  'src/entities.js?v=20260730-70',
-  'src/render.js?v=20260730-70',
-  'src/net.js?v=20260730-70',
-  'src/main.js?v=20260730-70'
+  'src/namespace.js?v=20260730-71',
+  'src/core.js?v=20260730-71',
+  'src/quality.js?v=20260730-71',
+  'src/audio.js?v=20260730-71',
+  'src/car-physics.js?v=20260730-71',
+  'src/environment.js?v=20260730-71',
+  'src/world.js?v=20260730-71',
+  'src/physics.js?v=20260730-71',
+  'src/input.js?v=20260730-71',
+  'src/gameplay.js?v=20260730-71',
+  'src/lighting.js?v=20260730-71',
+  'src/entities.js?v=20260730-71',
+  'src/render.js?v=20260730-71',
+  'src/net.js?v=20260730-71',
+  'src/main.js?v=20260730-71'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
@@ -174,6 +179,19 @@ foreach ($courierFeature in @('g.players', 'p.hp', 'p.ammo', 'p.carried', 'downC
     $problems.Add("Per-courier state is missing: $courierFeature")
   }
 }
+# Madness never creates a zombie. It takes them off a bench built with the district, because a
+# snapshot names entities by id and the far end only updates what it already holds — a horde that
+# grew would be a horde a guest could not see.
+foreach ($madnessFeature in @('function spawnMadness(', 'g.reserve.pop()', 'MADNESS_LIVE_CAP',
+    'if (!g.madness) p.ammo--')) {
+  if (-not $gameplaySource.Contains($madnessFeature)) {
+    $problems.Add("Madness is incomplete: $madnessFeature")
+  }
+}
+if ($gameplaySource.Contains('zombies.push({')) {
+  $problems.Add('Only buildTown may build a zombie; a horde that grows cannot cross a snapshot.')
+}
+
 $worldSource = Get-Content -Raw -LiteralPath (Join-Path $project 'src\world.js')
 if (-not $worldSource.Contains('function makeCourier(') -or
     -not $worldSource.Contains('players, p: players[0]')) {

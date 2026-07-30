@@ -88,7 +88,7 @@ const authoritative = () => net.authoritative();
 // Swapping the generator for a seeded one around the call is the trick this file already uses
 // for profiling, put to its real purpose. The previous function is restored rather than the
 // native one, because profiling may have replaced it first.
-function buildSeeded(level, seed, couriers) {
+function buildSeeded(level, seed, couriers, madness) {
   const previous = Math.random;
   let s = seed | 0;
   Math.random = () => {
@@ -98,11 +98,15 @@ function buildSeeded(level, seed, couriers) {
     return ((n ^ n >>> 14) >>> 0) / 4294967296;
   };
   try {
-    const g = buildTown(level, couriers);
+    const g = buildTown(level, couriers, madness);
     g.seed = seed;
     return g;
   } finally { Math.random = previous; }
 }
+
+// Madness is chosen before a shift starts and holds for the whole run, so it is read here rather
+// than asked for every frame.
+const madnessChosen = () => UI.mode.value === 'madness';
 
 // ---------- the co-op lobby ----------
 const setNetStatus = (text, bad) => {
@@ -112,7 +116,10 @@ const setNetStatus = (text, bad) => {
 net.onStatus = text => setNetStatus(text, /lost|refused|different|already|Nobody|could not|Could not/.test(text));
 // A guest does not press start: the district arrives when the host opens one.
 net.onStart = msg => {
-  enterDistrict(buildSeeded(msg.level, msg.seed, 2));
+  // The host chose the mode as well as the seed; a district built the other way is a different
+  // district, and the checksum would say so a moment later anyway.
+  UI.mode.value = msg.madness ? 'madness' : 'shift';
+  enterDistrict(buildSeeded(msg.level, msg.seed, 2, !!msg.madness));
   // The host is the first courier on the roster and this end is the second, so the camera, the
   // gauges and the aim all follow the right one.
   runtime.game.p = runtime.game.players[1];
@@ -191,10 +198,10 @@ startBtn.addEventListener('click', () => {
   if (shift.role === 'host') {
     // The host picks the seed, so there is exactly one answer to what this district looks like.
     const plan = net.hostDistrict(next);
-    enterDistrict(buildSeeded(plan.level, plan.seed, 2));
+    enterDistrict(buildSeeded(plan.level, plan.seed, 2, madnessChosen()));
     net.declareLayout(runtime.game, layoutChecksum(runtime.game));
   } else {
-    enterDistrict(buildTown(next));
+    enterDistrict(buildTown(next, 1, madnessChosen()));
   }
   delete cv.dataset.perfReady;
   delete cv.dataset.perfUpdate;

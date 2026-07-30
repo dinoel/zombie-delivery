@@ -901,11 +901,15 @@ function drawLamp(c, l, glow = 1) {
   roundRect(c, head - 8, -4.6, 15, 9.2, 3.4); c.fill();
   c.strokeStyle = 'rgba(10,12,16,.6)'; c.lineWidth = 1; c.stroke();
   if (!l.broken) {
-    c.globalAlpha = .35 + glow * .65;              // The glass dims with the light it is throwing.
+    // A lit lens, not a light. Drawn at full strength the head was the brightest thing in the
+    // district — brighter than the patch it was supposed to be casting — which read as the lamp
+    // glowing at the camera rather than at the road.
+    c.globalAlpha = (.22 + glow * .34) * (l.arm ? 1 : .8);
     c.fillStyle = l.bulb || '#ffe9a8';
-    c.beginPath(); c.ellipse(head - .6, 0, 5, 3, 0, 0, 6.283); c.fill();
-    c.fillStyle = 'rgba(255,255,255,.6)';
-    c.beginPath(); c.ellipse(head - 1.6, -.7, 2.2, 1.3, 0, 0, 6.283); c.fill();
+    c.beginPath(); c.ellipse(head - .6, 0, 4.2, 2.4, 0, 0, 6.283); c.fill();
+    c.globalAlpha = (.12 + glow * .16);
+    c.fillStyle = '#fff';
+    c.beginPath(); c.ellipse(head - 1.4, -.5, 1.6, .9, 0, 0, 6.283); c.fill();
     c.globalAlpha = 1;
   } else {
     c.fillStyle = '#14181e';                       // An empty socket where the glass was.

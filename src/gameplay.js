@@ -179,6 +179,7 @@ function bounceHeadFromCorrection(head, beforeX, beforeY, restitution = .48) {
   head.spin *= .72;
 }
 
+const BLAST_SHAKE = 3.5;          // What a head going off does to a screen standing on top of it.
 function explodeZombieHead(g, head) {
   if (head.exploded) return false;
   head.exploded = true;
@@ -243,9 +244,10 @@ function explodeZombieHead(g, head) {
     else { part.vx += dx / d * (90 + force * 280); part.vy += dy / d * (90 + force * 280); part.vh += 45 + force * 100; }
   }
 
-  const near = clamp(1 - playerDistance / 560, 0, 1);
-  shakeAt(g, x, y, .8 + near * 2.7, 900);
-  emit(g, EV.blast, x, y, near);
+  // How hard this lands is a question about where the screen is, not where the blast was, and
+  // shakeAt already answers it from the local courier. The event carries only the place.
+  shakeAt(g, x, y, BLAST_SHAKE, 900);
+  emit(g, EV.blast, x, y);
   makeNoise(g, x, y, 720, 14, true);
   SND.play('headBlast', x, y);
   return true;
@@ -948,6 +950,9 @@ function emitCarSmoke(g, c, dt) {
 
 // ---------- update ----------
 function update(g, dt) {
+  // First thing, before anything in this frame can write one: a frame keeps its own notes only.
+  // Clearing it further down let the scripted qa scenes emit a note and then lose it again.
+  g.events.length = 0;
   g.time += dt;
   if (g.bloodQa && !g.bloodQaDone && g.time >= .35 && g.zombies[0]) {
     const z = g.zombies[0];
@@ -988,7 +993,6 @@ function update(g, dt) {
       g.headExplosionQaStep++;
     }
   }
-  g.events.length = 0;                  // Each frame writes its own notes; a snapshot takes them.
   g.spawnGrace = Math.max(0, g.spawnGrace - dt);
   g.shake = Math.max(0, g.shake - dt * 3);
   const p = g.p;
@@ -1851,7 +1855,7 @@ function playEvents(g) {
                          c: pick(['#fff3c8', '#cfe4ff', '#9aa6b2']), s: rnd(2, 4) });
         break;
       case EV.blast:
-        shakeAt(g, x, y, .8 + e[3] * 2.7, 900);
+        shakeAt(g, x, y, BLAST_SHAKE, 900);
         SND.play('headBlast', x, y);
         break;
       case EV.ring:

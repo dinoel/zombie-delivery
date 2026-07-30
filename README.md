@@ -67,6 +67,8 @@ node .\tools\test-seeded-town.js
 node .\tools\test-sim-determinism.js
 node .\tools\test-coop-rules.js
 node .\tools\test-presentation.js
+node .\tools\test-infighting.js
+node .\tools\test-head-blast.js
 ```
 
 `test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices. `test-coop-rules.js` covers what only exists with two couriers, and is described with the shift below.

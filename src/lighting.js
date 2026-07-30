@@ -34,10 +34,10 @@ const LAMP_INTENSITY = .85;
 // keeps the road from going black between lamps without being light anyone could read a street by.
 // Two sources per lamp, because those are two different things: one you can see by, and one you
 // can only just see.
-const LAMP_POOL_R = 88;                               // The lit patch itself.
-const LAMP_POOL_INT = 1.55;
+const LAMP_POOL_R = 148;                              // The lit patch itself: wide and close to even.
+const LAMP_POOL_INT = 1.1;
 const LAMP_POOL_REACH = 13;                           // A head tilts down and a little out over the road.
-const LAMP_HAZE_R = 220;                              // The lift around it.
+const LAMP_HAZE_R = 260;                              // The lift around it.
 const LAMP_HAZE_INT = .2;
 const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
@@ -142,8 +142,17 @@ function castShadows(c, lx, ly, occ, detailedFoliage) {
   c.globalCompositeOperation = 'source-over';
 }
 
+// How a pool fades from its centre. Most lights want a hot middle; a lamp pointing straight
+// down does not — its patch on the asphalt is close to even, and a bright core made the lamp
+// itself look like the brightest thing in the district. `even` runs 0 (normal) to 1 (flat).
+function radialFade(gradient, col, even) {
+  const exponent = 1 - even * .62;
+  for (const t of [0, .2, .4, .6, .8, 1])
+    gradient.addColorStop(t, col.replace("%a", Math.pow(1 - t, exponent).toFixed(3)));
+}
+
 // Draw one source into a buffer, subtract shadows, then apply it to color and darkness masks.
-function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip, shadows) {
+function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip, shadows, even) {
   const size = Math.min(tmpCv.width, Math.ceil(r * 2) + 8);
   const sx = Math.round(x - camx - size / 2), sy = Math.round(y - camy - size / 2);
   if (sx > W || sy > H || sx + size < 0 || sy + size < 0) return;
@@ -157,9 +166,7 @@ function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip,
     tctx.closePath(); tctx.clip();
   }
   const gr = tctx.createRadialGradient(x, y, 0, x, y, r);
-  gr.addColorStop(0, col.replace('%a', 1));
-  gr.addColorStop(.5, col.replace('%a', .55));
-  gr.addColorStop(1, col.replace('%a', 0));
+  radialFade(gr, col, even);
   tctx.fillStyle = gr; tctx.fillRect(x - r, y - r, r * 2, r * 2);
   tctx.restore();
   if (shadows && r > 20) {
@@ -180,7 +187,7 @@ function paintLight(g, camx, camy, x, y, r, col, tint, punch, ang, spread, skip,
 
 // Without shadows, an intermediate buffer is unnecessary: apply the same gradient
 // directly to the town and night mask. This removes two large drawImage calls per light.
-function paintLightDirect(camx, camy, x, y, r, col, tint, punch, ang, spread) {
+function paintLightDirect(camx, camy, x, y, r, col, tint, punch, ang, spread, even) {
   const sx = x - camx, sy = y - camy;
   const paint = (c, operation, alpha) => {
     c.save(); c.globalCompositeOperation = operation; c.globalAlpha = alpha;
@@ -189,9 +196,7 @@ function paintLightDirect(camx, camy, x, y, r, col, tint, punch, ang, spread) {
       c.closePath(); c.clip();
     }
     const gr = c.createRadialGradient(sx, sy, 0, sx, sy, r);
-    gr.addColorStop(0, col.replace('%a', 1));
-    gr.addColorStop(.5, col.replace('%a', .55));
-    gr.addColorStop(1, col.replace('%a', 0));
+    radialFade(gr, col, even);
     c.fillStyle = gr; c.fillRect(sx - r, sy - r, r * 2, r * 2);
     c.restore();
   };
@@ -222,9 +227,10 @@ function collectLights(g, camx, camy) {
     const haze = add(l.hx, l.hy, LAMP_HAZE_R, rgb,
                      LAMP_INTENSITY * LAMP_HAZE_INT * power, .26, .4, 0, 0, 0, 4);
     if (haze) haze.flat = true;                       // A glow in the air casts nothing.
-    add(l.hx + Math.cos(l.ang) * LAMP_POOL_REACH, l.hy + Math.sin(l.ang) * LAMP_POOL_REACH,
-        LAMP_POOL_R * (.82 + glow * .18), rgb,
-        LAMP_INTENSITY * LAMP_POOL_INT * power, .34, .98, 0, 0, 5, 6);
+    const pool = add(l.hx + Math.cos(l.ang) * LAMP_POOL_REACH, l.hy + Math.sin(l.ang) * LAMP_POOL_REACH,
+                     LAMP_POOL_R * (.82 + glow * .18), rgb,
+                     LAMP_INTENSITY * LAMP_POOL_INT * power, .34, .98, 0, 0, 5, 6);
+    if (pool) pool.even = 1;                          // Flat across the patch, no hot core.
   }
   for (const c of g.cars) {
     if (!legacyPerf && (c.x + 270 < camx || c.y + 270 < camy || c.x - 270 > camx + W || c.y - 270 > camy + H)) continue;
@@ -320,8 +326,8 @@ function drawLight2D(g, camx, camy) {
     const col = `rgba(${Math.round(l.rgb[0] * 255)},${Math.round(l.rgb[1] * 255)},${Math.round(l.rgb[2] * 255)},%a)`;
     const shadows = i < profile.shadowLights && !l.flat;
     if (!legacyPerf && !shadows)
-      paintLightDirect(camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread);
-    else paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip, shadows);
+      paintLightDirect(camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.even || 0);
+    else paintLight(g, camx, camy, l.x, l.y, l.r, col, l.tint, l.punch, l.ang, l.spread, l.skip, shadows, l.even || 0);
   }
   // Ground-level light may hit walls, but it cannot land on a roof above it. Replace every
   // visible roof with sky light after all light holes are cut: no lamp reaches up there, and
@@ -387,7 +393,7 @@ const GLR = gl && (() => { try {
       gl_Position = ${TO_CLIP};
     }`, `
     precision mediump float;
-    uniform vec3 u_color; uniform float u_ang, u_spread, u_amount;
+    uniform vec3 u_color; uniform float u_ang, u_spread, u_amount, u_even;
     uniform float u_foliageCount;
     uniform vec4 u_foliage[8];                 // Screen x/y, cluster radius, clear start distance.
     varying mediump vec2 v_unit, v_pixel, v_light, v_world;
@@ -416,8 +422,8 @@ const GLR = gl && (() => { try {
       return max(.55, transmission);             // Leaves transmit light; they can never make a black wall.
     }
     void main() {
-      float f = max(0.0, 1.0 - length(v_unit));
-      f *= f;                                   // Soft falloff toward the edge.
+      // Soft falloff toward the edge, flattened for a lamp so its patch has no hot core.
+      float f = pow(max(0.0, 1.0 - length(v_unit)), mix(2.0, 0.75, u_even));
       if (u_spread > 0.0) {                     // Headlight and flashlight cone.
         float a = mod(atan(v_unit.y, v_unit.x) - u_ang + 9.42477796, 6.28318531) - 3.14159265;
         f *= 1.0 - smoothstep(u_spread * 0.55, u_spread, abs(a));
@@ -466,7 +472,7 @@ const GLR = gl && (() => { try {
     litP, shadP, roofP, quad, shadowBuf, verts, uploadVerts,
     lit: { light: U(litP, 'u_light'), radius: U(litP, 'u_radius'),
            cam: U(litP, 'u_cam'), color: U(litP, 'u_color'), ang: U(litP, 'u_ang'),
-           spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount'),
+           spread: U(litP, 'u_spread'), amount: U(litP, 'u_amount'), even: U(litP, 'u_even'),
            foliageCount: U(litP, 'u_foliageCount'), foliage: U(litP, 'u_foliage[0]') },
     foliageData
   };
@@ -605,6 +611,7 @@ function drawLightGL(g, camx, camy) {
       gl.uniform3f(R.lit.color, L.rgb[0], L.rgb[1], L.rgb[2]);
       gl.uniform1f(R.lit.ang, L.ang);
       gl.uniform1f(R.lit.spread, L.spread);
+      gl.uniform1f(R.lit.even, L.even || 0);
       gl.uniform1f(R.lit.amount, L.int / n);
       gl.uniform1f(R.lit.foliageCount, foliageCount);
       // With no leaf clusters the shader never reads the array, so it is not uploaded.

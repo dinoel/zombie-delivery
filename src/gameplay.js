@@ -368,6 +368,7 @@ const WRECK_RADIUS = 380;
 const WRECK_POWER = 4;
 const WRECK_NEAR = 128;
 const WRECK_CAR_R = 130;          // What it does to other traffic reaches barely past the next parking space.
+const WRECK_SHAKE = 6;            // Firmly more than a head, and the most a screen is asked to take.
 
 function explodeWreck(g, c) {
   if (c.exploded) return false;
@@ -405,7 +406,9 @@ function explodeWreck(g, c) {
   blastWave(g, x, y, { radius: WRECK_RADIUS, power: WRECK_POWER, nearRadius: WRECK_NEAR,
                        nearHits: 5, farHits: 2, carRadius: WRECK_CAR_R });
 
-  shakeAt(g, x, y, BLAST_SHAKE * WRECK_POWER, 1400);
+  // Asked for directly rather than as four times a head. Four times the wound is a sensible thing
+  // to want; four times the shake is a camera leaving the building.
+  shakeAt(g, x, y, WRECK_SHAKE, 1400);
   emit(g, EV.blast, x, y, WRECK_POWER);
   makeNoise(g, x, y, 1250, 20, true);
   SND.play('wreckBlast', x, y);
@@ -2241,7 +2244,10 @@ function playEvents(g) {
       // two sizes and a guest that drew them alike would be watching a different street.
       case EV.blast: {
         const heavy = (e[3] || 1) > 1, life = heavy ? 2.1 : 1.5;
-        shakeAt(g, x, y, BLAST_SHAKE * (e[3] || 1), heavy ? 1400 : 900);
+        // The same two numbers the rules ask for, named rather than derived from the note's size.
+        // Multiplying the head's shake by the note's power happened to land on the right answer
+        // only because the ceiling caught it, which is not a thing to rely on.
+        shakeAt(g, x, y, heavy ? WRECK_SHAKE : BLAST_SHAKE, heavy ? 1400 : 900);
         SND.play(heavy ? 'wreckBlast' : 'headBlast', x, y);
         g.blasts.push({ x, y, l: life, max: life, r: 0,
                         maxR: heavy ? WRECK_RADIUS : HEAD_BLAST_R, seed: Math.random() });
@@ -2409,10 +2415,18 @@ function presentFrame(g, dt) {
   ageDebris(g, dt);
   showFire(g, dt);
   ageFlames(g, dt);
+  // Two things a peer raises and therefore has to lower for itself. Both are wound down here,
+  // before the notes are read, so that whatever this frame's notes light up is drawn at full
+  // strength rather than already a frame stale.
+  //
   // The muzzle flash on a patrol car is lit by the rule that fires the gun and put out by the
-  // frame that follows. A peer that runs no rules still has to put it out, and has to do so
-  // before the notes are read, or a flash lit this frame would be dark by the time it is drawn.
+  // frame that follows. And shake, which is not streamed at all — each peer works out how much of
+  // an event it felt from where its own courier is standing — was wound down inside `update` and
+  // nowhere else, so a guest set it from a blast and then held it for the rest of the district.
+  // The screen shook forever. The same rate as the rules use, and for the same reason: anything
+  // presentation is allowed to raise, presentation has to be able to lower.
   for (const c of g.cars) if (c.copFlash > 0) c.copFlash = Math.max(0, c.copFlash - dt);
+  g.shake = Math.max(0, g.shake - dt * 3);
   playEvents(g);
   watchDistrictEnd(g);
   drawHud(g);

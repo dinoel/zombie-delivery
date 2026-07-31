@@ -99,4 +99,27 @@ const ruleState = g => JSON.stringify({
   assert.ok(near > .9, 'the same event underfoot should');
 }
 
+{
+  // And it has to stop. Shake is written by the rules and by a replayed note, but it used to be
+  // wound down in only one of those places — inside update — so a guest, which runs no rules, set
+  // it from a blast and then held it for the rest of the district. The screen shook forever.
+  //
+  // This is the same shape of mistake as the patrol muzzle flash: a value two paths can raise and
+  // one path lowers. Anything else presentation learns to raise needs the same question asked.
+  const s = district();
+  const { EV } = s.env.TownGame.environment;
+  s.g.shake = 0;
+  s.g.events.push([EV.blast, s.g.p.x, s.g.p.y, 4]);   // A wreck going up underfoot: the loudest there is.
+  s.present(1 / 60);
+  const struck = s.g.shake;
+  assert.ok(struck > 1, `a blast underfoot should land on a watching peer (was ${struck.toFixed(2)})`);
+  // And it must be a number a camera can survive. It is multiplied by seven and added in pixels,
+  // so this is the difference between a jolt and the screen leaving the building.
+  assert.ok(struck <= 6, `the loudest thing in the game should still be bearable (was ${struck})`);
+
+  s.present(2.5);
+  assert.equal(s.g.shake, 0,
+    `and it must wind down rather than be held (was ${s.g.shake.toFixed(2)})`);
+}
+
 console.log('Presentation seam verified: a watching peer draws the district without playing it.');

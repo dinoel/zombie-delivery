@@ -29,9 +29,17 @@ function emit(g, code, ...args) {
 // Screen shake belongs to a screen rather than to a district: an explosion two blocks away is
 // somebody else's problem. Each peer works out how much of an event it actually felt from where
 // its own courier is standing, so the event travels and the feeling does not.
+//
+// The ceiling is here because this is the only place shake is ever raised, so nothing that gets
+// added later can forget it. It is needed: the number is multiplied by seven and added to the
+// camera in pixels, and it winds down at three a second, so a request for fourteen is a screen
+// jumping half its own width for the better part of five seconds. That is what a wreck going up
+// asked for when its shake was written as four times a head's without checking what four times
+// meant on the far end.
+const SHAKE_MAX = 6;              // Six is 42 pixels and two seconds, which is already a lot.
 function shakeAt(g, x, y, power, falloff = 540) {
   const felt = x === null ? 1 : clamp(1 - Math.hypot(g.p.x - x, g.p.y - y) / falloff, 0, 1);
-  g.shake = Math.max(g.shake, power * felt);
+  g.shake = Math.min(SHAKE_MAX, Math.max(g.shake, power * felt));
 }
 
 // Noise tells zombies where an event happened. Rain muffles every source.

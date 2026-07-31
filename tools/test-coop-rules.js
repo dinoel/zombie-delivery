@@ -10,33 +10,18 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { load } = require('./browser-sandbox.js');
-
-const MODULES = ['core', 'quality', 'audio', 'car-physics', 'environment',
-  'world', 'physics', 'input', 'gameplay'];
-
-// The local courier is on WASD and space; the partner is on the arrows and the numeric keypad.
-const CLEAR = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space',
-  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftRight', 'Numpad0'];
+const { scene } = require('./scene.js');
 
 // A quiet district with two couriers and nothing else moving, so each test can put exactly the
-// situation it cares about in front of them.
+// situation it cares about in front of them. `step` here counts frames rather than seconds,
+// because most of these are about what happens on one particular frame.
 function district() {
-  const env = load({ modules: MODULES, seed: 0x51ed5eed, search: '?qa=coop-local' });
-  const g = env.TownGame.world.buildTown(2);
-  const rt = env.TownGame.core.runtime;
-  rt.game = g; rt.state = 'play';
-  g.spawnGrace = 0;                       // The opening seconds ignore everything; skip them.
-  g.zombies.length = 0;
-  g.cars.length = 0;
-  g.ammoBoxes.length = 0;
-  for (const b of g.parcels) b.state = 'done';
-  g.delivered = 0;
-  const step = (n = 1, dt = 1 / 60) => { for (let i = 0; i < n; i++) env.TownGame.gameplay.update(g, dt); };
-  const keys = held => { for (const c of CLEAR) rt.keys[c] = 0; for (const c of held || []) rt.keys[c] = 1; };
-  const place = (p, x, y) => { p.x = x; p.y = y; p.vx = p.vy = p.kx = p.ky = 0; };
+  const s = scene({ search: '?qa=coop-local' });
+  s.quiet();
+  const step = (n = 1, dt = 1 / 60) => s.step(n * dt, dt);
+  const place = (p, x, y) => s.courierAt(x, y, undefined, p);
   step(1);                                // One frame so both input records exist.
-  return { env, g, rt, step, keys, place, a: g.players[0], b: g.players[1] };
+  return Object.assign({}, s, { step, place });
 }
 
 // A walker dropped in at a chosen spot, built from the district's own template so it carries

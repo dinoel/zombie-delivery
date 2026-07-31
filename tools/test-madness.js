@@ -9,59 +9,43 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { load } = require('./browser-sandbox.js');
+const { scene } = require('./scene.js');
 
-const MODULES = ['core', 'quality', 'audio', 'car-physics', 'environment',
-  'world', 'physics', 'input', 'gameplay'];
-
-function district(madness) {
-  const env = load({ modules: MODULES, seed: 0x51ed5eed });
-  const g = env.TownGame.world.buildTown(2, 1, madness);
-  const rt = env.TownGame.core.runtime;
-  rt.game = g; rt.state = 'play';
-  g.spawnGrace = 0;
-  // Some of these measure the spawner rather than survival, and a courier standing still in
-  // madness is dead inside a minute — which would freeze the mode and measure nothing. `immortal`
-  // keeps them upright so the arrivals are what is being watched.
-  const step = (seconds, dt = 1 / 60, immortal = false) => {
-    for (let i = 0; i < Math.round(seconds / dt); i++) {
-      if (immortal) { g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false; }
-      env.TownGame.gameplay.update(g, dt);
-    }
-  };
-  return { env, g, rt, step };
-}
+// A courier standing still in madness is dead inside a minute, and a dead one freezes the
+// spawner — so every run here holds them upright, or the sample measures its own death rather
+// than the mode. `scene` does that without painting the screen; the reason is written down there.
+const district = madness => {
+  const s = scene({ madness });
+  s.immortal();
+  return s;
+};
 
 {
   // A normal district is untouched by any of this: no bench, no arrivals, rounds still cost.
-  const { g, rt, step } = district(false);
-  assert.equal(g.madness, false, 'a night shift is not madness');
-  assert.equal(g.reserve.length, 0, 'and keeps nobody on a bench');
-  assert.equal(g.ground, null, 'and does not pay to remember every walkable spot');
-  const before = g.zombies.length;
-  rt.keys.Space = 1;
-  step(6);
-  rt.keys.Space = 0;
-  assert.ok(g.p.ammo < 24, 'rounds should still be spent');
-  assert.ok(g.zombies.length <= before, 'and the horde should not grow on its own');
+  const s = district(false);
+  assert.equal(s.g.madness, false, 'a night shift is not madness');
+  assert.equal(s.g.reserve.length, 0, 'and keeps nobody on a bench');
+  assert.equal(s.g.ground, null, 'and does not pay to remember every walkable spot');
+  const before = s.g.zombies.length;
+  s.hold(['Space'], 6);
+  assert.ok(s.g.p.ammo < 24, 'rounds should still be spent');
+  assert.ok(s.g.zombies.length <= before, 'and the horde should not grow on its own');
 }
 
 {
   // Madness: free rounds.
-  const { g, rt, step } = district(true);
-  assert.equal(g.madness, true);
-  g.p.ammo = 3;
-  rt.keys.Space = 1;
-  step(8);
-  rt.keys.Space = 0;
-  assert.equal(g.p.ammo, 3, 'madness should not count rounds');
-  assert.ok(g.bullets.length > 0 || g.killed > 0, 'and should still actually fire');
+  const s = district(true);
+  s.g.p.ammo = 3;
+  s.hold(['Space'], 8);
+  assert.equal(s.g.p.ammo, 3, 'madness should not count rounds');
+  assert.ok(s.g.bullets.length > 0 || s.g.killed > 0, 'and should still actually fire');
 }
 
 {
   // The bench exists, and arrivals come off it rather than from nowhere. Every zombie that ever
   // walks must be one of the objects the district was built with.
-  const { g, step } = district(true);
+  const s = district(true);
+  const g = s.g;
   const built = new Set(g.zombies.concat(g.reserve).map(z => z.id));
   const objects = new Set(g.zombies.concat(g.reserve));
   assert.ok(g.reserve.length > 40, `the bench should be deep (was ${g.reserve.length})`);
@@ -77,7 +61,7 @@ function district(madness) {
   const buried = new Set();
   let recycled = 0;
   for (let n = 0; n < 180; n++) {
-    step(.25, 1 / 60, true);
+    s.step(.25);
     for (const z of g.reserve) if (!waiting.has(z)) buried.add(z);
     for (const z of g.zombies) if (buried.has(z)) { recycled++; buried.delete(z); }
   }
@@ -94,16 +78,16 @@ function district(madness) {
 {
   // Arrivals happen where nobody is looking. Something appearing in front of a courier reads as
   // a bug rather than as pressure.
-  const { g, step } = district(true);
-  const seen = new Set(g.zombies);
+  const s = district(true);
+  const seen = new Set(s.g.zombies);
   let closest = Infinity;
   // Sampled often, so an arrival is caught near where it arrived rather than after it has walked.
   for (let n = 0; n < 360; n++) {
-    step(.25, 1 / 60, true);
-    for (const z of g.zombies) {
+    s.step(.25);
+    for (const z of s.g.zombies) {
       if (seen.has(z)) continue;
       seen.add(z);
-      closest = Math.min(closest, Math.hypot(z.x - g.p.x, z.y - g.p.y));
+      closest = Math.min(closest, Math.hypot(z.x - s.g.p.x, z.y - s.g.p.y));
     }
   }
   assert.ok(closest > 400,
@@ -112,14 +96,14 @@ function district(madness) {
 
 {
   // It keeps up the pressure without drowning the frame, and a body that falls comes back.
-  const { g, step } = district(true);
-  step(90, 1 / 60, true);
-  const pressed = g.zombies.length;
-  step(150, 1 / 60, true);
+  const s = district(true);
+  s.step(90);
+  const pressed = s.g.zombies.length;
+  s.step(150);
   assert.ok(pressed >= 60, `the street should fill up within ninety seconds (reached ${pressed})`);
-  assert.ok(g.zombies.length <= 64, `and stay inside its cap (was ${g.zombies.length})`);
-  assert.ok(g.spawned > 60, `arrivals should keep coming for as long as it runs (spawned ${g.spawned})`);
-  assert.ok(g.reserve.length > 0, 'and the bench should never run dry and quietly end the mode');
+  assert.ok(s.g.zombies.length <= 64, `and stay inside its cap (was ${s.g.zombies.length})`);
+  assert.ok(s.g.spawned > 60, `arrivals should keep coming for as long as it runs (spawned ${s.g.spawned})`);
+  assert.ok(s.g.reserve.length > 0, 'and the bench should never run dry and quietly end the mode');
 }
 
 {
@@ -137,12 +121,11 @@ function district(madness) {
   // Every round a patrol puts up in a minute, recorded as it leaves rather than read off the
   // object afterwards: a heavy round spends its penetration on the way and would look like an
   // ordinary one by the time the run ends.
-  const rounds = gun => {
-    const out = [];
-    const seen = new Set();
+  const rounds = s => {
+    const out = [], seen = new Set();
     for (let i = 0; i < 60 * 60; i++) {
-      gun.step(1 / 60, 1 / 60, true);
-      for (const b of gun.g.bullets) if (b.own && !seen.has(b)) {
+      s.step(1 / 60);
+      for (const b of s.g.bullets) if (b.own && !seen.has(b)) {
         seen.add(b);
         out.push({ heavy: !!b.heavy, pierce: b.pierce || 0, dmg: b.dmg, whiff: !!b.whiff });
       }
@@ -172,8 +155,8 @@ function district(madness) {
   // dry would look identical for the first minute, so this holds one car together on purpose and
   // watches its rate of fire over four minutes rather than whether it survives them — the horde
   // wrecking the crew is a different claim, and it would hide this one.
-  const { g, env } = district(true);
-  const car = g.cars.find(c => c.police);
+  const s = district(true);
+  const car = s.g.cars.find(c => c.police);
   const seen = new Set();
   // Rounds are counted against targets put in front of the gun on purpose, not against whatever
   // the district happens to leave nearby. An earlier version of this simply watched the car for
@@ -182,25 +165,22 @@ function district(madness) {
   const volley = seconds => {
     let fired = 0;
     for (let i = 0; i < seconds * 60; i++) {
-      g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
       car.broken = false; car.zombieLoad = 0;        // The crew is not what is being measured.
       // Three of the horde, kept standing in the open beside the car for the whole sample.
       for (let k = 0; k < 3; k++) {
-        const z = g.zombies[k];
+        const z = s.g.zombies[k];
         if (!z) break;
-        z.x = car.x + 90 + k * 26; z.y = car.y + 12 * k;
-        z.gone = false; z.hp = z.maxHp = 40;
+        s.place(z, { from: car, angle: k * .28, range: 96, hp: 40, still: false });
       }
-      env.TownGame.gameplay.update(g, 1 / 60);
-      for (const b of g.bullets) if (b.own === car && !seen.has(b)) { seen.add(b); fired++; }
+      s.step(1 / 60);
+      for (const b of s.g.bullets) if (b.own === car && !seen.has(b)) { seen.add(b); fired++; }
     }
     return fired;
   };
   const early = volley(20);
   for (let i = 0; i < 200 * 60; i++) {              // Three and a half minutes of ordinary district.
-    g.p.hp = g.p.hpMax; g.p.down = false; g.dead = false;
     car.broken = false; car.zombieLoad = 0;
-    env.TownGame.gameplay.update(g, 1 / 60);
+    s.step(1 / 60);
   }
   const late = volley(20);
   assert.ok(early > 40, `a machine gun should put out real volume (${early} rounds in twenty seconds)`);
@@ -211,19 +191,17 @@ function district(madness) {
 {
   // A heavy round goes through the body it hits. Set up as a queue standing in a line, because
   // that is exactly the case the gun exists for and the case a first-hit-only bullet gets wrong.
-  const { g, env } = district(true);
-  const line = g.zombies.slice(0, 4);
-  assert.ok(line.length === 4, 'the district should have bodies to line up');
-  for (let i = 0; i < line.length; i++) {
-    line[i].x = 600 + i * 40; line[i].y = 600; line[i].gone = false;
-    line[i].hp = line[i].maxHp = 20;            // Deep enough that nobody falls and leaves a gap.
-  }
-  for (const z of g.zombies) if (line.indexOf(z) < 0) { z.x = -4000; z.y = -4000; }
-  g.bullets.length = 0;
-  g.bullets.push({ x: 560, y: 600, px: 560, py: 600, vx: 1050, vy: 0, l: .5,
-                   own: g.cars[0], dmg: 2, pierce: 2, heavy: true });
+  const s = district(true);
+  s.scatter();
+  const line = s.g.zombies.slice(0, 4);
+  assert.equal(line.length, 4, 'the district should have bodies to line up');
+  // Deep enough that nobody falls and leaves a gap for the round to pass through.
+  line.forEach((z, i) => s.place(z, { from: { x: 600, y: 600 }, angle: 0, range: i * 40, hp: 20 }));
+  s.g.bullets.length = 0;
+  s.g.bullets.push({ x: 560, y: 600, px: 560, py: 600, vx: 1050, vy: 0, l: .5,
+                     own: s.g.cars[0], dmg: 2, pierce: 2, heavy: true });
   const before = line.map(z => z.hp);
-  for (let i = 0; i < 30; i++) env.TownGame.gameplay.update(g, 1 / 60);
+  s.step(.5);
   const hurt = line.filter((z, i) => z.hp < before[i]).length;
   assert.equal(hurt, 3, `one heavy round should reach three of a queue of four (reached ${hurt})`);
 
@@ -236,12 +214,10 @@ function district(madness) {
   // Two ends build the same madness district, bench included — otherwise they would disagree
   // about every arrival for the rest of the run.
   const a = district(true), b = district(true);
-  assert.equal(a.env.TownGame.world.layoutChecksum(a.g),
-    b.env.TownGame.world.layoutChecksum(b.g),
+  assert.equal(a.world.layoutChecksum(a.g), b.world.layoutChecksum(b.g),
     'one seed and one mode should build one district');
   const plain = district(false);
-  assert.notEqual(a.env.TownGame.world.layoutChecksum(a.g),
-    plain.env.TownGame.world.layoutChecksum(plain.g),
+  assert.notEqual(a.world.layoutChecksum(a.g), plain.world.layoutChecksum(plain.g),
     'and a madness district is not the same district as a night shift');
 }
 

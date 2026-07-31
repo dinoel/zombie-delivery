@@ -8,17 +8,15 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { load, q } = require('./browser-sandbox.js');
+const { q } = require('./browser-sandbox.js');
+const { scene } = require('./scene.js');
 
-const MODULES = ['core', 'quality', 'audio', 'car-physics', 'environment',
-  'world', 'physics', 'input', 'gameplay'];
-
+// The grace period is put back: several of these want a district that has had time to get going
+// on its own, and skipping the quiet start is not what this is about.
 function district(seed = 0x51ed5eed) {
-  const env = load({ modules: MODULES, seed });
-  const g = env.TownGame.world.buildTown(2);
-  const rt = env.TownGame.core.runtime;
-  rt.game = g; rt.state = 'play';
-  return { env, g, rt };
+  const s = scene({ seed });
+  s.g.spawnGrace = 5;
+  return s;
 }
 
 // Everything a rule is allowed to touch. If any of it moves during presentFrame, the guest is
@@ -37,53 +35,49 @@ const ruleState = g => JSON.stringify({
 
 {
   // Let a district get properly under way, so there is something in flight to be wrong about.
-  const { env, g } = district();
-  const rt = env.TownGame.core.runtime;
-  rt.keys.KeyD = 1; rt.keys.Space = 1;
-  for (let i = 0; i < 400; i++) env.TownGame.gameplay.update(g, 1 / 60);
-  rt.keys.KeyD = 0; rt.keys.Space = 0;
+  const s = district();
+  s.hold(['KeyD', 'Space'], 400 / 60);
 
-  assert.ok(g.zombies.length > 5 && g.cars.length > 5, 'the sample district should be populated');
+  assert.ok(s.g.zombies.length > 5 && s.g.cars.length > 5, 'the sample district should be populated');
 
-  const before = ruleState(g);
-  for (let i = 0; i < 120; i++) env.TownGame.gameplay.presentFrame(g, 1 / 60);
-  assert.equal(ruleState(g), before,
+  const before = ruleState(s.g);
+  s.present(2);
+  assert.equal(ruleState(s.g), before,
     'two seconds of presentation must leave every rule-owned value exactly where it was');
 }
 
 {
   // The other half of the claim: presentation is not a no-op. A watching peer still gets its
   // ears, its map, its weather and its debris.
-  const { env, g } = district();
-  const rt = env.TownGame.core.runtime;
-  rt.keys.KeyW = 1;
-  for (let i = 0; i < 200; i++) env.TownGame.gameplay.update(g, 1 / 60);
-  rt.keys.KeyW = 0;
+  const s = district();
+  const g = s.g;
+  s.hold(['KeyW'], 200 / 60);
 
   const seenBefore = g.seen.reduce((a, b) => a + b, 0);
   g.p.x += 700;                              // As if a snapshot had moved this courier.
   g.p.torch = true; g.p.batt = 1;
-  for (let i = 0; i < 30; i++) env.TownGame.gameplay.presentFrame(g, 1 / 60);
+  s.present(.5);
   assert.ok(g.seen.reduce((a, b) => a + b, 0) > seenBefore,
     'a watching peer should still open the fog around where its courier turned out to be');
 
   g.parts.push({ x: g.p.x, y: g.p.y, vx: 0, vy: 0, l: .05, c: '#fff', s: 2 });
-  for (let i = 0; i < 10; i++) env.TownGame.gameplay.presentFrame(g, 1 / 60);
+  s.present(10 / 60);
   assert.equal(g.parts.length, 0, 'and should still age its own debris away');
 }
 
 {
   // Events are the only channel through which a watching peer learns that something loud
   // happened. Replaying them makes noise and debris, and empties the list.
-  const { env, g } = district();
-  const { EV } = env.TownGame.environment;
-  for (let i = 0; i < 60; i++) env.TownGame.gameplay.update(g, 1 / 60);
+  const s = district();
+  const g = s.g;
+  const { EV } = s.env.TownGame.environment;
+  s.step(1);
 
   g.parts.length = 0; g.rings.length = 0;
   g.events.push([EV.shot, g.p.x, g.p.y, 0]);
   g.events.push([EV.lamp, g.p.x + 40, g.p.y]);
   g.events.push([EV.ring, g.p.x, g.p.y, 300]);
-  env.TownGame.gameplay.presentFrame(g, 1 / 60);
+  s.present(1 / 60);
   assert.equal(g.events.length, 0, 'replayed notes should be consumed');
   assert.ok(g.parts.length >= 19, 'a shot and a broken lamp should leave sparks and glass');
   assert.equal(g.rings.length, 1, 'a noise note should draw its ring');
@@ -95,6 +89,7 @@ const ruleState = g => JSON.stringify({
   const { env, g } = district();
   const { shakeAt } = env.TownGame.environment;
   g.shake = 0;
+  // Straight at the helper, because what is under test is how it answers rather than a frame.
   shakeAt(g, g.p.x + 2000, g.p.y, 1);
   const far = g.shake;
   g.shake = 0;

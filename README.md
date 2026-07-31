@@ -127,20 +127,42 @@ The numbers worth turning are together in `src/gameplay.js`: `MADNESS_LIVE_CAP`,
 `MG_PAUSE` and `MG_SWING` for the patrol gun, and `FLAME_*`, `BURN_*` and `PANIC_*` for the
 flamethrower — with the depth of the bench as `MADNESS_RESERVE` in `src/world.js`.
 
-## Keeping the district reproducible
+## The test harness
 
-Two checks exist so the simulation can be rearranged without changing what it does. Both run under plain `node` through `tools/browser-sandbox.js`, a shared stub that loads the real subsystems with no browser present.
+Three layers, and it is worth knowing which one a new test wants.
+
+`tools/browser-sandbox.js` is the bottom: a browser stub good enough to load the real subsystems
+under plain `node`, with a canvas that survives the static-layer pass and a listener box so a test
+can press a key for real and watch it travel through the actual handler.
+
+`tools/scene.js` is a district you can drive — `step`, `hold`, `tap`, `place`, `scatter`,
+`courierAt`, `immortal` — and it is where the traps are written down. Every test used to build
+that for itself, and each private version had its own way of going wrong: a courier held
+invulnerable painted the whole canvas red, so anything reading pixels was reading the harness; a
+horde moved out of the way was moved to one point and set about killing itself; input written
+straight onto the record was overwritten before a rule saw it, because the record is rebuilt from
+the devices at the top of every frame. Eight of those in one sitting, none of them a bug in the
+game. A test that needs something `scene` does not do should add it there rather than beside
+itself.
+
+`tools/balance.js` is for the questions a unit test cannot ask: whether a change holds up over a
+whole district. Run it directly and it plays madness three ways — idle, pistol, flamethrower — and
+prints what the street does. The failure it exists to catch is a weapon that clears faster than
+the spawner fills, which is invisible in a single frame and obvious in a column of numbers.
+
+```powershell
+.\tools\verify.ps1          # everything
+node .\tools\balance.js     # how a change feels over two and a half minutes
+```
+
+Two of the checks exist so the simulation can be rearranged without changing what it does:
 
 ```powershell
 node .\tools\test-seeded-town.js
 node .\tools\test-sim-determinism.js
-node .\tools\test-coop-rules.js
-node .\tools\test-presentation.js
-node .\tools\test-infighting.js
-node .\tools\test-head-blast.js
 ```
 
-`test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices. `test-coop-rules.js` covers what only exists with two couriers, and is described with the shift below.
+`test-seeded-town.js` asserts that one seed builds one district — roads, houses, lamps, traffic, the horde, parcels and their addresses, down to the per-object seeds that decide a roof colour — and that the random stream lands in the same place afterwards. `test-sim-determinism.js` runs a scripted thirteen-second district and hashes the entire dynamic state, pinning the result. A refactor that moves a single random draw shifts every later draw with it, and the digest notices. It is the one test that does not use `scene`: its whole value is a constant pinned to today's behaviour, and it drives its own scripted input, so putting a layer between it and the rules would buy nothing and risk the gate. `test-coop-rules.js` covers what only exists with two couriers, and is described with the shift below.
 
 The picture has its own check, which is run by hand because the answer depends on the browser doing the drawing. Open `index.html?2d&qa=frame-hash`, press start, and read `document.getElementById('c').dataset.frameHash` after a few seconds: it seeds the town, runs 300 steps of a fixed input script off the animation clock, and hashes all 403,200 pixels. Compare the value before and after a change.
 

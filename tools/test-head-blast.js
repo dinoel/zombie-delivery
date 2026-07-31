@@ -12,27 +12,24 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { load } = require('./browser-sandbox.js');
-
-const MODULES = ['core', 'quality', 'audio', 'car-physics', 'environment',
-  'world', 'physics', 'input', 'gameplay'];
+const { scene } = require('./scene.js');
 
 // The scripted scene: a tank is killed, its head is planted, and five rounds go into it on a
-// timer. Two and a half seconds of district covers the whole sequence.
+// timer. Two and a half seconds of district covers the whole sequence. The grace period is left
+// standing, unlike everywhere else, because the script is what drives this and the district
+// starting quiet is part of it.
 function detonate(prepare) {
-  const env = load({ modules: MODULES, seed: 0x51ed5eed, search: '?qa=zombie-head-explosion' });
-  const g = env.TownGame.world.buildTown(3);
-  const rt = env.TownGame.core.runtime;
-  rt.game = g; rt.state = 'play';
+  const s = scene({ level: 3, search: '?qa=zombie-head-explosion' });
+  const g = s.g;
   let head = null, prepared = false;
   for (let f = 0; f < 60 * 3; f++) {
-    env.TownGame.gameplay.update(g, 1 / 60);
+    s.step(1 / 60);
     if (!head) head = g.zombieParts.find(part => part.kind === 'head' && part.explosive) || null;
     // Once the head exists and before it goes off, let the caller arrange what is standing near it.
     if (head && !prepared && !g.headExplosions) { prepared = true; if (prepare) prepare(g, head); }
     if (g.headExplosions) break;
   }
-  return { env, g, head };
+  return { scene: s, env: s.env, g, head };
 }
 
 {
@@ -94,11 +91,10 @@ function detonate(prepare) {
 // A wreck used to smoke until the district ended. Now the smoke is a fuse, and what it counts
 // down to is the same blast as the head at four times the size.
 {
-  const env = load({ modules: MODULES, seed: 0x51ed5eed });
-  const g = env.TownGame.world.buildTown(2);
-  const rt = env.TownGame.core.runtime;
-  rt.game = g; rt.state = 'play';
-  const { WRECK_FUSE, disableCar, carSmokeProfile } = env.TownGame.environment;
+  const s = scene();
+  s.immortal();
+  const g = s.g;
+  const { WRECK_FUSE, disableCar, carSmokeProfile } = s.env.TownGame.environment;
 
   const car = g.cars.find(c => !c.police);
   // Out of the courier's way: what is being timed is the wreck, not a death.
@@ -108,12 +104,7 @@ function detonate(prepare) {
   assert.ok(carSmokeProfile(car).active, 'and should be smoking while it burns');
   assert.equal(carSmokeProfile(car).urgency, 0, 'calmly, to begin with');
 
-  const step = seconds => {
-    for (let i = 0; i < Math.round(seconds * 60); i++) {
-      g.p.hp = g.p.hpMax; g.dead = false;
-      env.TownGame.gameplay.update(g, 1 / 60);
-    }
-  };
+  const step = seconds => s.step(seconds);
 
   step(WRECK_FUSE * .8);
   assert.ok(!car.exploded, 'it should still be burning most of the way through the fuse');
@@ -139,26 +130,24 @@ function detonate(prepare) {
   // Four times the head means four times the ground covered and four times the wound — but only
   // to what is standing in it. Traffic keeps its own much shorter reach, or one wreck going up
   // beside another takes the whole road network with it a wreck at a time.
-  const env = load({ modules: MODULES, seed: 0x51ed5eed });
-  const g = env.TownGame.world.buildTown(2);
-  env.TownGame.core.runtime.game = g; env.TownGame.core.runtime.state = 'play';
-  const { disableCar, EV } = env.TownGame.environment;
+  const s = scene();
+  const g = s.g;
+  const { disableCar, EV } = s.env.TownGame.environment;
 
   const car = g.cars.find(c => !c.police);
   car.x = 1200; car.y = 1200;
   // A zombie well outside a head blast but inside a wreck's, and a car just outside the reach
   // that traffic gets.
-  const far = g.zombies[0];
-  far.x = car.x + 260; far.y = car.y; far.gone = false; far.hp = far.maxHp = 40;
+  const far = s.place(0, { from: car, angle: 0, range: 260, hp: 40 });
   const neighbour = g.cars.find(c => c !== car && !c.police);
   neighbour.x = car.x + 240; neighbour.y = car.y;
   const neighbourWasBroken = neighbour.broken;
 
-  g.p.x = car.x - 2000; g.p.y = car.y;            // Nowhere near it.
+  s.courierAt(car.x - 2000, car.y);               // Nowhere near it.
   disableCar(g, car, 'damage');
   car.fuse = 1 / 60;
   g.events.length = 0;
-  env.TownGame.gameplay.update(g, 1 / 60);
+  s.step(1 / 60);
 
   assert.ok(car.exploded, 'the fuse should have run out');
   assert.ok(far.gone || far.hp < 40,

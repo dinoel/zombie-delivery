@@ -83,11 +83,106 @@ function createParser() {
 }
 
 // ---------- rooms ----------
+// ---------- watching the wire ----------
+//
+// Off unless asked for, and deliberately kept to one side. The relay's whole value is that it
+// does not understand what it carries, so nothing here is allowed on the forwarding path: the
+// bytes go out first and are described afterwards, and the description never blocks or alters
+// them. Reading a message type is a peek at the first few bytes with a regular expression rather
+// than a parse, because parsing a nine-kilobyte snapshot twenty times a second in order to print
+// one letter would make the debug flag the slowest thing in the room.
+//
+//   node tools/relay.js --debug          one line per message, and a tally every second
+//   node tools/relay.js --debug=full     the same, with the whole payload
+//   node tools/relay.js --debug=tally    only the tally, when the stream is too much to read
+//
+const DEBUG_MODES = ['lines', 'full', 'tally'];
+
+function parseDebug(argv) {
+  const arg = argv.find(a => a === '--debug' || a.startsWith('--debug='));
+  if (!arg) return null;
+  const mode = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : 'lines';
+  if (!DEBUG_MODES.includes(mode)) {
+    console.error(`Unknown debug mode "${mode}". Use one of: ${DEBUG_MODES.join(', ')}.`);
+    process.exit(1);
+  }
+  return makeDebug(mode);
+}
+
+const size = n => n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} kB`;
+
+// The message type, if it is going to be cheap to find. A snapshot is `{"t":"s",...` and the
+// answer is in the first handful of bytes; anything else is reported as its size alone.
+function peekType(payload) {
+  if (payload.length < 2 || payload[0] !== 0x7b) return '?';
+  const head = payload.toString('utf8', 0, Math.min(payload.length, 48));
+  const m = /"t"\s*:\s*"([^"]{1,12})"/.exec(head);
+  return m ? m[1] : '?';
+}
+
+function makeDebug(mode) {
+  const started = Date.now();
+  const lines = mode !== 'tally';
+  const full = mode === 'full';
+  const flows = new Map();                          // "AB12 host->guest" -> { n, bytes, types }
+  const at = () => `${((Date.now() - started) / 1000).toFixed(1).padStart(7)}s`;
+
+  const bump = (key, bytes, type) => {
+    let f = flows.get(key);
+    if (!f) { f = { n: 0, bytes: 0, types: new Map() }; flows.set(key, f); }
+    f.n++; f.bytes += bytes;
+    f.types.set(type, (f.types.get(type) || 0) + 1);
+  };
+
+  // One line per direction rather than one long line for all of them: four flows on one row wraps
+  // in any terminal, and a wrapped table is worse than no table.
+  setInterval(() => {
+    if (!flows.size) return;
+    for (const [key, f] of flows) {
+      const types = [...f.types].map(([t, n]) => `${t}×${n}`).join(' ');
+      console.log(`${at()}  ── ${key.padEnd(20)} ${String(f.n).padStart(3)}/s ` +
+        `${(size(f.bytes) + '/s').padStart(11)}  ${types}`);
+    }
+    flows.clear();
+  }, 1000).unref();
+
+  return {
+    mode,
+    // A frame that arrived and was passed on, or dropped because nobody was listening.
+    wire(from, to, payload, delivered) {
+      const type = peekType(payload);
+      const where = from.room || '····';
+      const flow = `${where} ${from.role || '?'}→${delivered ? (to && to.role) || '?' : 'nobody'}`;
+      bump(flow, payload.length, type);
+      if (!lines) return;
+      console.log(`${at()}  ${flow.padEnd(20)} ${type.padEnd(6)} ${size(payload.length).padStart(9)}`);
+      if (full) console.log(`          ${payload.toString('utf8')}`);
+    },
+    // Something the relay said itself: joined, peer, error, full.
+    note(peer, obj) {
+      const text = JSON.stringify(obj);
+      bump(`${peer.room || '····'} relay→${peer.role || '?'}`, text.length, obj.t);
+      if (lines) console.log(`${at()}  ${`relay→${peer.role || '?'}`.padEnd(20)} ${String(obj.t).padEnd(6)} ${text}`);
+    },
+    event(text) {
+      if (lines) console.log(`${at()}  ${text}`);
+    },
+    http(method, url, status, bytes) {
+      if (lines) console.log(`${at()}  ${`http ${method}`.padEnd(20)} ${String(status).padEnd(6)} ${size(bytes).padStart(9)}  ${url}`);
+    }
+  };
+}
+
+let DEBUG = null;
+
 // Two peers to a room. The first in is the host and runs the simulation; the second watches.
 const rooms = new Map();
 
 const sendRaw = (peer, buffer) => { if (!peer.socket.destroyed) peer.socket.write(buffer); };
-const sendJson = (peer, obj) => sendRaw(peer, encodeFrame(OP.text, JSON.stringify(obj)));
+const sendJson = (peer, obj) => {
+  sendRaw(peer, encodeFrame(OP.text, JSON.stringify(obj)));
+  if (DEBUG) DEBUG.note(peer, obj);
+};
 
 function partnerOf(peer) {
   const room = rooms.get(peer.room);
@@ -145,6 +240,7 @@ function handleUpgrade(req, socket) {
 
   const peer = { socket, room: null, role: null, lastSeen: Date.now() };
   const parse = createParser();
+  if (DEBUG) DEBUG.event(`socket opened from ${socket.remoteAddress}`);
 
   socket.on('data', chunk => {
     peer.lastSeen = Date.now();
@@ -165,8 +261,10 @@ function handleUpgrade(req, socket) {
         else sendJson(peer, { t: 'error', reason: 'join first' });
         continue;
       }
+      // Forwarded first, described afterwards: the watcher must never be in the way of the bytes.
       const other = partnerOf(peer);
       if (other) sendRaw(other, encodeFrame(OP.text, frame.payload));
+      if (DEBUG) DEBUG.wire(peer, other, frame.payload, !!other);
     }
   });
 
@@ -175,7 +273,11 @@ function handleUpgrade(req, socket) {
     sendRaw(peer, encodeFrame(OP.ping, Buffer.alloc(0)));
   }, PING_EVERY);
 
-  const done = () => { clearInterval(keepalive); leaveRoom(peer); };
+  const done = () => {
+    if (DEBUG) DEBUG.event(`socket closed: ${peer.role || 'never joined'}${peer.room ? ` in ${peer.room}` : ''}`);
+    clearInterval(keepalive);
+    leaveRoom(peer);
+  };
   socket.on('close', done);
   socket.on('error', done);
 }
@@ -198,16 +300,22 @@ function serveFile(req, res) {
   const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).replace(/^\/+/, '');
   const file = path.resolve(ROOT, rel);
   if (file !== ROOT && !file.startsWith(ROOT + path.sep)) {   // No climbing out of the project.
+    if (DEBUG) DEBUG.http(req.method, url.pathname, 403, 0);
     res.writeHead(403).end('forbidden');
     return;
   }
   fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404).end('not found'); return; }
+    if (err) {
+      if (DEBUG) DEBUG.http(req.method, url.pathname, 404, 0);
+      res.writeHead(404).end('not found');
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': TYPES[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Cache-Control': 'no-cache'
     });
     res.end(data);
+    if (DEBUG) DEBUG.http(req.method, url.pathname, 200, data.length);
   });
 }
 
@@ -219,7 +327,8 @@ function localAddresses() {
   return out;
 }
 
-function start(port = Number(process.env.PORT) || 8787) {
+function start(port = Number(process.env.PORT) || 8787, debug = null) {
+  DEBUG = debug;
   const server = http.createServer(serveFile);
   server.on('upgrade', handleUpgrade);
   server.listen(port, () => {
@@ -228,10 +337,13 @@ function start(port = Number(process.env.PORT) || 8787) {
     for (const address of localAddresses())
       console.log(`  same network:  http://${address}:${port}/`);
     console.log('Open the page on both machines, host with a room code, and join with the same one.');
+    if (DEBUG) console.log(`Watching the wire (--debug=${DEBUG.mode}). Every line is a message; ── is one second's tally.`);
   });
   return server;
 }
 
-module.exports = { acceptKey, encodeFrame, createParser, start, OP, MAX_PAYLOAD };
+module.exports = {
+  acceptKey, encodeFrame, createParser, start, parseDebug, peekType, OP, MAX_PAYLOAD
+};
 
-if (require.main === module) start();
+if (require.main === module) start(undefined, parseDebug(process.argv.slice(2)));

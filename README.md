@@ -155,6 +155,19 @@ the spawner fills, which is invisible in a single frame and obvious in a column 
 node .\tools\balance.js     # how a change feels over two and a half minutes
 ```
 
+The relay can show what passes through it, which is off unless asked for:
+
+```powershell
+node .\tools\relay.js --debug          # one line per message, and a tally every second
+node .\tools\relay.js --debug=full     # the same, with the whole payload
+node .\tools\relay.js --debug=tally    # only the tally, when the stream is too much to read
+```
+
+None of it is on the forwarding path: bytes are passed on first and described afterwards, and the
+message type is found by a regular expression over the first forty-eight bytes rather than by
+parsing — 0.14 microseconds on a nine-kilobyte snapshot, against the whole point of the relay,
+which is that it does not understand what it carries.
+
 Two of the checks exist so the simulation can be rearranged without changing what it does:
 
 ```powershell

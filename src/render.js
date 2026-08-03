@@ -484,6 +484,22 @@ function draw(g) {
     ctx.restore();
   }
 
+  // Fire escapes are drawn here rather than baked into the static layer, because a ladder is
+  // something to walk to: it has to stay legible against whatever ends up standing on it, and the
+  // one nearest the courier says so.
+  for (const l of g.ladders) {
+    if (!visible(l.x, l.y, 40)) continue;
+    ctx.save();
+    ctx.translate(l.x, l.y);
+    ctx.rotate(l.ang);
+    ctx.strokeStyle = '#39424c'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(-16, -6);
+    ctx.moveTo(0, 6); ctx.lineTo(-16, 6); ctx.stroke();
+    ctx.strokeStyle = '#57626e'; ctx.lineWidth = 1.5;
+    for (let r = -2; r > -16; r -= 4) { ctx.beginPath(); ctx.moveTo(r, -6); ctx.lineTo(r, 6); ctx.stroke(); }
+    ctx.restore();
+  }
+
   // Street lamps hang above the street, so they pass over the traffic and the courier.
   for (const l of g.lamps) if (visible(l.x, l.y, 56)) drawLamp(ctx, l, lampGlow(l, g.time));
 

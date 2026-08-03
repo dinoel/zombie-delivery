@@ -104,8 +104,11 @@ function revealAround(g, p, rise) {
   const lit = p.torch && p.batt > 0, w = g.weather;
   const o = torchHand(p);                          // Vision starts at the hand, not the body center.
   // Rain shortens the beam, while lightning briefly reveals the whole block.
-  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6), R2 = R * R;
-  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6)) ** 2;
+  // A roof is the only place in the district you can see out of, and that is half of why anybody
+  // climbs one: the fog opens a long way further than it ever does at street level.
+  const high = p.roof ? 1.7 : 1;
+  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6) * high, R2 = R * R;
+  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6) * high) ** 2;
   const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
   const active = g.fogActive, activeMark = g.fogActiveMark;
   const gx0 = Math.max(0, ((o.x - R) / FCELL) | 0), gx1 = Math.min(FW - 1, ((o.x + R) / FCELL) | 0);
@@ -353,8 +356,11 @@ function lanePoint(e, s, dir) {
   const hx = p.tx * dir, hy = p.ty * dir;
   return { x: p.x - hy * LANE, y: p.y + hx * LANE, hx, hy };
 }
+// The body's position is now the body's own. It used to be the lane's, with jx/jy carrying a
+// decaying crash displacement on top so a shoved car slid back onto its rails; there are no rails
+// under it any more, so a shove is simply where the car ended up and stays there.
 function setCar(c, x, y, hx, hy) {
-  c.x = x + (c.jx || 0); c.y = y + (c.jy || 0);      // jx/jy is crash displacement while the lane remains underneath.
+  c.x = x; c.y = y;
   c.hx = hx; c.hy = hy;
   setOBB(c.box, c.x, c.y, Math.atan2(hy, hx), CAR_L / 2, CAR_W / 2);
   syncCarBody(c);
@@ -363,14 +369,116 @@ function placeCar(c) {                            // On a straight segment.
   const l = lanePoint(c.edge, c.s, c.dir);
   setCar(c, l.x, l.y, l.hx, l.hy);
 }
-// Steering is not instantaneous; heading approaches the target at a limited rate.
-function steerCar(c, x, y, hx, hy, dt, rate) {
-  const cur = Math.atan2(c.hy, c.hx);
-  let d = Math.atan2(hy, hx) - cur;
-  while (d > Math.PI) d -= 6.283185;
-  while (d < -Math.PI) d += 6.283185;
-  const a = cur + clamp(d, -rate * dt, rate * dt);
-  setCar(c, x, y, Math.cos(a), Math.sin(a));
+// ---------- a car with a steering wheel ----------
+//
+// What was here before put the car wherever the lane said and turned the sprite toward the lane's
+// direction at a fixed rate. Two things fell out of that and both were visible. The body crabbed
+// through every intersection, because the position rode the arc while the nose was still catching
+// up. And it turned at the same rate standing still as at full speed, which is a turret rather
+// than a car.
+//
+// So the lane stops being where the car is and becomes where the driver is trying to get to. The
+// front wheels are pointed at a spot further along it, the body goes where the wheels take it, and
+// how fast it comes round follows from how fast it is going: a car that is not moving cannot turn
+// at all, which is the whole difference.
+//
+// The tail is allowed to let go. Cornering needs the tyres to supply v²/R of sideways grip, and
+// when the corner asks for more than they have the rear steps out, which rotates the car further
+// into the corner, which asks for more still. That runaway is what a slide is. It is bounded by
+// damping and by hard ceilings rather than by hoping the numbers stay small.
+const TAU = Math.PI * 2;
+const WHEELBASE = 26;             // The wheels are drawn at ±13, so this is the real figure.
+const MAX_LOCK = .62;             // About thirty-five degrees, which is a road car on full lock.
+const STEER_RATE = 3.6;           // How fast the wheels themselves can be turned.
+const GRIP = 430;                 // Sideways pixels per second per second the tyres hold on dry asphalt.
+const SLIP_KEEP = .045;           // What is left of a slide after a second of tyres clawing it back.
+const SLIP_YAW = .02;             // How hard a sliding tail rotates the car. This is the oversteer.
+const SLIP_MAX = 300;
+const SPIN_MAX = 4.2;             // Nothing rotates faster than this, however badly it goes.
+const SLIP_LOST = 95;             // Sideways speed at which the driver has stopped being in charge.
+
+const shortestTurn = a => {
+  while (a > Math.PI) a -= TAU;
+  while (a < -Math.PI) a += TAU;
+  return a;
+};
+
+// Where the front wheels have to point for the car's arc to pass through a given spot. This is
+// pure pursuit, and it is the whole of the driver: everything else follows from the geometry.
+function steerToward(c, aimX, aimY, dt, wheelDamage = 0) {
+  const dx = aimX - c.x, dy = aimY - c.y;
+  const dist = Math.max(18, Math.hypot(dx, dy));
+  const alpha = shortestTurn(Math.atan2(dy, dx) - Math.atan2(c.hy, c.hx));
+  // Reversing: the driver is looking over their shoulder, so the same aim wants the opposite lock.
+  const back = c.v < -4;
+  const want = clamp(Math.atan2(2 * WHEELBASE * Math.sin(back ? shortestTurn(alpha + Math.PI) : alpha), dist),
+                     -MAX_LOCK, MAX_LOCK);
+  const rate = STEER_RATE * (1 - .45 * wheelDamage);
+  c.steer = (c.steer || 0) + clamp(want - (c.steer || 0), -rate * dt, rate * dt);
+  return c.steer;
+}
+
+// One step of the body. `grip` is what the tyres are worth here and now — wet asphalt, grass, a
+// bent suspension — and it is the only thing standing between a corner and a slide.
+function rollCar(c, dt, grip) {
+  const yawFromWheels = (c.v / WHEELBASE) * Math.tan(c.steer || 0);
+
+  // What the corner is asking of the tyres, and what they cannot give.
+  const need = c.v * yawFromWheels;
+  const over = Math.abs(need) - grip;
+  if (over > 0) c.slip = clamp((c.slip || 0) + Math.sign(need) * over * dt, -SLIP_MAX, SLIP_MAX);
+  c.slip = (c.slip || 0) * Math.pow(SLIP_KEEP, dt);
+  if (Math.abs(c.slip) < .5) c.slip = 0;
+
+  // A tail that has stepped out is a lever on the rest of the car. This is the oversteer the
+  // slide is made of, and the ceiling is what keeps it from becoming a spinning top.
+  c.spin = clamp(yawFromWheels + c.slip * SLIP_YAW, -SPIN_MAX, SPIN_MAX);
+
+  const a = Math.atan2(c.hy, c.hx) + c.spin * dt;
+  const hx = Math.cos(a), hy = Math.sin(a);
+  // Forward along the nose, sideways along the door. The second term is the entire visible
+  // difference between a car on rails and a car with weight.
+  const vx = hx * c.v - hy * c.slip;
+  const vy = hy * c.v + hx * c.slip;
+  setCar(c, c.x + vx * dt, c.y + vy * dt, hx, hy);
+  return Math.abs(c.slip);
+}
+
+// How far along an edge the car actually is, rather than how far the driver planned to be. Once
+// the body can leave the lane the two stop agreeing, and everything downstream — the corridor
+// scan, the turn trigger, who gets the intersection — is asking about the body. Searched locally
+// because a car moves a few pixels a frame and the answer is always next to the last one.
+// Which lane a car that has ended up somewhere unplanned should rejoin, and facing which way.
+// The direction is chosen to suit the heading it actually finished with, so gathering up a spin
+// does not snap the car through a handbrake turn — if it ends up pointing the wrong way up a road
+// it drives off that way and turns round like anybody else.
+function nearestLane(roads, x, y, hx, hy) {
+  let best = null, bd = Infinity, dir = 1;
+  const probe = { x, y, edge: null };
+  for (const e of roads.edges) {
+    probe.edge = e;
+    const s = anchorToEdge(probe, e.len * .5);
+    const p = onEdge(e, s);
+    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+    if (d >= bd) continue;
+    bd = d; best = { edge: e, s };
+    dir = (p.tx * hx + p.ty * hy) >= 0 ? 1 : -1;
+  }
+  return best ? { edge: best.edge, s: best.s, dir } : null;
+}
+
+function anchorToEdge(c, from) {
+  const e = c.edge;
+  let best = clamp(from, 0, e.len), bd = Infinity;
+  for (let step = 32; step >= 2; step *= .5) {
+    for (const s of [best - step, best, best + step]) {
+      const at = clamp(s, 0, e.len);
+      const p = onEdge(e, at);
+      const d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+      if (d < bd) { bd = d; best = at; }
+    }
+  }
+  return best;
 }
 
 // ---------- turn: an arc from the current lane to the next road ----------
@@ -695,7 +803,8 @@ function prepareCarImpactComparison(g) {
   for (let i = 0; i < cars.length; i++) {
     const c = cars[i];
     c.x = clamp(p.x + offsets[i], 32, WORLD - 32); c.y = y;
-    c.hx = 1; c.hy = 0; c.v = 0; c.baseMax = 0; c.max = 0; c.jx = c.jy = 0;
+    c.hx = 1; c.hy = 0; c.v = 0; c.baseMax = 0; c.max = 0;
+    c.steer = 0; c.slip = 0; c.spin = 0; c.lost = null;
     c.broken = false; c.breakReason = ''; c.hazard = 0; c.body = createCarBody(); c.damage = newCarDamage();
     setOBB(c.box, c.x, c.y, 0, CAR_L / 2, CAR_W / 2); syncCarBody(c);
   }
@@ -741,10 +850,14 @@ function crash(g, a, b, manifold) {
   const invA = 1 / massA, invB = 1 / massB, invSum = invA + invB;
   const shiftA = k * 2 * invA / invSum, shiftB = k * 2 * invB / invSum;
   const ax = -nx * shiftA, ay = -ny * shiftA, bx = nx * shiftB, by = ny * shiftB;
-  a.jx += ax; a.jy += ay; b.jx += bx; b.jy += by;
-  // Separate the physical bodies immediately so they no longer overlap in the
-  // current frame. jx/jy preserve this displacement relative to the lane.
+  // Separate the physical bodies immediately so they no longer overlap in this frame, and leave
+  // them there: a body that owns its own position does not need the displacement remembered.
   a.x += ax; a.y += ay; b.x += bx; b.y += by;
+  // A shunt in the side is also a shove sideways, which is the thing most likely to break a car's
+  // grip on a corner. Half of it goes into the slide, so a nudge at speed can start a spin.
+  const lat = (dx, dy, car) => (-car.hy * dx + car.hx * dy) * 5.5;
+  a.slip = clamp((a.slip || 0) + lat(ax, ay, a), -SLIP_MAX, SLIP_MAX);
+  b.slip = clamp((b.slip || 0) + lat(bx, by, b), -SLIP_MAX, SLIP_MAX);
   if (a.box) setOBB(a.box, a.x, a.y, Math.atan2(a.hy, a.hx), CAR_L / 2, CAR_W / 2);
   if (b.box) setOBB(b.box, b.x, b.y, Math.atan2(b.hy, b.hx), CAR_L / 2, CAR_W / 2);
   syncCarBody(a); syncCarBody(b);
@@ -769,7 +882,8 @@ function crashObstacle(g, c, obstacle) {
   const contactX = c.x + nx * CAR_L * .45, contactY = c.y + ny * CAR_L * .45;
   damageCar(g, c, impact, nx, ny, 'collision', contactX, contactY);
   const push = clamp(3 + impact * .04, 4, 12), sx = -nx * push, sy = -ny * push;
-  c.jx += sx; c.jy += sy; c.x += sx; c.y += sy;
+  c.x += sx; c.y += sy;
+  c.slip = 0; c.spin = 0;                    // Hitting a wall ends a slide rather than feeding it.
   if (c.box) setOBB(c.box, c.x, c.y, Math.atan2(c.hy, c.hx), CAR_L / 2, CAR_W / 2);
   syncCarBody(c);
   c.cd = 2.4;
@@ -797,7 +911,8 @@ return Object.freeze({
   updateFog, drawFog, fogAt,
   EV, emit, shakeAt,
   newWeather, updateWeather, updateWeatherVisuals, drawRain, drawGlowThroughFog,
-  TURN_IN, makeRoads, onEdge, lanePoint, placeCar, steerCar, startTurn, startUTurn, ahead,
+  TURN_IN, makeRoads, onEdge, lanePoint, placeCar, startTurn, startUTurn, ahead,
+  GRIP, SLIP_LOST, MAX_LOCK, steerToward, rollCar, anchorToEdge, nearestLane, setCar,
   WRECK_FUSE,
   newCarDamage, carSmokeProfile, damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   prepareCarImpactComparison,

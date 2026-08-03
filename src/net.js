@@ -215,13 +215,20 @@ function encodeSnapshot(g, ack) {
       // wire. There is no flame entity to send: the far end has a position, an aim and this, and
       // draws the entire jet for itself.
       flag(p.torch, 0) | flag(p.sneaking, 1) | flag(p.running, 2) | flag(p.moving, 3) |
-      flag(p.down, 4) | flag(p.flaming, 5)]),
+      flag(p.down, 4) | flag(p.flaming, 5),
+      // Which roof they are standing on, by index, because the houses came from the seed and both
+      // ends already have the same list. Minus one is the street.
+      p.roof ? g.houses.indexOf(p.roof) : -1, q2(p.climb || 0)]),
     z: live,
     // The fuse travels because it is the only warning a wreck gives before it goes up, and a
     // guest reading it a beat late is a guest standing next to a car it thought was safe.
     c: g.cars.map(c => [c.id, q1(c.x), q1(c.y), q2(c.hx), q2(c.hy), q1(c.v), q2(c.damage.integrity),
       q2(c.beacon || 0), q2(c.honk || 0), q2(c.hazard || 0),
-      flag(c.broken, 0) | flag(c.police, 1) | flag(c.exploded, 2), q2(c.fuse || 0)]),
+      flag(c.broken, 0) | flag(c.police, 1) | flag(c.exploded, 2), q2(c.fuse || 0),
+      // Where the front wheels are pointed and how far the tail has stepped out. Neither can be
+      // worked out from a position and a heading a twentieth of a second apart, and both are what
+      // a car in a corner looks like.
+      q2(c.steer || 0), q1(c.slip || 0)]),
     b: g.bullets.map(b => [q1(b.x), q1(b.y), q1(b.vx), q1(b.vy), q2(b.l), b.own ? 1 : 0]),
     f: g.zombieShots.map(s => [q1(s.x), q1(s.y), q1(s.vx), q1(s.vy), q2(s.l), q2(s.r), s.kind, q2(s.spin)]),
     pt: g.zombieParts.map(part => [part.id, part.zid, part.kind, part.side || 0,
@@ -270,6 +277,8 @@ function applySnapshot(g, s) {
     p.torch = has(bits, 0); p.sneaking = has(bits, 1);
     p.running = has(bits, 2); p.moving = has(bits, 3); p.down = has(bits, 4);
     p.flaming = has(bits, 5);
+    p.roof = row[16] >= 0 ? g.houses[row[16]] : null;
+    p.climb = row[17];
   }
 
   // The roster was built from the seed, so nothing is created here — the horde is only narrowed
@@ -297,6 +306,7 @@ function applySnapshot(g, s) {
     c.broken = has(row[10], 0);
     c.exploded = has(row[10], 2);
     c.fuse = row[11];
+    c.steer = row[12]; c.slip = row[13];
   }
 
   // Whether a round is heavy is not sent: in madness every patrol round is one, and outside it

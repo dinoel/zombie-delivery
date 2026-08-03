@@ -4,7 +4,7 @@ window.TownGame.world = (() => {
 
 const {
   W, H, WORLD, ROAD, CAR_L, CAR_W, ZR, HP_MAX,
-  clamp, rnd, pick, obb, setOBB, distOBB, roundRect,
+  clamp, rnd, pick, obb, setOBB, distOBB, inOBB, roundRect,
   WALLS, ROOFS, CARCOL
 } = window.TownGame.core;
 const {
@@ -53,6 +53,12 @@ const LAMP_FAULTY_SHARE = .16;                    // Roughly one lamp in six is 
 // rather than on how long the mode lasts.
 const MADNESS_RESERVE = 96;
 const MADNESS_FIRST = 3;                          // Seconds of quiet before the first arrival.
+// ---------- fire escapes ----------
+// How many houses carry one, how far the foot stands off the wall, and how far inside the
+// parapet a climber comes over the edge.
+const LADDER_SHARE = .28;
+const LADDER_OUT = 15;
+const LADDER_IN = 16;
 const LAMP_HEAD_R = 6.5;                          // The glass a bullet has to find.
 const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
 const CROSSWALK_MIN_GAP = ROAD * .74;
@@ -167,6 +173,9 @@ function makeCourier(start, index, torch) {
     walk: 0, inv: 0, cool: 0, muzzle: 0, stagger: 0,
     torch, batt: 1, stam: 1, running: false, moving: false, rest: 0, step: 0, flick: 1,
     takedown: 0, finishHeld: false, sneaking: false, sneakToggle: false,
+    // Which roof they are standing on, or null for the street. A courier up there cannot be
+    // reached, cannot pick anything up, and shoots over everything in the way.
+    roof: null, climb: 0, climbTo: null,
     torchSeen: null, sneakSeen: null, weaponSeen: null,   // Adopted from the press counters on the first frame.
     // What is in their hands. Zero is the pistol and the only thing a night shift ever issues;
     // madness also hands out a flamethrower, and the courier can put one down for the other.
@@ -512,6 +521,41 @@ function buildTown(level, couriers = 1, madness = false) {
     b.dest = { house: h, ...doorOf(h) };
   }
 
+  // ---------- fire escapes ----------
+  //
+  // A ladder bolted to one wall of some of the houses, and the only way onto a roof. The horde
+  // cannot use it, which is the whole reason it is worth walking to: up there nothing can reach
+  // you and you can see and shoot over everything that used to be in the way.
+  //
+  // One draw for whether a house gets one and one for which wall, both taken unconditionally, so
+  // the number of draws does not depend on which walls happen to be clear. A district is a seed
+  // and every later draw sits downstream of these.
+  const ladders = [];
+  for (const h of houses) {
+    const wanted = Math.random() < LADDER_SHARE;
+    const first = (Math.random() * 4) | 0;
+    if (!wanted) continue;
+    const ca = Math.cos(h.ang), sa = Math.sin(h.ang);
+    const walls = [[h.hw, 0], [-h.hw, 0], [0, h.hh], [0, -h.hh]];
+    for (let k = 0; k < 4; k++) {
+      const [lx, ly] = walls[(first + k) % 4];
+      const nx = lx / (Math.abs(lx) || 1) * (lx ? 1 : 0), ny = ly / (Math.abs(ly) || 1) * (ly ? 1 : 0);
+      const outX = ca * nx - sa * ny, outY = sa * nx + ca * ny;      // Outward normal of that wall.
+      const px = h.cx + ca * lx - sa * ly + outX * LADDER_OUT;
+      const py = h.cy + sa * lx + ca * ly + outY * LADDER_OUT;
+      if (px < 40 || py < 40 || px > WORLD - 40 || py > WORLD - 40) continue;
+      if (houses.some(o => inOBB(px, py, o))) continue;              // Not into the neighbour's wall.
+      if (roadDist(px, py) < ROAD / 2 + 6) continue;                 // Not standing in the road.
+      ladders.push({
+        house: h, x: px, y: py, ang: Math.atan2(outY, outX),
+        // Where the climber ends up: just inside the parapet, off the edge they came over.
+        topX: h.cx + ca * lx - sa * ly - outX * LADDER_IN,
+        topY: h.cy + sa * lx + ca * ly - outY * LADDER_IN
+      });
+      break;
+    }
+  }
+
   // ---------- moving cars: follow roads and turn at intersections ----------
   const cars = [];
   const nCars = Math.min(11 + level, 22);           // More traffic than this turns the roads into a permanent jam.
@@ -523,7 +567,11 @@ function buildTown(level, couriers = 1, madness = false) {
       const c = { id: k, edge: e, dir: Math.random() < .5 ? 1 : -1, s: rnd(40, e.len - 40),
                   mode: 'edge', turn: null,
                   v: 0, max: rnd(115, 175) * spd, col: pick(CARCOL), honk: 0, honked: false,
-                  stall: 0, stuck: 0, cd: 0, dead: 0, hold: false, node: -1, jx: 0, jy: 0,
+                  stall: 0, stuck: 0, cd: 0, dead: 0, hold: false, node: -1,
+                  // Only the front wheels turn, and the body is allowed to go somewhere other
+                  // than where the nose points. `lost` is set when the driver stops being in
+                  // charge of either.
+                  steer: 0, slip: 0, spin: 0, lost: null, lostT: 0, tyreCd: 0,
                   // Untangling a jam: back out, yield, and finally take another road.
                   rev: 0, revCd: 0, yieldTo: null, yieldT: 0, jamTries: 0, freeT: 0,
                   broken: false, breakReason: '', hazard: 0, smokeCd: 0, zombieHits: 0, zombieLoad: 0,
@@ -790,6 +838,7 @@ function buildTown(level, couriers = 1, madness = false) {
   return {
     level, solids, trees, soft, houses, props, parcels, cars, need, zombies, ammoBoxes,
     roads: R, lamps: props.filter(p => p.t === 'lamp'), parked: props.filter(p => p.t === 'parked'), roadDist,
+    ladders,                                        // The way onto a roof, and the one thing the horde cannot climb.
     stat: renderStatic({ houses, trees, soft, props, roads: R, roadDist }),
     players, p: players[0], coopLocal,              // The local courier; the rest of the shift is alongside.
     madness, reserve, ground,                       // The bench, and the places it can walk on from.
@@ -1051,10 +1100,14 @@ function drawCarShape(c, car) {
   c.fillStyle = 'rgba(0,0,0,.3)';
   c.beginPath(); outline.forEach((p, i) => i ? c.lineTo(p.x + 4, p.y + 6) : c.moveTo(p.x + 4, p.y + 6)); c.closePath(); c.fill();
   const wheelDamage = d.wheel || 0;
+  // Only the front pair steers. It is a small thing on screen and it is most of what makes a car
+  // read as a car rather than as a box being dragged along a line.
+  const steer = car.steer || 0;
   for (const wheel of [[-13, -11], [13, -11], [-13, 11], [13, 11]]) {
     const p = M(wheel[0], wheel[1]), q = M(wheel[0] + 4, wheel[1]);
     c.save(); c.translate(p.x, p.y);
-    c.rotate(Math.atan2(q.y - p.y, q.x - p.x) + (wheel[0] > 0 ? 1 : -1) * wheelDamage * .32);
+    c.rotate(Math.atan2(q.y - p.y, q.x - p.x) + (wheel[0] > 0 ? steer : 0)
+             + (wheel[0] > 0 ? 1 : -1) * wheelDamage * .32);
     c.fillStyle = '#171a1e'; roundRect(c, -4.2, -2.1, 8.4, 4.2, 1.4); c.fill();
     c.fillStyle = '#777d82'; c.fillRect(-2.1, -.55, 4.2, 1.1);
     c.restore();

@@ -127,6 +127,13 @@ The numbers worth turning are together in `src/gameplay.js`: `MADNESS_LIVE_CAP`,
 `MG_PAUSE` and `MG_SWING` for the patrol gun, and `FLAME_*`, `BURN_*` and `PANIC_*` for the
 flamethrower — with the depth of the bench as `MADNESS_RESERVE` in `src/world.js`.
 
+## Picking this up cold
+
+`docs/handoff.md` is the short version of everything a conversation about this code needs to know
+before it changes anything: the rules that cannot be broken, the five decisions the rest hangs
+off, the two regression gates and their pinned values, how to drive the test harness, and the
+mistakes that have already been made twice. Start there rather than here.
+
 ## The test harness
 
 Three layers, and it is worth knowing which one a new test wants.

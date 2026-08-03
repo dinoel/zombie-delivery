@@ -12,7 +12,8 @@ const {
 const SND = window.TownGame.audio;
 const {
   TURN_IN, updateFog, updateWeather, updateWeatherVisuals,
-  lanePoint, steerCar, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
+  lanePoint, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
+  GRIP, SLIP_LOST, steerToward, rollCar, anchorToEdge, nearestLane, setCar,
   damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   crash, crashObstacle,
   bezAt, bezDir,
@@ -67,8 +68,10 @@ function fire(g, p) {
   shakeAt(g, p.x, p.y, .3);
   emit(g, EV.shot, h.x, h.y, a);
   warnZombiesOfShot(g, h.x, h.y, hx, hy);
+  // A round fired from a roof is above the hedges, the traffic and the rest of the horde. That
+  // clear line is most of the reason to be up there at all.
   g.bullets.push({ x: h.x + Math.cos(a) * 10, y: h.y + Math.sin(a) * 10, px: h.x, py: h.y,
-                   vx: hx * BV, vy: hy * BV, l: .5 });
+                   vx: hx * BV, vy: hy * BV, l: .5, high: !!p.roof });
   p.kx -= hx * 55; p.ky -= hy * 55;
   for (let k = 0; k < 5; k++)
     g.parts.push({ x: h.x + Math.cos(a) * 11, y: h.y + Math.sin(a) * 11,
@@ -764,7 +767,7 @@ const CONTACT_NOTICE_PAD = 2;      // Physical contact always defeats stealth fr
 const PICKUP_REACH = 22;
 function pickerAt(g, x, y) {
   for (const p of g.players) {
-    if (p.down) continue;
+    if (p.down || p.roof) continue;      // Nothing on the street is within reach from a roof.
     if (Math.hypot(p.x - x, p.y - y) < PICKUP_REACH) return p;
   }
   return null;
@@ -790,7 +793,8 @@ function noticeFor(g, z, p, canNotice, lightRange) {
   const front = (dx * Math.cos(z.ang) + dy * Math.sin(z.ang)) / d > Math.cos(FRONT_ARC);
   const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
                 (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
-  const touching = canNotice && d < PR + z.r + CONTACT_NOTICE_PAD;
+  // Standing on a roof is never being touched, however close the two of them look from above.
+  const touching = canNotice && !p.roof && d < PR + z.r + CONTACT_NOTICE_PAD;
   let exposed = canNotice && (touching || d < reach);
   let inBeam = false;
   if (canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
@@ -802,6 +806,44 @@ function noticeFor(g, z, p, canNotice, lightRange) {
                (p.sneaking ? NOTICE_SNEAK_FILL : 1) : 0;
   return { p, dx, dy, d, front, touching, exposed, inBeam, fill };
 }
+// ---------- roofs ----------
+//
+// The one place in a flat game with a second storey. A courier on a roof cannot be touched by
+// anything that walks, cannot pick anything up off the street, and shoots over everything that
+// would otherwise be in the way. The horde still knows where they are and gathers underneath, and
+// anything that throws can still throw — which is the only thing that makes standing up there a
+// decision rather than a button that ends the district.
+const LADDER_REACH = 22;          // How close to the foot, or to the parapet above it, you must be.
+const CLIMB_TIME = .9;            // Rooted for this long, both ways. Long enough to be a bad idea in a crowd.
+const ROOF_EDGE = 9;              // How far in from the parapet a courier is kept.
+const ROOF_SIGHT = 1.7;           // How much further the fog opens from up there.
+
+// The ladder within reach, if the courier is beside the right end of one. On the street that is
+// the foot; on a roof it is the parapet the same ladder comes over.
+function ladderAt(g, p) {
+  for (const l of g.ladders) {
+    if (p.roof) {
+      if (l.house !== p.roof) continue;
+      if (Math.hypot(p.x - l.topX, p.y - l.topY) < LADDER_REACH) return l;
+    } else if (Math.hypot(p.x - l.x, p.y - l.y) < LADDER_REACH) return l;
+  }
+  return null;
+}
+
+// A courier is kept inside the parapet by pushing them back along whichever axis they left. In
+// the roof's own frame that is two clamps, which is also why the roof had to be an OBB.
+function keepOnRoof(p, h) {
+  const ca = Math.cos(h.ang), sa = Math.sin(h.ang);
+  const dx = p.x - h.cx, dy = p.y - h.cy;
+  let lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+  const mx = Math.max(0, h.hw - ROOF_EDGE), my = Math.max(0, h.hh - ROOF_EDGE);
+  const cx = clamp(lx, -mx, mx), cy = clamp(ly, -my, my);
+  if (cx === lx && cy === ly) return;
+  p.x = h.cx + cx * ca - cy * sa;
+  p.y = h.cy + cx * sa + cy * ca;
+  p.vx = 0; p.vy = 0;
+}
+
 const TAKEDOWN_RANGE = 26;
 const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
@@ -820,6 +862,28 @@ function stepCourier(g, p, dt, predicted = false) {
     p.stagger = Math.max(0, p.stagger - dt);
     return;
   }
+  // On the ladder: nothing else happens until it is finished. Both directions cost the same and
+  // both leave the courier holding on with both hands, which is what makes climbing in front of a
+  // crowd a decision rather than an escape.
+  if (p.climb > 0) {
+    p.vx = p.vy = 0;
+    p.moving = p.running = p.sneaking = false;
+    p.walk += dt * 6;
+    if (!predicted) {
+      p.climb = Math.max(0, p.climb - dt);
+      p.inv = Math.max(0, p.inv - dt);
+      if (p.climb === 0 && p.climbTo) {
+        const l = p.climbTo;
+        if (p.roof) { p.roof = null; p.x = l.x; p.y = l.y; }
+        else { p.roof = l.house; p.x = l.topX; p.y = l.topY; }
+        p.climbTo = null;
+        SND.play('step' + (surfaceAt(g, p.x, p.y) > .5 ? 'A' : 'G'), p.x, p.y);
+      }
+    }
+    if (p === g.p) g.cam = camOf(g);
+    return;
+  }
+
   // A courier stepping into a district adopts whatever the counters already read. They keep
   // climbing across districts, and presses made before this shift are not theirs to act on.
   if (!predicted && p.torchSeen === null) {
@@ -903,8 +967,12 @@ function stepCourier(g, p, dt, predicted = false) {
   else p.walk += dt * 1.5;
 
   p.x = clamp(p.x, PR, WORLD - PR); p.y = clamp(p.y, PR, WORLD - PR);
-  for (const s of solidsNear(g, p.x, p.y, PR)) hitOBB(p, PR, s);
-  for (const t of treesNear(g, p.x, p.y, PR)) hitCircle(p, PR, t);
+  // Up on a roof the walls and the trees are below, and the only thing in the way is the edge.
+  if (p.roof) keepOnRoof(p, p.roof);
+  else {
+    for (const s of solidsNear(g, p.x, p.y, PR)) hitOBB(p, PR, s);
+    for (const t of treesNear(g, p.x, p.y, PR)) hitCircle(p, PR, t);
+  }
   // The camera belongs to whoever is watching this screen, and it has to be current before a
   // point on that screen can be read as a point in the town.
   if (p === g.p) g.cam = camOf(g);
@@ -923,6 +991,7 @@ function actCourier(g, p, dt) {
   p.cool = Math.max(0, p.cool - dt);
   p.muzzle = Math.max(0, p.muzzle - dt);
   if (p.down) { p.finishTarget = null; p.flaming = false; return; }
+  if (p.climb > 0) { p.finishTarget = null; p.ladderTarget = null; p.flaming = false; return; }
   const wantFire = p.in.fire;
   // The flamethrower has no cooldown and nothing to count: it simply burns for as long as the
   // trigger is held. `flaming` is what a watching peer is told, and the only thing about this
@@ -934,8 +1003,19 @@ function actCourier(g, p, dt) {
   // Silent finish from behind: no shot, almost no noise, but the courier is rooted for a
   // moment — doing this in the middle of a crowd gets him bitten.
   p.takedown = Math.max(0, p.takedown - dt);
-  p.finishTarget = takedownTarget(g, p);
+  // The same key does both, because both are the same verb: put your hands on the thing in front
+  // of you. A ladder within reach wins, since standing on one and being asked to knife somebody
+  // is not a choice anybody wants to make with one button.
+  p.ladderTarget = p.climb > 0 ? null : ladderAt(g, p);
+  p.finishTarget = p.ladderTarget ? null : takedownTarget(g, p);
   const wantFinish = p.in.finish;
+  if (wantFinish && !p.finishHeld && p.ladderTarget) {
+    p.climb = CLIMB_TIME;
+    p.climbTo = p.ladderTarget;
+    p.stagger = Math.max(p.stagger, CLIMB_TIME);
+    p.finishHeld = true;
+    return;
+  }
   if (wantFinish && !p.finishHeld && p.finishTarget) {
     const z = p.finishTarget;
     p.takedown = TAKEDOWN_LOCK;
@@ -1040,6 +1120,71 @@ function takedownTarget(g, p) {
   return best;
 }
 
+// ---------- losing it, and getting it back ----------
+//
+// A slide that always came back would not be a slide. Past a point the driver is a passenger: the
+// wheels are pointed where the car is going rather than where the road went, the brakes are on,
+// and whatever is beside the road is now in play. It ends when the car is slow enough to be
+// driven again, and then the nearest lane is adopted — which may well be the one going the other
+// way, and a car that finds itself pointing up the wrong road simply turns round like anyone else.
+const LOST_SPIN = 2.6;            // Rotating faster than this and it is no longer a correction.
+const LOST_SETTLE = 34;           // Slow enough to gather it up again.
+const LOST_MAX = 6;               // Nobody stays out of control forever; the district has to keep moving.
+
+function loseControl(c, why) {
+  if (c.lost) return;
+  c.lost = why;
+  c.lostT = 0;
+  c.hold = false; c.rev = 0; c.yieldTo = null; c.yieldT = 0;
+}
+
+// Back into the traffic system: whichever lane is nearest, pointed whichever way suits the car's
+// own heading, so a spin does not teleport it into a handbrake turn.
+function regainControl(g, c) {
+  const lane = nearestLane(g.roads, c.x, c.y, c.hx, c.hy);
+  if (lane) { c.edge = lane.edge; c.s = lane.s; c.dir = lane.dir; }
+  c.mode = 'edge'; c.turn = null; c.node = -1;
+  c.lost = null; c.lostT = 0; c.slip = 0; c.spin = 0; c.steer = 0;
+  c.jamTries = 0; c.stuck = 0; c.dead = 0; c.freeT = 0;
+}
+
+// One step of a car's body, whether or not anybody is still driving it.
+function driveBody(g, c, aim, dt, grip, wheelDamage) {
+  if (c.lost) {
+    c.lostT += dt;
+    // Counter-steering: point the wheels where the car is actually travelling. It is what a driver
+    // does and it is also what eventually gathers the slide up.
+    const vx = c.hx * c.v - c.hy * (c.slip || 0), vy = c.hy * c.v + c.hx * (c.slip || 0);
+    const speed = Math.hypot(vx, vy);
+    if (speed > 12) steerToward(c, c.x + vx, c.y + vy, dt, wheelDamage);
+    c.v -= c.v * Math.min(1, 2.4 * dt);                        // Off the throttle, on the brakes.
+  } else {
+    steerToward(c, aim.x, aim.y, dt, wheelDamage);
+  }
+
+  const slid = rollCar(c, dt, grip);
+
+  if (!c.lost && (slid > SLIP_LOST || Math.abs(c.spin) > LOST_SPIN)) loseControl(c, 'slide');
+  if (c.lost && (c.lostT > LOST_MAX ||
+      (Math.abs(c.v) < LOST_SETTLE && slid < 18 && Math.abs(c.spin) < .7))) regainControl(g, c);
+
+  // Once the body can leave the road, what is beside the road matters. A car on its lane never
+  // reaches any of this, so the cost is only paid by one that has already gone wrong.
+  if (c.lost && c.cd <= 0) {
+    for (const s of solidsNear(g, c.x, c.y, CAR_L)) {
+      if (s.t === 'lot' || !obbHit(c.box, s)) continue;
+      crashObstacle(g, c, s);
+      c.slip = 0; c.spin = 0;
+      break;
+    }
+  }
+
+  // Tyres letting go leave a haze. Cosmetic, capped with everything else, and made on whichever
+  // end is looking — a guest has the slip in its snapshot and draws its own.
+  if (slid > 45) emitTyreSmoke(g, c, slid, dt);
+  return slid;
+}
+
 // ---------- untangling traffic ----------
 const REV_SPEED = 62;             // Reversing is slow: this is a manoeuvre, not an escape.
 
@@ -1099,6 +1244,7 @@ function respawnCar(g, c) {
   }
   c.v = 0; c.rev = 0; c.revCd = 0; c.yieldTo = null; c.yieldT = 0;
   c.jamTries = 0; c.stuck = 0; c.dead = 0; c.freeT = 0; c.hold = false;
+  c.steer = 0; c.slip = 0; c.spin = 0; c.lost = null; c.lostT = 0;
   return true;
 }
 
@@ -1353,18 +1499,21 @@ function update(g, dt) {
     b.x += b.vx * dt; b.y += b.vy * dt;
     let gone = b.l <= 0 || b.x < 0 || b.y < 0 || b.x > WORLD || b.y > WORLD;
     // The flight path of one frame is short, so only the parked cars along it are tested.
-    if (!gone) for (const c of parkedNear(g, (b.px + b.x) * .5, (b.py + b.y) * .5,
+    if (!gone && !b.high) for (const c of parkedNear(g, (b.px + b.x) * .5, (b.py + b.y) * .5,
                                           Math.max(Math.abs(b.x - b.px), Math.abs(b.y - b.py)) * .5)) {
       const contact = segmentCarContact(c, b.px, b.py, b.x, b.y);
       if (!contact) continue;
       b.x = contact.x; b.y = contact.y; damageCarWithBullet(g, c, contact, b); gone = 'c'; break;
     }
-    if (!gone) for (const s of solidsNear(g, b.x, b.y, 0))
+    // A round fired from a roof passes over the walls, the hedges and the traffic. It still meets
+    // a lamp, because a lamp hangs at the height it is travelling at, and it still meets the
+    // horde, because that is what it was aimed at.
+    if (!gone && !b.high) for (const s of solidsNear(g, b.x, b.y, 0))
       if (s.t !== 'parked' && inOBB(b.x, b.y, s)) { gone = 'w'; break; }
-    if (!gone) for (const t of treesNear(g, b.x, b.y, 0))
+    if (!gone && !b.high) for (const t of treesNear(g, b.x, b.y, 0))
       { const dx = t.x - b.x, dy = t.y - b.y;
         if (dx * dx + dy * dy < t.r * t.r) { gone = 'w'; break; } }
-    if (!gone) {
+    if (!gone && !b.high) {
       let carHit = null, hitCar = null;
       for (const c of g.cars) {
         if (c === b.own) continue;                    // The muzzle sits on the body: never shoot your own car.
@@ -1736,7 +1885,9 @@ function update(g, dt) {
     // A body bump is impossible to hide from, and it is the courier who walked into it who
     // finds that out.
     if (!z.gone) for (const courier of g.players) {
-      if (courier.down) continue;
+      // A courier overhead is still hunted — the horde gathers under the building and waits —
+      // but nothing that walks can lay a hand on them.
+      if (courier.down || courier.roof) continue;
       if (resolveZombieContact(g, z, courier)) {
         detectedBy[courier.id] = true;
         noticeBy[courier.id] = 1;
@@ -1870,10 +2021,6 @@ function update(g, dt) {
     if (c.driverTimer <= 0 && (c.driverMode === 'chase' || c.driverMode === 'flee')) c.driverMode = 'traffic';
     emitCarSmoke(g, c, dt);
     burnWreck(g, c, dt);
-    if (c.jx) {                                      // Residual displacement after impact.
-      c.jx *= .86; c.jy *= .86;
-      if (Math.abs(c.jx) < .3 && Math.abs(c.jy) < .3) c.jx = c.jy = 0;
-    }
 
     // A disabled car never revives; it becomes cover and a physical obstacle.
     if (c.broken) {
@@ -1961,26 +2108,36 @@ function update(g, dt) {
     const driverBoost = c.driverMode === 'chase' ? 1.32 : c.driverMode === 'flee' ? 1.2 : 1;
     const wish = reversing ? (rearBlocked(g, c) ? 0 : -REV_SPEED) :
       brake ? 0 :
-      c.baseMax * condition * driverBoost * (turning ? .58 - .1 * wet : 1);  // Slow down for turns, especially when wet.
+      // A driver who is chasing or running is not being careful about the corner, which is where
+      // most of the sliding comes from. Everyone else lifts off for it, more so in the wet.
+      c.baseMax * condition * driverBoost * (turning ? (reacting ? .88 : .58 - .1 * wet) : 1);
     c.v += (wish - c.v) * Math.min(1, (reversing ? 3.2 : brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
+
+    // What the tyres are worth here and now. Wet asphalt, a bent suspension and a wheel off the
+    // road all come out of the same number, and it is the only thing between a corner and a slide.
+    const grip = GRIP * (1 - .42 * wet) * (1 - .3 * wheelDamage) * (.62 + .38 * surfaceAt(g, c.x, c.y));
+
+    // Where the driver is looking: a spot further along the plan, further ahead the faster they
+    // are going. Aiming at the lane point underneath the car would be a driver staring at their
+    // own bonnet, and the wheels would saw from lock to lock.
+    const reach = clamp(26 + Math.abs(c.v) * .34, 26, 120);
+    let aim;
     if (turning) {
       const T = c.turn;
       T.t += c.v * dt / T.len;
       if (T.t <= 0 && c.v < 0) {                               // Backed out of the intersection: release it for others.
         T.t = 0; c.mode = 'edge'; c.turn = null; c.node = -1;
-        const l = lanePoint(c.edge, c.s, c.dir);
-        steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
-      }
-      else if (T.t >= 1) {                                     // Entered a new road.
+        aim = lanePoint(c.edge, c.s + c.dir * reach, c.dir);
+      } else if (T.t >= 1) {                                   // Entered a new road.
         c.edge = T.next; c.dir = T.ndir; c.s = T.sIn; c.mode = 'edge'; c.turn = null; c.node = -1;
-        const l = lanePoint(c.edge, c.s, c.dir);
-        steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
+        aim = lanePoint(c.edge, c.s + c.dir * reach, c.dir);
       } else {
-        const q = bezAt(T, T.t), tg = bezDir(T, T.t);
-        steerCar(c, q.x, q.y, tg.x, tg.y, dt, 2.9 * (1 - .42 * wheelDamage)); // Damaged suspension holds the arc poorly.
+        aim = bezAt(T, Math.min(1, T.t + reach / T.len));
       }
     } else {
-      c.s = clamp(c.s + c.dir * c.v * dt, -20, c.edge.len + 20);   // Keep the distance value near the road.
+      // The plan advances with the body rather than with the clock, so a car that has been thrown
+      // sideways does not keep ticking down the road it is no longer on.
+      c.s = clamp(anchorToEdge(c, c.s + c.dir * c.v * dt), -20, c.edge.len + 20);
       // Cars enter an intersection one at a time; waiting cars stop before the node.
       const at = c.dir > 0 ? c.edge.b : c.edge.a;
       let left = c.dir > 0 ? c.edge.len - c.s : c.s;
@@ -1991,10 +2148,10 @@ function update(g, dt) {
         c.s = c.dir > 0 ? Math.min(c.s, stop) : Math.max(c.s, stop);
         left = c.dir > 0 ? c.edge.len - c.s : c.s;
       }
-      const l = lanePoint(c.edge, c.s, c.dir);
-      steerCar(c, l.x, l.y, l.hx, l.hy, dt, 4.5 * (1 - .42 * wheelDamage));
+      aim = lanePoint(c.edge, c.s + c.dir * reach, c.dir);
       if (!reversing && left <= TURN_IN && !c.hold) startTurn(g, c);
     }
+    driveBody(g, c, aim, dt, grip, wheelDamage);
 
     // Honk when a courier is near the path — whichever of them the driver can see coming.
     const honkAt = nearestCourier(g, c.x, c.y) || g.p;
@@ -2320,6 +2477,26 @@ function ageFlames(g, dt) {
   }
 }
 
+// Tyres letting go. It comes off the rear wheels rather than the middle of the car, because that
+// is what says which end has stepped out — and it is the only way a slide reads at all on a
+// screen this size. Cosmetic, never streamed, and made on whichever end is looking.
+function emitTyreSmoke(g, c, slid, dt) {
+  c.tyreCd = (c.tyreCd || 0) - dt;
+  if (c.tyreCd > 0 || g.carSmoke.length >= 72) return;
+  c.tyreCd = .045;
+  const side = c.slip > 0 ? -1 : 1;
+  const bx = c.x - c.hx * 13 - c.hy * side * 9;
+  const by = c.y - c.hy * 13 + c.hx * side * 9;
+  const heat = clamp(slid / SLIP_MAX_SEEN, 0, 1);
+  g.carSmoke.push({
+    x: bx, y: by,
+    vx: -c.hx * rnd(10, 40) + rnd(-14, 14), vy: -c.hy * rnd(10, 40) + rnd(-14, 14),
+    l: rnd(.5, .95), max: .95, r: rnd(3.5, 6.5), growth: 18 + heat * 16,
+    darkness: .3, opacity: .26 + heat * .2, hot: false
+  });
+}
+const SLIP_MAX_SEEN = 300;        // The ceiling in environment.js, for scaling how thick it looks.
+
 const FLAME_PARTICLES = 5;        // Per frame while the trigger is held, at sixty of them a second.
 const FLAME_CAP = 190;
 // The jet, made where the rules would have made it and made again by a peer that ran no rules.
@@ -2407,7 +2584,12 @@ function presentFrame(g, dt) {
   listenFor(g, g.p);                    // One pair of ears, and they belong to whoever is here.
   updateWeatherVisuals(g, dt);
   updateFog(g, dt);
-  for (const c of g.cars) emitCarSmoke(g, c, dt);
+  for (const c of g.cars) {
+    emitCarSmoke(g, c, dt);
+    // The slide is in the snapshot, so a watching peer raises its own haze off the same number
+    // rather than being sent particles it could have made itself.
+    if (Math.abs(c.slip || 0) > 45) emitTyreSmoke(g, c, Math.abs(c.slip), dt);
+  }
   for (const c of g.parked) emitCarSmoke(g, c, dt);
   ageRings(g, dt);
   ageCarSmoke(g, dt);

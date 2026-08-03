@@ -198,7 +198,8 @@ at the module graph.
 
 | Commit | What it established |
 | --- | --- |
-| `8e4bae7` | Traffic stays on the road; the courier can take a car. Branch `traffic-and-driving` |
+| `62fa61d` | This document brought level with the code |
+| `8e4bae7` | Traffic stays on the road; the courier can take a car |
 | `d9d17bb` | Roofs and ladders; this document |
 | `4569435` | Shake decays in `presentFrame`; `SHAKE_MAX` cap |
 | `7bbdbbe` | Relay `--debug` / `=full` / `=tally`, off the forwarding path |
@@ -222,6 +223,8 @@ at the module graph.
 - **Do not do browser verification.** No pixel-hash runs, no canvas captures. The user looks at
   the result and sends screenshots.
 - **Do not spawn subagents** unless asked.
+- **Commit straight to `main`.** One person develops this; a feature branch is ceremony with
+  nobody on the other side of it.
 - Declined already, do not re-propose: a relay POST endpoint for canvas dumps, a pinned pixel
   hash, a dedicated QA scene.
 

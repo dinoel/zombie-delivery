@@ -8,7 +8,8 @@ const {
   RGB_ROOF_RED, RGB_ROOF_BLUE, RGB_MUZZLE, RGB_FILTH, RGB_PARCEL, RGB_AMMO, RGB_GOAL,
   RGB_ZOMBIE, RGB_CASH, RGB_FLAME,
   LAMP_INTENSITY, LAMP_POOL_R, LAMP_POOL_INT, LAMP_POOL_REACH,
-  LAMP_HAZE_R, LAMP_HAZE_INT, SHADOW_LEN, MAX_FOLIAGE_LOBES, AMB, ROOF_AMB
+  LAMP_HAZE_R, LAMP_HAZE_INT, SHADOW_LEN, MAX_FOLIAGE_LOBES, AMB, ROOF_AMB,
+  HEADLIGHT_R, HEADLIGHT_R_DRIVEN
 } = window.TownGame.config;
 const quality = window.TownGame.quality;
 const { bodyPointWorld } = window.TownGame.carPhysics;
@@ -234,10 +235,14 @@ function collectLights(g, camx, camy) {
     const frontRightBase = bodyPointWorld(c, 14, 7), frontLeftBase = bodyPointWorld(c, 14, -7);
     const rightAngle = Math.atan2(frontRight.y - frontRightBase.y, frontRight.x - frontRightBase.x);
     const leftAngle = Math.atan2(frontLeft.y - frontLeftBase.y, frontLeft.x - frontLeftBase.x);
+    // A car being driven throws further than one going past, because the fog opens to the beam and
+    // the two have to agree — a cone of explored darkness in front of the bonnet is worse than
+    // either. The lamps are the same lamps; what changed is that somebody is steering by them.
+    const beam = c.driver ? HEADLIGHT_R_DRIVEN : HEADLIGHT_R;
     if (!c.broken && lights.frontRight > .22)
-      add(frontRight.x, frontRight.y, 172, RGB_HEAD, .62 * lights.frontRight, .1, .78, rightAngle + .03, .4, 5, 3, c);
+      add(frontRight.x, frontRight.y, beam, RGB_HEAD, .62 * lights.frontRight, .1, .78, rightAngle + .03, .4, 5, 3, c);
     if (!c.broken && lights.frontLeft > .22)
-      add(frontLeft.x, frontLeft.y, 172, RGB_HEAD, .62 * lights.frontLeft, .1, .78, leftAngle - .03, .4, 5, 3, c);
+      add(frontLeft.x, frontLeft.y, beam, RGB_HEAD, .62 * lights.frontLeft, .1, .78, leftAngle - .03, .4, 5, 3, c);
 
     const rearRight = bodyPointWorld(c, -22, 7), rearLeft = bodyPointWorld(c, -22, -7);
     const tailRgb = hazardOn ? RGB_HAZARD : RGB_RED;

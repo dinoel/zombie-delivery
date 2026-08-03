@@ -225,6 +225,24 @@ const MADNESS_RAMP = 110;         // How long it takes to get from one to the ot
 const MADNESS_BURST = 2.6;        // How many arrive at once by the end.
 const MADNESS_MIN_GAP = 520;      // Further from every courier than a screen is wide.
 
+// ---------- what a driver can see ----------
+// A car is not a courier holding a torch. The beams are bolted to the body rather than swung with
+// an aim, two sealed lamps throw further than a hand torch, and they splay wider.
+//
+// The reach matters more than it looks. At the 315 px/s a madness car does, a courier's 250 px of
+// sight is eight tenths of a second of warning — not enough to avoid anything you had not already
+// seen, so driving fast meant driving into things. This buys about a second and a quarter.
+const CAR_SIGHT = 400;            // Against a torch's 250.
+const CAR_SIGHT_SPREAD = .85;     // Half-angle, against a torch's .6: two lamps splayed, and a windscreen.
+const CAR_SIGHT_NEAR = 130;       // Seen without looking, against a torch's 96. You are sitting in glass.
+const CAR_SIGHT_DARK = 86;        // Both headlights smashed: the instruments and whatever the sky gives.
+// How far the beams are actually drawn. 172 was chosen when nobody could sit in a car, so it is the
+// reach of a light drawn as scenery. A car being driven has to show its driver the road far enough
+// ahead to react at the speed they are doing, and the beam has to agree with the fog or the player
+// is handed a cone of explored darkness.
+const HEADLIGHT_R = 172;
+const HEADLIGHT_R_DRIVEN = CAR_SIGHT;
+
 // ---------- fog of war and weather ----------
 const FCELL = 14;                 // Fog cell size. The grid is WORLD/FCELL square.
 const REMEMBER = .46;             // Brightness of explored but currently hidden areas.
@@ -391,6 +409,7 @@ return Object.freeze({
   MADNESS_DRIVER_DURABILITY,
   CLAW_IMPACT, WRECK_FUSE, SHAKE_MAX,
   FCELL, REMEMBER, RAIN_Z,
+  CAR_SIGHT, CAR_SIGHT_SPREAD, CAR_SIGHT_NEAR, CAR_SIGHT_DARK, HEADLIGHT_R, HEADLIGHT_R_DRIVEN,
   FILTH_MIN_RANGE, FILTH_MAX_RANGE, FILTH_DMG, DODGE_TIME, DODGE_RANGE,
   FLAME_REACH, FLAME_SPREAD, FLAME_DPS, FLAME_FALLOFF, FLAME_IGNITE, FLAME_BURN_MAX, FLAME_NOISE,
   FLAME_PARTICLES, FLAME_CAP,

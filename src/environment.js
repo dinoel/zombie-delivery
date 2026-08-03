@@ -8,6 +8,7 @@ const {
 const {
   WORLD, ROAD, GN, GS, MRG, LANE, CAR_L, CAR_W,
   SHAKE_MAX, FCELL, REMEMBER, RAIN_Z, ROOF_SIGHT,
+  CAR_SIGHT, CAR_SIGHT_SPREAD, CAR_SIGHT_NEAR, CAR_SIGHT_DARK,
   WHEELBASE, MAX_LOCK, STEER_RATE, GRIP, SLIP_KEEP, SLIP_YAW, SLIP_MAX, SPIN_MAX, SLIP_LOST,
   CAR_EDGE, TURN_IN, WRECK_FUSE, MADNESS_DRIVER_DURABILITY, CLAW_IMPACT
 } = window.TownGame.config;
@@ -99,15 +100,40 @@ function updateFog(g, dt) {
 }
 
 function revealAround(g, p, rise) {
-  const lit = p.torch && p.batt > 0, w = g.weather;
-  const o = torchHand(p);                          // Vision starts at the hand, not the body center.
+  const w = g.weather;
+  // Where the light comes from, how far it throws, how wide, and how much can be seen without
+  // looking at all. On foot that is a hand torch swung with the aim; at a wheel it is two sealed
+  // lamps bolted to the front of the body, pointed wherever the car is pointed.
+  let o, reach, near, halfAngle, aim;
+  if (p.car) {
+    const c = p.car;
+    const lamps = c.damage ? c.damage.lights : null;
+    // Whichever lamp still works carries the beam. The pair is not added together, because both
+    // light the same piece of road; what a second one buys is not going dark when the first goes.
+    const lamp = lamps ? Math.max(lamps.frontLeft, lamps.frontRight) : 1;
+    const working = lamp > .22 && !c.broken;
+    // The rigid nose rather than the deformed mesh: this is where the driver is looking from, and
+    // it should not swim about because the wing took a knock.
+    o = { x: c.x + c.hx * (CAR_L / 2), y: c.y + c.hy * (CAR_L / 2) };
+    reach = working ? CAR_SIGHT * (.6 + .4 * lamp) - 40 * w.rain : CAR_SIGHT_DARK;
+    near = working ? CAR_SIGHT_NEAR : CAR_SIGHT_DARK;
+    halfAngle = CAR_SIGHT_SPREAD;
+    aim = Math.atan2(c.hy, c.hx);
+  } else {
+    const lit = p.torch && p.batt > 0;
+    o = torchHand(p);                              // Vision starts at the hand, not the body center.
+    reach = lit ? 250 - 40 * w.rain : 74;
+    near = lit ? 96 : 74;
+    halfAngle = .6;
+    aim = p.aim;
+  }
   // Rain shortens the beam, while lightning briefly reveals the whole block.
   // A roof is the only place in the district you can see out of, and that is half of why anybody
   // climbs one: the fog opens a long way further than it ever does at street level.
   const high = p.roof ? ROOF_SIGHT : 1;
-  const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6) * high, R2 = R * R;
-  const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6) * high) ** 2;
-  const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
+  const R = reach * (1 + w.flash * 2.6) * high, R2 = R * R;
+  const PER2 = (near * (1 + w.flash * 6) * high) ** 2;
+  const ca = Math.cos(aim), sa = Math.sin(aim), LIM = Math.cos(halfAngle);
   const active = g.fogActive, activeMark = g.fogActiveMark;
   const gx0 = Math.max(0, ((o.x - R) / FCELL) | 0), gx1 = Math.min(FW - 1, ((o.x + R) / FCELL) | 0);
   const gy0 = Math.max(0, ((o.y - R) / FCELL) | 0), gy1 = Math.min(FW - 1, ((o.y + R) / FCELL) | 0);

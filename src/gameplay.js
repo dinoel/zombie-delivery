@@ -3,7 +3,7 @@ window.TownGame.gameplay = (() => {
 'use strict';
 
 const {
-  cv, WORLD, PR, ZR, CAR_L, BV, FIRE_CD, WALK, RUN,
+  cv, WORLD, ROAD, PR, ZR, CAR_L, CAR_W, BV, FIRE_CD, WALK, RUN,
   BATT_DRAIN, STAM_DRAIN, STAM_REGEN,
   clamp, rnd, pick, inOBB, distOBB, LIVES_MAX, CARRY_MAX,
   UI, STORAGE_KEYS, gameStorage, runtime,
@@ -13,14 +13,15 @@ const SND = window.TownGame.audio;
 const {
   TURN_IN, updateFog, updateWeather, updateWeatherVisuals,
   lanePoint, startTurn, startUTurn, ahead, placeCar, carSmokeProfile,
-  GRIP, SLIP_LOST, steerToward, rollCar, anchorToEdge, nearestLane, setCar,
+  GRIP, SLIP_LOST, MAX_LOCK, STEER_RATE, WHEELBASE,
+  steerToward, rollCar, anchorToEdge, nearestLane, setCar,
   damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   crash, crashObstacle,
   bezAt, bezDir,
   makeNoise, surfaceAt, EV, emit, shakeAt
 } = window.TownGame.environment;
 const {
-  hitOBB, obbHit, hitCircle, solidsNear, treesNear, parkedNear, lampsNear
+  hitOBB, obbHit, obbPush, hitCircle, solidsNear, treesNear, parkedNear, lampsNear
 } = window.TownGame.physics;
 const {
   carCollisionManifold, circleCarContact, resolveCircleCar, bodyPointWorld, segmentCarContact
@@ -767,7 +768,9 @@ const CONTACT_NOTICE_PAD = 2;      // Physical contact always defeats stealth fr
 const PICKUP_REACH = 22;
 function pickerAt(g, x, y) {
   for (const p of g.players) {
-    if (p.down || p.roof) continue;      // Nothing on the street is within reach from a roof.
+    // Nothing on the street is within reach from a roof, and nothing at all is within reach of
+    // somebody holding a steering wheel.
+    if (p.down || p.roof || p.car) continue;
     if (Math.hypot(p.x - x, p.y - y) < PICKUP_REACH) return p;
   }
   return null;
@@ -794,7 +797,7 @@ function noticeFor(g, z, p, canNotice, lightRange) {
   const reach = (p.sneaking ? NOTICE_SNEAK : p.running ? NOTICE_RUN : p.moving ? NOTICE_WALK : NOTICE_STILL) *
                 (front ? 1 : BACK_FACTOR) * (z.dumb ? .7 : 1);
   // Standing on a roof is never being touched, however close the two of them look from above.
-  const touching = canNotice && !p.roof && d < PR + z.r + CONTACT_NOTICE_PAD;
+  const touching = canNotice && !p.roof && !p.car && d < PR + z.r + CONTACT_NOTICE_PAD;
   let exposed = canNotice && (touching || d < reach);
   let inBeam = false;
   if (canNotice && p.torch && p.batt > 0 && d < lightRange - 64 * g.weather.rain) {
@@ -844,6 +847,168 @@ function keepOnRoof(p, h) {
   p.vx = 0; p.vy = 0;
 }
 
+// ---------- behind the wheel ----------
+//
+// The second place a courier can be that is not the street. The physics was already there and
+// already separated from the driver: `rollCar` is a body, `driveBody` says in as many words that it
+// is one step of a car whether or not anybody is still driving it, and the traffic model is only
+// ever one of the things that can hold the wheel. So this adds a driver rather than a vehicle.
+//
+// A courier at the wheel is carried by the car: their position is the car's, which is what keeps
+// the camera, the fog, the light and every zombie that is hunting them working with no changes at
+// all. What they lose is their hands — no shooting, no parcels — and what they gain is a ton of
+// metal that the horde has to come through.
+const CAR_REACH = 20;             // How close to the panels you must stand to open a door.
+const CAR_TOP = 1.15;             // A little brisker than traffic: taking a car should be an upgrade.
+const CAR_TOP_MADNESS = 1.7;      // Madness is not a district to be crossed at the speed of traffic.
+const CAR_REV = 96;               // Reverse. Faster than the AI's crawl, still clearly a manoeuvre.
+const CAR_BRAKE_AT = 24;          // Below this the car has stopped, so the brake key means reverse.
+// How fast a player may turn the car, in rad/s. Swept over four values against drift angle on dry
+// asphalt and in the rain: 1.6 never breaks traction at all and throws the slide physics away, 2.8
+// is loose enough on dry asphalt to cost speed on every corner. 2.4 is clean and predictable dry
+// (2 degrees of drift off a flick) and genuinely slides in the wet (17 degrees), which is where a
+// slide belongs — in the conditions rather than in the first corner.
+const CAR_YAW_MAX = 2.4;
+
+// The car within reach, if there is one worth getting into. A wreck is scenery, and a car somebody
+// else is already driving is theirs.
+function carAt(g, p) {
+  let best = null, bd = CAR_REACH;
+  for (const c of g.cars) {
+    if (c.broken || c.driver) continue;
+    const d = distOBB(p.x, p.y, c.box);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+
+function enterCar(g, p, c) {
+  p.car = c; c.driver = p;
+  p.vx = p.vy = p.kx = p.ky = 0;
+  p.torch = false;                        // Both hands are on the wheel; the headlights do this job now.
+  p.flaming = false;
+  // Whatever the traffic model was in the middle of is no longer happening. Clearing it here rather
+  // than on the way out means a car handed back mid-turn cannot resume an arc drawn seconds ago
+  // from somewhere the car has long since left.
+  c.mode = 'edge'; c.turn = null; c.node = -1;
+  c.hold = false; c.yieldTo = null; c.yieldT = 0; c.rev = 0; c.revCd = 0;
+  c.jamTries = 0; c.stuck = 0; c.dead = 0; c.freeT = 0;
+  c.lost = null; c.lostT = 0;
+  SND.play('click', c.x, c.y);
+}
+
+// Out through whichever door is not against a wall. Standing the courier in the middle of the car
+// and letting the solid resolution sort it out would put them through the panel they just left.
+const EXIT_SIDES = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+function leaveCar(g, p) {
+  const c = p.car;
+  const reach = PR + 4;
+  let placed = false;
+  for (const [fx, fy] of EXIT_SIDES) {
+    const x = c.x + c.hx * (fx * (CAR_L / 2 + reach)) - c.hy * (fy * (CAR_W / 2 + reach));
+    const y = c.y + c.hy * (fx * (CAR_L / 2 + reach)) + c.hx * (fy * (CAR_W / 2 + reach));
+    if (x < PR || y < PR || x > WORLD - PR || y > WORLD - PR) continue;
+    let blocked = false;
+    for (const s of solidsNear(g, x, y, PR)) if (s.t !== 'lot' && distOBB(x, y, s) < PR) { blocked = true; break; }
+    if (blocked) continue;
+    p.x = x; p.y = y; placed = true; break;
+  }
+  // Boxed in on all four sides: step out onto the bonnet's own square and let the ordinary solid
+  // resolution push them clear next frame. Refusing to open the door would trap the player instead.
+  if (!placed) { p.x = c.x; p.y = c.y; }
+  p.vx = p.vy = p.kx = p.ky = 0;
+  p.ang = Math.atan2(c.hy, c.hx);
+  p.stagger = Math.max(p.stagger, .25);        // A beat on the pavement, so stepping out into a crowd costs something.
+  c.driver = null;
+  p.car = null;
+  // Hand the car back to the traffic model with a plan that describes where it now is.
+  if (!c.broken) rejoinRoad(g, c);
+  SND.play('click', c.x, c.y);
+}
+
+// One step of a car somebody is actually driving. None of the traffic model applies — no corridor
+// scan, no queueing at junctions, no jam escalation, because all of that is a driver and there is
+// one. What is left is the same body step every other car takes, so a player's car deforms, slides,
+// crashes, catches fire and gets torn apart by exactly the code that has always done it.
+function drivePlayerCar(g, c, dt) {
+  const inp = c.driver.in;
+  // The sign of the stick, not its length. Holding W and A at once normalises both to .707, and a
+  // car that accelerated less because it was also turning would be a car nobody enjoys.
+  const throttle = inp.y < -.3 ? 1 : inp.y > .3 ? -1 : 0;
+  const steerWish = clamp(inp.x * 1.6, -1, 1);
+
+  const engine = c.damage ? c.damage.engine : 100;
+  const wheelDamage = c.damage ? c.damage.wheel : 0;
+  const surface = surfaceAt(g, c.x, c.y);
+  const condition = (.42 + .58 * engine / 100) * (1 - .28 * wheelDamage);
+  // The same terms the traffic model uses, so a bent car drives like a bent car and a lawn is still
+  // a lawn. A player is simply allowed a little more of it than the AI gives itself.
+  const top = c.baseMax * (g.madness ? CAR_TOP_MADNESS : CAR_TOP) * condition * (.55 + .45 * surface);
+  // One key for both, because below a walking pace the car has stopped and S can only mean back up.
+  const wish = throttle > 0 ? top
+    : throttle < 0 ? (c.v > CAR_BRAKE_AT ? 0 : -CAR_REV * condition)
+    : 0;
+  const rate = throttle > 0 ? 1.9 : throttle < 0 ? (c.v > CAR_BRAKE_AT ? 5.2 : 2.6) : 1.1;
+  if (c.stall > 0) { c.stall -= dt; c.v -= c.v * Math.min(1, 2.4 * dt); }
+  else c.v += (wish - c.v) * Math.min(1, rate * dt);
+
+  const grip = GRIP * (1 - .42 * g.weather.wet) * (1 - .3 * wheelDamage) * (.62 + .38 * surface);
+  // How much lock the keyboard may ask for at this speed. The front wheels reach 35 degrees, but
+  // this car is 46 px long on a 26 px wheelbase: full lock at 160 px/s is a 45 px turning circle
+  // and 3.6 rad/s of yaw, which is a pirouette rather than a corner. Measured before this existed,
+  // a 0.4 s tap of D at 161 px/s pinned the yaw rate to its ceiling and left the car travelling at
+  // 76 degrees of drift into the nearest fence. The traffic model never met it because pure pursuit
+  // asks for a couple of degrees at speed by geometry; a key held down asks for everything there is.
+  //
+  // So what is capped is the rate the car may be turned at, and the lock follows from it — which is
+  // also the honest description of what a driver's hands are doing. Slowly enough it is still full
+  // lock, so a three-point turn between two houses stays possible.
+  //
+  // Sliding is left reachable rather than designed out: the demand this creates sits just inside
+  // dry grip and outside wet, so rain, a lawn and a bent suspension each break traction on their
+  // own. That is where a slide belongs — in the conditions, not in the first corner.
+  const limit = Math.min(MAX_LOCK, Math.atan(CAR_YAW_MAX * WHEELBASE / Math.max(30, Math.abs(c.v))));
+  // `lost` is deliberately never applied to a driven car: it exists to take a slide away from an AI
+  // driver who cannot counter-steer, and taking one away from somebody holding the keyboard would
+  // be taking away the part worth having.
+  const lock = clamp(MAX_LOCK * steerWish, -limit, limit);
+  const steerRate = STEER_RATE * (1 - .45 * wheelDamage);
+  c.steer = (c.steer || 0) + clamp(lock - (c.steer || 0), -steerRate * dt, steerRate * dt);
+
+  const slid = rollCar(c, dt, grip);
+  resolveSolids(g, c);
+  if (slid > 45) emitTyreSmoke(g, c, slid, dt);
+
+  // The beacon keeps turning under a player as it does under a crew — it is the car's, not the
+  // driver's. The siren and the roof gun are not: both live in the traffic model above, so a patrol
+  // car in a player's hands runs dark and quiet, which is a fair trade for taking it.
+  if (c.police) c.beacon += dt * 7;
+
+  // The driver rides with the body. Everything that reads a courier's position — the camera, the
+  // fog, their own light, every zombie deciding where to walk — keeps working untouched because of
+  // this one line.
+  c.driver.x = c.x; c.driver.y = c.y;
+  c.driver.vx = c.hx * c.v; c.driver.vy = c.hy * c.v;
+  c.driver.ang = Math.atan2(c.hy, c.hx);
+
+  // A partner on foot is still in front of a moving car, and a bumper does not check who it is
+  // about to hit. The driver is excluded for the obvious reason.
+  for (const courier of g.players) {
+    if (courier === c.driver || courier.car || g.done) continue;
+    const hit = circleCarContact(c, courier.x, courier.y, PR);
+    if (!hit) continue;
+    const closing = Math.max(0, (c.hx * c.v - courier.vx) * hit.nx + (c.hy * c.v - courier.vy) * hit.ny);
+    if (closing > 24 && c.playerBodyCd <= 0) { damageCarWithPlayer(g, c, courier, hit, closing); c.playerBodyCd = .55; }
+    if (c.v > 35 && courier.inv <= 0) {
+      const cdx = courier.x - c.x, cdy = courier.y - c.y;
+      const sgn = (cdy * c.hx - cdx * c.hy) > 0 ? 1 : -1;
+      hurt(g, courier, c.hx - c.hy * .7 * sgn, c.hy + c.hx * .7 * sgn, 230);
+      if (g.dead) return;
+    }
+    resolveCircleCar(c, courier, PR);
+  }
+}
+
 const TAKEDOWN_RANGE = 26;
 const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
 const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
@@ -881,6 +1046,25 @@ function stepCourier(g, p, dt, predicted = false) {
       }
     }
     if (p === g.p) g.cam = camOf(g);
+    return;
+  }
+
+  // At the wheel: the legs do nothing. Where the courier is, is wherever the car has got to, and
+  // that is written by the car's own step later in the frame — walking them here as well would be
+  // two things moving one body. The camera still has to be current, because a point on the screen
+  // is only a point in the town once it is known.
+  if (p.car) {
+    p.vx = p.vy = 0;
+    p.moving = p.running = p.sneaking = false;
+    if (!predicted) {
+      p.inv = Math.max(0, p.inv - dt);
+      p.stagger = Math.max(0, p.stagger - dt);
+      p.rest = Math.max(0, p.rest - dt);
+      if (p.rest <= 0) p.stam = Math.min(1, p.stam + STAM_REGEN * dt);   // Sitting down is a rest.
+    }
+    if (p === g.p) g.cam = camOf(g);
+    p.tx = p.x + Math.cos(p.ang) * 300; p.ty = p.y + Math.sin(p.ang) * 300;
+    p.aim = p.ang;
     return;
   }
 
@@ -992,6 +1176,15 @@ function actCourier(g, p, dt) {
   p.muzzle = Math.max(0, p.muzzle - dt);
   if (p.down) { p.finishTarget = null; p.flaming = false; return; }
   if (p.climb > 0) { p.finishTarget = null; p.ladderTarget = null; p.flaming = false; return; }
+  // Both hands are on the wheel. The only verb left is the one that gives them back.
+  if (p.car) {
+    p.finishTarget = null; p.ladderTarget = null; p.flaming = false;
+    p.carTarget = null;
+    const wantOut = p.in.finish;
+    if (wantOut && !p.finishHeld) leaveCar(g, p);
+    p.finishHeld = wantOut;
+    return;
+  }
   const wantFire = p.in.fire;
   // The flamethrower has no cooldown and nothing to count: it simply burns for as long as the
   // trigger is held. `flaming` is what a watching peer is told, and the only thing about this
@@ -1007,8 +1200,18 @@ function actCourier(g, p, dt) {
   // of you. A ladder within reach wins, since standing on one and being asked to knife somebody
   // is not a choice anybody wants to make with one button.
   p.ladderTarget = p.climb > 0 ? null : ladderAt(g, p);
-  p.finishTarget = p.ladderTarget ? null : takedownTarget(g, p);
+  // A door is the same verb again: put your hands on the thing in front of you. It comes after the
+  // ladder and before the knife — a ladder is the more deliberate choice of the two, and a zombie
+  // standing between you and a car door is something you would rather deal with than drive off on.
+  p.carTarget = p.ladderTarget ? null : carAt(g, p);
+  p.finishTarget = p.ladderTarget || p.carTarget ? null : takedownTarget(g, p);
   const wantFinish = p.in.finish;
+  if (wantFinish && !p.finishHeld && p.carTarget) {
+    enterCar(g, p, p.carTarget);
+    p.carTarget = null;
+    p.finishHeld = true;
+    return;
+  }
   if (wantFinish && !p.finishHeld && p.ladderTarget) {
     p.climb = CLIMB_TIME;
     p.climbTo = p.ladderTarget;
@@ -1138,14 +1341,61 @@ function loseControl(c, why) {
   c.hold = false; c.rev = 0; c.yieldTo = null; c.yieldT = 0;
 }
 
-// Back into the traffic system: whichever lane is nearest, pointed whichever way suits the car's
-// own heading, so a spin does not teleport it into a handbrake turn.
-function regainControl(g, c) {
+// The plan a driver adopts when the one they had has stopped describing where they are: whichever
+// lane is nearest, pointed whichever way suits the heading the car actually finished with, so a
+// spin does not teleport it into a handbrake turn. Any turn arc is dropped — an arc is a path
+// between two points on the road, and out here it is neither.
+function rejoinRoad(g, c) {
   const lane = nearestLane(g.roads, c.x, c.y, c.hx, c.hy);
   if (lane) { c.edge = lane.edge; c.s = lane.s; c.dir = lane.dir; }
   c.mode = 'edge'; c.turn = null; c.node = -1;
+  c.hold = false; c.yieldTo = null; c.yieldT = 0;
+}
+
+// Back into the traffic system after a slide.
+function regainControl(g, c) {
+  rejoinRoad(g, c);
   c.lost = null; c.lostT = 0; c.slip = 0; c.spin = 0; c.steer = 0;
   c.jamTries = 0; c.stuck = 0; c.dead = 0; c.freeT = 0;
+}
+
+// Houses, hedges and parked cars against one car's body.
+//
+// Crashing and not overlapping are two different jobs and used to be one. `crashObstacle` is an
+// event: it dents the panels, stalls the engine, and takes a 2.4 s cooldown so one wall cannot be
+// hit sixty times a second. Separation is not an event — it has to hold every frame — and running
+// both through the same cooldown is where driving through houses came from. A crash shoves a car
+// sideways into a garden wall, the cooldown starts, and for the next 2.4 s the car is a ghost: it
+// drives out through the far side of the house and the cooldown expires with it already clear.
+//
+// The test was also gated on `c.lost`, so a car that was merely displaced rather than sliding never
+// asked about walls at all.
+function resolveSolids(g, c) {
+  for (const s of solidsNear(g, c.x, c.y, CAR_L)) {
+    if (s.t === 'lot') continue;                    // A driveway is paint on the grass, not a wall.
+    let push = obbPush(c.box, s);
+    if (!push) continue;
+    // Arriving at a wall is a crash; resting against one is not. 24 px/s is the threshold the
+    // parked-car test used to carry, now measured along the contact normal rather than against raw
+    // speed — without it a car pinned to a hedge dents itself every time the cooldown expires,
+    // and writes itself off standing still.
+    const closing = -((c.hx * c.v - c.hy * (c.slip || 0)) * push.nx +
+                      (c.hy * c.v + c.hx * (c.slip || 0)) * push.ny);
+    if (closing > 24) {
+      crashObstacle(g, c, s);                       // Self-gated: a wreck and a car mid-cooldown take none.
+      push = obbPush(c.box, s);                     // It shoves the car back; measure what is left.
+      if (!push) continue;
+    }
+    setCar(c, c.x + push.nx * (push.depth + .4), c.y + push.ny * (push.depth + .4), c.hx, c.hy);
+    // A wall does not let the body keep travelling into it. Only the component heading in is
+    // dropped, so a car scraping along a house slides down it rather than sticking to it.
+    const vx = c.hx * c.v - c.hy * (c.slip || 0), vy = c.hy * c.v + c.hx * (c.slip || 0);
+    const into = vx * push.nx + vy * push.ny;
+    if (into >= 0) continue;
+    const ox = vx - push.nx * into, oy = vy - push.ny * into;
+    c.v = ox * c.hx + oy * c.hy;
+    c.slip = -ox * c.hy + oy * c.hx;
+  }
 }
 
 // One step of a car's body, whether or not anybody is still driving it.
@@ -1168,16 +1418,9 @@ function driveBody(g, c, aim, dt, grip, wheelDamage) {
   if (c.lost && (c.lostT > LOST_MAX ||
       (Math.abs(c.v) < LOST_SETTLE && slid < 18 && Math.abs(c.spin) < .7))) regainControl(g, c);
 
-  // Once the body can leave the road, what is beside the road matters. A car on its lane never
-  // reaches any of this, so the cost is only paid by one that has already gone wrong.
-  if (c.lost && c.cd <= 0) {
-    for (const s of solidsNear(g, c.x, c.y, CAR_L)) {
-      if (s.t === 'lot' || !obbHit(c.box, s)) continue;
-      crashObstacle(g, c, s);
-      c.slip = 0; c.spin = 0;
-      break;
-    }
-  }
+  // Once the body can leave the road, what is beside the road matters — and it matters whether or
+  // not the driver is still in charge, which is what the old `c.lost` gate got wrong.
+  resolveSolids(g, c);
 
   // Tyres letting go leave a haze. Cosmetic, capped with everything else, and made on whichever
   // end is looking — a guest has the slip in its snapshot and draws its own.
@@ -1187,6 +1430,7 @@ function driveBody(g, c, aim, dt, grip, wheelDamage) {
 
 // ---------- untangling traffic ----------
 const REV_SPEED = 62;             // Reversing is slow: this is a manoeuvre, not an escape.
+const TURN_MAX = 6;               // An arc is 24-200 px taken at about 85 px/s. Six seconds is a jam, not a corner.
 
 // Escalating jam resolution. Backing out alone changes nothing — the geometry stays the
 // same and the car drives straight back into the same conflict. Each repeat escalates.
@@ -1693,6 +1937,13 @@ function update(g, dt) {
         z.foeCar = huntingPlayer && Math.random() < .6 ? null : cop;
       }
     }
+    // Prey that has climbed into a car is not something a zombie can bite, and a car it cannot get
+    // into would otherwise be a box to sit in and be safe. So the car becomes the thing being torn
+    // at — which the patrol logic above already knows how to do, down to the hands on the panels.
+    // No cooldown and no coin toss here: unlike a patrol, this is not a distraction from the prey,
+    // it is the only way left to reach it.
+    if (!z.dumb && z.prey && z.prey.car && !z.prey.car.broken &&
+        Math.hypot(z.prey.car.x - z.x, z.prey.car.y - z.y) < COP_AGGRO) z.foeCar = z.prey.car;
 
     let ax, ay, chase = false;
     // Nothing outranks being on fire. A burning body stops hunting anybody and runs — away from
@@ -1875,10 +2126,15 @@ function update(g, dt) {
         killZombie(g, z); break;
       }
       // A slow or stationary patrol gets torn at by hand until the body gives way.
+      //
+      // The siege numbers are applied to a car somebody is sitting in and not to a patrol, which is
+      // a deliberate line rather than an oversight. A patrol being pulled apart is a set piece that
+      // is meant to take seconds, and it is balanced against how much horde its gun clears before
+      // it goes — changing that is a madness rebalance, not part of letting a courier drive.
       if (c === z.foeCar && carContact && z.foeHitCd <= 0) {
         z.foeHitCd = rnd(.55, .95);
         z.recoil = .22;
-        damageCarWithZombie(g, c, z, carContact);
+        damageCarWithZombie(g, c, z, carContact, !!c.driver);
         resolveCircleCar(c, z, z.r);
       }
     }
@@ -1886,8 +2142,9 @@ function update(g, dt) {
     // finds that out.
     if (!z.gone) for (const courier of g.players) {
       // A courier overhead is still hunted — the horde gathers under the building and waits —
-      // but nothing that walks can lay a hand on them.
-      if (courier.down || courier.roof) continue;
+      // but nothing that walks can lay a hand on them. The same goes for one behind glass: the
+      // hands go into the car instead, which is what `foeCar` above is for.
+      if (courier.down || courier.roof || courier.car) continue;
       if (resolveZombieContact(g, z, courier)) {
         detectedBy[courier.id] = true;
         noticeBy[courier.id] = 1;
@@ -2029,8 +2286,49 @@ function update(g, dt) {
       c.honk = Math.max(0, c.honk - dt * 4);
       if (c.police && c.hazard > 0) c.beacon += dt * 4.2;
       resolveCircleCar(c, p, PR);
+      // A wreck does not drive, but it is still shoved around — by a blast wave, by the car that
+      // finished it off — and a wreck standing half inside a house is the same picture as a car
+      // driving through one.
+      resolveSolids(g, c);
+      // A wreck cannot be driven, and whoever was in it is put out on the pavement.
+      if (c.driver) leaveCar(g, c.driver);
       continue;
     }
+
+    // Somebody is holding the wheel, so none of what follows — the corridor scan, the queueing, the
+    // jam escalation — has anything to decide.
+    if (c.driver) { drivePlayerCar(g, c, dt); if (g.dead) return; continue; }
+
+    // A plan is only worth following while the body is near the road it was planned for. A turn arc
+    // that begins 200 px out in a field loops away through two gardens, and `T.t` advances with the
+    // car's own speed, so one that has stopped out there never reaches the end of the turn: the
+    // worst cars on one seed spent 75-89% of the run inside one. Off the asphalt, the driver drops
+    // the plan and heads for the nearest lane, which is what somebody who has ended up on a lawn
+    // does. The jam counters are deliberately left alone, so a car that is genuinely wedged out
+    // there still escalates and is still eventually put back into traffic out of sight.
+    //
+    // Re-picked on the way out, and while a stale turn is still being held, but never every frame:
+    // with the car heading across a road rather than along one the lane direction is a coin toss,
+    // and choosing it afresh each frame would flip the aim through 180 degrees.
+    //
+    // The same applies to an arc nobody is driving. A turn is left by reaching the end of it, and
+    // the end is reached at the car's own speed, so a car that stops inside a turn never leaves it:
+    // the worst car on that seed spent 89% of the run in one, at a standstill, being handed a fresh
+    // U-turn by the jam logic every few seconds and driving none of them.
+    if (c.mode === 'turn' && c.turn) c.turn.age += dt;
+    const strayed = g.roadDist(c.x, c.y) > ROAD;
+    const staleTurn = c.mode === 'turn' && c.turn && c.turn.age > TURN_MAX;
+    if (!c.lost && c.rev <= 0 && (staleTurn || (strayed && (!c.wasStrayed || c.mode === 'turn'))))
+      rejoinRoad(g, c);
+    c.wasStrayed = strayed;
+    // Everything that reads the plan — the corridor scan, the turn trigger — is only telling the
+    // truth while the plan and the body agree about where the car is. Two distances come off the
+    // same gap because the two readers want different things: the corridor scan should switch to
+    // the body as soon as they disagree at all, while the turn trigger has to tolerate the ordinary
+    // deviation of cornering or a car simply stops taking corners.
+    const planAt = c.mode === 'turn' && c.turn ? bezAt(c.turn, c.turn.t) : lanePoint(c.edge, c.s, c.dir);
+    const planGap = Math.hypot(c.x - planAt.x, c.y - planAt.y);
+    c.offPlan = planGap > ROAD / 2;
 
     // Scan the full corridor ahead with overlapping boxes and no gaps.
     const look = Math.max(52, c.v * 1.05), nb = Math.min(10, Math.ceil(look / 42));
@@ -2083,9 +2381,13 @@ function update(g, dt) {
     c.dead = !clearingForUs && Math.abs(c.v) < 8 ? c.dead + dt : 0;
 
     // Hopeless and out of sight: back into traffic elsewhere. Otherwise keep escalating.
-    if (!(c.dead > 8 && respawnCar(g, c)) &&
-        c.rev <= 0 && !c.yieldTo && c.revCd <= 0 && (c.stuck > 2.2 || c.dead > 3.2)) {
-      resolveJam(g, c, blocker);
+    if (c.rev <= 0 && !c.yieldTo && c.revCd <= 0 && (c.stuck > 2.2 || c.dead > 3.2)) {
+      // This used to hang off `c.dead > 8`, and could not fire: the escalation below resets `dead`
+      // every time it runs, and it runs at 3.2, so the counter cycled 0 to 3.2 forever and never
+      // reached 8. A car boxed in with no legal way out — nose against a garden wall, a wreck
+      // behind it — therefore ground there for the rest of the district. `jamTries` is the honest
+      // measure of a car getting nowhere: it only clears after two seconds of actually driving.
+      if (c.jamTries < 5 || !respawnCar(g, c)) resolveJam(g, c, blocker);
       c.stall = c.stuck = c.dead = 0;
     }
     const reversing = c.rev > 0 && c.stall <= 0;
@@ -2104,18 +2406,31 @@ function update(g, dt) {
       updatePoliceFire(g, c, dt);
     }
     const turning = c.mode === 'turn', wet = g.weather.wet;
+    // How much asphalt is under the wheels: 1 on the road, 0 well out on the grass. It decides both
+    // what the driver dares ask for and what the tyres can give back, so it is measured once.
+    const surface = surfaceAt(g, c.x, c.y);
     const condition = (.42 + .58 * engine / 100) * (1 - .28 * wheelDamage);
     const driverBoost = c.driverMode === 'chase' ? 1.32 : c.driverMode === 'flee' ? 1.2 : 1;
     const wish = reversing ? (rearBlocked(g, c) ? 0 : -REV_SPEED) :
       brake ? 0 :
       // A driver who is chasing or running is not being careful about the corner, which is where
       // most of the sliding comes from. Everyone else lifts off for it, more so in the wet.
-      c.baseMax * condition * driverBoost * (turning ? (reacting ? .88 : .58 - .1 * wet) : 1);
-    c.v += (wish - c.v) * Math.min(1, (reversing ? 3.2 : brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
+      // Off the asphalt everybody lifts off: a lawn is something to get off, not to drive across,
+      // and coming back at road speed only puts the car through the next fence.
+      c.baseMax * condition * driverBoost * (.55 + .45 * surface) *
+        (turning ? (reacting ? .88 : .58 - .1 * wet) : 1);
+    // While the driver is a passenger `driveBody` owns the throttle — off it, on the brakes — and
+    // the traffic model must not be pushing back from here. It was, and the two settled against
+    // each other at 48% of the target speed: 70 px/s on an ordinary road, against a LOST_SETTLE of
+    // 34. The "slow enough to gather it up" exit was therefore unreachable anywhere but a jam, so
+    // every slide ran the full six-second timeout, and for all six seconds the car ignored the lane
+    // completely. Traced: a car driving arrow-straight for 5.5 s while the road turned away.
+    if (!c.lost)
+      c.v += (wish - c.v) * Math.min(1, (reversing ? 3.2 : brake ? 6 - 2.4 * wet : turning ? 3.4 : 2.2) * dt);
 
     // What the tyres are worth here and now. Wet asphalt, a bent suspension and a wheel off the
     // road all come out of the same number, and it is the only thing between a corner and a slide.
-    const grip = GRIP * (1 - .42 * wet) * (1 - .3 * wheelDamage) * (.62 + .38 * surfaceAt(g, c.x, c.y));
+    const grip = GRIP * (1 - .42 * wet) * (1 - .3 * wheelDamage) * (.62 + .38 * surface);
 
     // Where the driver is looking: a spot further along the plan, further ahead the faster they
     // are going. Aiming at the lane point underneath the car would be a driver staring at their
@@ -2148,8 +2463,30 @@ function update(g, dt) {
         c.s = c.dir > 0 ? Math.min(c.s, stop) : Math.max(c.s, stop);
         left = c.dir > 0 ? c.edge.len - c.s : c.s;
       }
-      aim = lanePoint(c.edge, c.s + c.dir * reach, c.dir);
-      if (!reversing && left <= TURN_IN && !c.hold) startTurn(g, c);
+      // How far to the side of its lane the body is. Sideways only: `c.s` is deliberately dragged
+      // backwards when the car is holding at an intersection, and counting that as having left the
+      // road would read a car queueing properly as one out in a garden.
+      const lane = lanePoint(c.edge, c.s, c.dir);
+      const strayed = Math.abs((c.x - lane.x) * -lane.hy + (c.y - lane.y) * lane.hx);
+      // Coming back is an intercept, not a U-turn, and the look-ahead is what sets the angle of it.
+      // Pulling the aim in was tried first and is wrong: a car 100 px out aiming 20 px along the
+      // lane asks for ninety degrees, cannot hold it, crosses the lane and asks for ninety back the
+      // other way. Measured over four districts, that left cars orbiting a lane point at walking
+      // pace and tripled the time traffic spent off the road (6.8% -> 18.2% of car-frames).
+      // Pushing the aim out by the error instead makes the approach a diagonal the tyres can take,
+      // and on the lane `strayed` is nought, so traffic that never left it steers as it always did.
+      aim = lanePoint(c.edge, c.s + c.dir * Math.max(reach, strayed), c.dir);
+      // Claiming an intersection needs the car to actually be at one. `left` is measured from the
+      // plan, and `anchorToEdge` pins the plan to the end of the road once the body has gone past
+      // it — so a car out in a field had `left = 0` for ever and started a fresh turn every frame,
+      // each one an arc from where it stood to the next road, dragging it further out each time.
+      // Traced on seed feed0001: one car went from 74 to 307 px off the asphalt this way without
+      // its plan position moving a pixel. Come back to the lane first, then take the corner.
+      //
+      // A whole road width of slack, not the corridor scan's half: cornering deviates from the plan
+      // by design, and blocking the turn that early made cars refuse ordinary junctions and drive
+      // straight off the end of the road instead — measured 10 points worse on one seed.
+      if (!reversing && left <= TURN_IN && !c.hold && planGap < ROAD) startTurn(g, c);
     }
     driveBody(g, c, aim, dt, grip, wheelDamage);
 
@@ -2162,8 +2499,10 @@ function update(g, dt) {
     if (c.honk > .5 && !c.honked) { c.honked = true; SND.play('honk', c.x, c.y); }
     else if (c.honk < .1) c.honked = false;
 
-    // Courier impact. A bumper does not check who it is about to hit.
+    // Courier impact. A bumper does not check who it is about to hit — but somebody sitting in
+    // another car is not a body in the road, and being rammed is the two cars' business.
     for (const courier of g.players) {
+      if (courier.car) continue;
       const playerCarContact = !g.done ? circleCarContact(c, courier.x, courier.y, PR) : null;
       if (!playerCarContact) continue;
       const carVx = c.hx * c.v, carVy = c.hy * c.v;
@@ -2197,11 +2536,9 @@ function update(g, dt) {
     if (manifold) crash(g, a, b, manifold);
   }
 
-  // A rare failure to brake before a parked car also has real consequences.
-  for (const c of g.cars) {
-    if (c.cd > 0 || c.broken || c.v < 24) continue;
-    for (const parked of g.parked) if (obbHit(c.box, parked)) { crashObstacle(g, c, parked); break; }
-  }
+  // A failure to brake before a parked car used to be handled here, walking the whole parked list
+  // once per car per frame and only above 24 px/s. Parked cars are solids like any other, so
+  // `resolveSolids` now covers them off the grid, at any speed, and separates as well as dents.
 
   ageCarSmoke(g, dt);
 
@@ -2225,7 +2562,9 @@ function update(g, dt) {
   if (!g.done) for (const b of g.parcels) {
     if (b.state !== 'carried') continue;
     const carrier = g.players[b.carrier] || g.p;
-    if (carrier.down || Math.hypot(b.dest.x - carrier.x, b.dest.y - carrier.y) >= 26) continue;
+    // Signing for a parcel is done on the doorstep, on foot. Driving past the address with one on
+    // your back delivers nothing.
+    if (carrier.down || carrier.car || Math.hypot(b.dest.x - carrier.x, b.dest.y - carrier.y) >= 26) continue;
     b.state = 'done'; carrier.carried--; g.delivered++;
     SND.play('deliver', b.dest.x, b.dest.y);
     emit(g, EV.deliver, b.dest.x, b.dest.y);

@@ -87,21 +87,21 @@ $references = [regex]::Matches($html, '(?:src|href)="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }
 
 $expectedScripts = @(
-  'src/namespace.js?v=20260731-77',
-  'src/core.js?v=20260731-77',
-  'src/quality.js?v=20260731-77',
-  'src/audio.js?v=20260731-77',
-  'src/car-physics.js?v=20260731-77',
-  'src/environment.js?v=20260731-77',
-  'src/world.js?v=20260731-77',
-  'src/physics.js?v=20260731-77',
-  'src/input.js?v=20260731-77',
-  'src/gameplay.js?v=20260731-77',
-  'src/lighting.js?v=20260731-77',
-  'src/entities.js?v=20260731-77',
-  'src/render.js?v=20260731-77',
-  'src/net.js?v=20260731-77',
-  'src/main.js?v=20260731-77'
+  'src/namespace.js?v=20260803-80',
+  'src/core.js?v=20260803-80',
+  'src/quality.js?v=20260803-80',
+  'src/audio.js?v=20260803-80',
+  'src/car-physics.js?v=20260803-80',
+  'src/environment.js?v=20260803-80',
+  'src/world.js?v=20260803-80',
+  'src/physics.js?v=20260803-80',
+  'src/input.js?v=20260803-80',
+  'src/gameplay.js?v=20260803-80',
+  'src/lighting.js?v=20260803-80',
+  'src/entities.js?v=20260803-80',
+  'src/render.js?v=20260803-80',
+  'src/net.js?v=20260803-80',
+  'src/main.js?v=20260803-80'
 )
 $actualScripts = [regex]::Matches($html, '<script\s+src="([^"]+)"') |
   ForEach-Object { $_.Groups[1].Value }

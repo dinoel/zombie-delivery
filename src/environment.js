@@ -396,6 +396,11 @@ const SLIP_YAW = .02;             // How hard a sliding tail rotates the car. Th
 const SLIP_MAX = 300;
 const SPIN_MAX = 4.2;             // Nothing rotates faster than this, however badly it goes.
 const SLIP_LOST = 95;             // Sideways speed at which the driver has stopped being in charge.
+// The district ends at its own border. The courier is clamped to it, so is every zombie and every
+// severed part; traffic was the one thing still allowed through, and a car that slid off the outer
+// road simply kept going into the void. Half the diagonal keeps the whole body inside rather than
+// only its centre, so a car pinned against the border never has a corner hanging over the edge.
+const CAR_EDGE = Math.hypot(CAR_L, CAR_W) / 2;
 
 const shortestTurn = a => {
   while (a > Math.PI) a -= TAU;
@@ -440,7 +445,23 @@ function rollCar(c, dt, grip) {
   // difference between a car on rails and a car with weight.
   const vx = hx * c.v - hy * c.slip;
   const vy = hy * c.v + hx * c.slip;
-  setCar(c, c.x + vx * dt, c.y + vy * dt, hx, hy);
+
+  let px = c.x + vx * dt, py = c.y + vy * dt;
+  const bx = clamp(px, CAR_EDGE, WORLD - CAR_EDGE), by = clamp(py, CAR_EDGE, WORLD - CAR_EDGE);
+  if (bx !== px || by !== py) {
+    // Only what was heading out of the district is taken away. A car that arrives at the border at
+    // an angle keeps sliding along it, and the driver's aim — always a lane, always inside — brings
+    // it back; killing the whole velocity would leave it parked against an invisible wall instead.
+    const ex = bx - px, ey = by - py, e = Math.hypot(ex, ey) || 1;
+    const nx = ex / e, ny = ey / e, into = vx * nx + vy * ny;
+    if (into < 0) {
+      const ox = vx - nx * into, oy = vy - ny * into;
+      c.v = ox * hx + oy * hy;
+      c.slip = -ox * hy + oy * hx;
+    }
+    px = bx; py = by;
+  }
+  setCar(c, px, py, hx, hy);
   return Math.abs(c.slip);
 }
 
@@ -452,17 +473,33 @@ function rollCar(c, dt, grip) {
 // The direction is chosen to suit the heading it actually finished with, so gathering up a spin
 // does not snap the car through a handbrake turn — if it ends up pointing the wrong way up a road
 // it drives off that way and turns round like anybody else.
+// This used to ask `anchorToEdge` starting from the middle of each road. That function is a local
+// hill-climb — steps of 32, 16, 8, 4 and 2 — so it can travel 62 px from wherever it is started,
+// and roads here are around 530 px long. It was therefore comparing roads by how close their
+// middle quarter came, and returning an `s` that could be most of a block out.
+//
+// Measured over 2332 off-road points in one district: the wrong road entirely 11% of the time, `s`
+// wrong by 63 px on average and up to 279, and the rejoin point on average 34 px further away than
+// the road the car was actually standing beside. A car that had just gathered up a slide was being
+// sent across two gardens to a lane it had no business rejoining — which is most of why traffic
+// that left the road never came back.
+//
+// The projection is exact and costs the same as `nearRoad`, which does it this way already. It
+// runs when a driver takes charge again, not every frame.
 function nearestLane(roads, x, y, hx, hy) {
   let best = null, bd = Infinity, dir = 1;
-  const probe = { x, y, edge: null };
   for (const e of roads.edges) {
-    probe.edge = e;
-    const s = anchorToEdge(probe, e.len * .5);
-    const p = onEdge(e, s);
-    const d = (p.x - x) ** 2 + (p.y - y) ** 2;
-    if (d >= bd) continue;
-    bd = d; best = { edge: e, s };
-    dir = (p.tx * hx + p.ty * hy) >= 0 ? 1 : -1;
+    for (let i = 1; i < e.pts.length; i++) {
+      const p = e.pts[i - 1], q = e.pts[i];
+      const dx = q.x - p.x, dy = q.y - p.y, l2 = dx * dx + dy * dy || 1;
+      const t = clamp(((x - p.x) * dx + (y - p.y) * dy) / l2, 0, 1);
+      const cx = p.x + dx * t - x, cy = p.y + dy * t - y;
+      const d = cx * cx + cy * cy;
+      if (d >= bd) continue;
+      const l = Math.sqrt(l2);
+      bd = d; best = { edge: e, s: e.cum[i - 1] + t * l };
+      dir = (dx * hx + dy * hy) / l >= 0 ? 1 : -1;   // Whichever way suits the heading it finished with.
+    }
   }
   return best ? { edge: best.edge, s: best.s, dir } : null;
 }
@@ -526,7 +563,7 @@ function startTurn(g, c, avoidId) {
   const T = {
     x0: c.x, y0: c.y, x1: c.x + c.hx * d, y1: c.y + c.hy * d,
     x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
-    next, ndir, sIn, t: 0, len: 0
+    next, ndir, sIn, t: 0, len: 0, age: 0
   };
   measureArc(c, T);
   c.turn = T; c.mode = 'turn'; c.node = at;         // The node remains occupied while the car is inside it.
@@ -548,15 +585,25 @@ function startUTurn(c) {
   const T = {
     x0: c.x, y0: c.y, x1: c.x + c.hx * d, y1: c.y + c.hy * d,
     x2: end.x - end.hx * d, y2: end.y - end.hy * d, x3: end.x, y3: end.y,
-    next: c.edge, ndir, sIn, t: 0, len: 0
+    next: c.edge, ndir, sIn, t: 0, len: 0, age: 0
   };
   measureArc(c, T);
   c.turn = T; c.mode = 'turn'; c.node = -1;        // A U-turn never claims an intersection.
 }
 
 // Predict the car position after dist pixels along a lane or turn arc.
+//
+// The corridor is scanned along the plan, and that is right for as long as the body is on it. A car
+// that has been thrown into a garden is not on it, and probing the lane from out there makes it
+// brake for traffic on a road it is not standing on — measured as cars sitting 240 px off the
+// asphalt at 7 px/s for the length of a run, waiting for a queue they were never in. Once the body
+// and the plan disagree, what is in front of the car is what matters. `offPlan` is decided once per
+// frame by the caller, because this runs up to ten times per car.
 const probeBox = obb(0, 0, 0, CAR_L / 2, CAR_W / 2);
 function ahead(c, dist) {
+  if (c.offPlan)
+    return setOBB(probeBox, c.x + c.hx * dist, c.y + c.hy * dist, Math.atan2(c.hy, c.hx),
+                  CAR_L / 2 + 4, CAR_W / 2 + 2);
   if (c.mode === 'turn' && c.turn) {
     const T = c.turn, t = Math.min(1, T.t + dist / T.len);
     const q = bezAt(T, t), d = bezDir(T, t);
@@ -643,6 +690,19 @@ function disableCar(g, c, reason) {
   return true;
 }
 
+// Madness puts more on the street than a courier on foot can walk through, so a car taken there has
+// to be able to survive being driven through it — a shell that folds on the first crowd is a prop.
+//
+// This goes in where `durability` already goes rather than being a shield bolted on top, so every
+// consequence follows rules that were already written and already balanced against each other:
+// panels crumple ten times slower, the horde carries ten times before the bodywork gives, and the
+// write-off speed rises by its square root, which is the relation the model already used. Derived
+// on read rather than written onto the car, so there is no saved figure to restore, nothing to get
+// out of step, and a wreck the courier is thrown out of is instantly an ordinary wreck again.
+const MADNESS_DRIVER_DURABILITY = 10;
+const carDurability = (g, c) =>
+  (c.durability || 1) * (g.madness && c.driver ? MADNESS_DRIVER_DURABILITY : 1);
+
 function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, contactY) {
   const d = ensureCarDamage(c);
   if (c.broken && source !== 'collision') return { severity: 0, zone: 'front', disabled: false };
@@ -663,7 +723,7 @@ function damageCar(g, c, impactSpeed, nx, ny, source = 'collision', contactX, co
   const scaled = Math.max(0, impactSpeed - 12);
   const severity = clamp(scaled / 190, 0, 1.45);
   const armour = c.police ? .84 : 1;
-  const durability = c.durability || 1;
+  const durability = carDurability(g, c);
   // A soft body crumples thin outer panels but absorbs most of the energy itself:
   // geometric dents become visible before serious engine damage.
   const bodyFactor = source === 'zombie' ? .32 : source === 'player' ? .4 : source === 'bullet' ? .16 : 1;
@@ -728,7 +788,19 @@ function softBodyContact(c, body, radius, contact, mass, relativeSpeed = c.v, ba
   };
 }
 
-function damageCarWithZombie(g, c, z, contact) {
+// `clawing` is a siege rather than a collision: hands working on a panel, not a body packed into
+// the radiator at speed. Every number below was measured against cars that were driving, where
+// contact is a moment — and putting a stationary car through them wrecked it in 0.7 s under three
+// zombies, which is no time at all to be sitting in one. So a siege keeps the geometry and the
+// sound and takes its own, far smaller bite: a body that was never run over adds nothing to the
+// load on the suspension, and hands do panel damage rather than engine damage.
+// Measured with a parked car and the horde on it: 21 s under three, 12 s under six, and about 10 s
+// from ten upwards — the last is a plateau because only so many pairs of hands reach the panels at
+// once. That is the worst case, a car standing still; one that keeps moving is running them over
+// instead, which is the other rule and a much faster way to lose a car.
+const CLAW_IMPACT = 23;
+
+function damageCarWithZombie(g, c, z, contact, clawing = false) {
   if (c.broken) return;
   // A tank is a wall on legs: hitting one wrecks the front of the car rather than the tank.
   // One collision leaves the car barely driveable; a second one finishes it.
@@ -736,13 +808,13 @@ function damageCarWithZombie(g, c, z, contact) {
   const hit = softBodyContact(c, z, z.r || 10, contact, mass, c.v,
     z.dumb ? 96 : 76, z.dumb ? .6 : .52);
   c.zombieHits = (c.zombieHits || 0) + 1;
-  c.zombieLoad = (c.zombieLoad || 0) + mass;
-  damageCar(g, c, hit.impact, hit.nx, hit.ny, 'zombie', hit.x, hit.y);
+  if (!clawing) c.zombieLoad = (c.zombieLoad || 0) + mass;
+  damageCar(g, c, clawing ? CLAW_IMPACT + mass * 3 : hit.impact, hit.nx, hit.ny, 'zombie', hit.x, hit.y);
   SND.play('carHit', z.x, z.y);
   // How many bodies a car comes apart under. A patrol carrying the madness gun takes far more,
   // because it is going to be swarmed by design: the gun is what the horde walks toward, and a
   // crew pulled out of the cab a few seconds after opening up is a gun nobody ever sees working.
-  const limit = (c.roofGun ? 21 : c.police ? 9.5 : 7.25) * (c.durability || 1);
+  const limit = (c.roofGun ? 21 : c.police ? 9.5 : 7.25) * carDurability(g, c);
   if (!c.broken && c.zombieLoad >= limit) disableCar(g, c, 'zombies');
 }
 
@@ -912,7 +984,8 @@ return Object.freeze({
   EV, emit, shakeAt,
   newWeather, updateWeather, updateWeatherVisuals, drawRain, drawGlowThroughFog,
   TURN_IN, makeRoads, onEdge, lanePoint, placeCar, startTurn, startUTurn, ahead,
-  GRIP, SLIP_LOST, MAX_LOCK, steerToward, rollCar, anchorToEdge, nearestLane, setCar,
+  GRIP, SLIP_LOST, MAX_LOCK, STEER_RATE, WHEELBASE,
+  steerToward, rollCar, anchorToEdge, nearestLane, setCar,
   WRECK_FUSE,
   newCarDamage, carSmokeProfile, damageCar, damageCarWithZombie, damageCarWithPlayer, damageCarWithBullet,
   prepareCarImpactComparison,

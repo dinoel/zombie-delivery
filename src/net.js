@@ -218,7 +218,12 @@ function encodeSnapshot(g, ack) {
       flag(p.down, 4) | flag(p.flaming, 5),
       // Which roof they are standing on, by index, because the houses came from the seed and both
       // ends already have the same list. Minus one is the street.
-      p.roof ? g.houses.indexOf(p.roof) : -1, q2(p.climb || 0)]),
+      p.roof ? g.houses.indexOf(p.roof) : -1, q2(p.climb || 0),
+      // Which car they are driving, by the same trick as the roof: the roster is fixed when the
+      // district is grown, so an index names a car the far end already holds. Minus one is on foot.
+      // The car's own row carries where it is and how it is sitting, so this one number is the
+      // whole of driving on the wire.
+      p.car ? g.cars.indexOf(p.car) : -1]),
     z: live,
     // The fuse travels because it is the only warning a wreck gives before it goes up, and a
     // guest reading it a beat late is a guest standing next to a car it thought was safe.
@@ -279,6 +284,12 @@ function applySnapshot(g, s) {
     p.flaming = has(bits, 5);
     p.roof = row[16] >= 0 ? g.houses[row[16]] : null;
     p.climb = row[17];
+    // The link is kept pointing both ways, because a watching peer draws from both ends of it:
+    // the courier is not drawn while it is set, and the car is what the courier is drawn inside.
+    const car = row[18] >= 0 ? g.cars[row[18]] : null;
+    if (p.car && p.car !== car) p.car.driver = null;
+    p.car = car;
+    if (car) car.driver = p;
   }
 
   // The roster was built from the seed, so nothing is created here — the horde is only narrowed

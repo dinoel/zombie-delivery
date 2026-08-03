@@ -47,6 +47,33 @@ function obbHit(A, B) {
   return true;
 }
 
+// The same separating axes as obbHit, but keeping the shallowest overlap instead of returning at
+// the first gap: the minimum translation that puts A back outside B. Knowing that two boxes touch
+// is enough to say a car crashed; it is not enough to get the car out of the wall it crashed into.
+function obbPush(A, B) {
+  const bx = A.cx - B.cx, by = A.cy - B.cy, reach = A.rad + B.rad;
+  if (bx * bx + by * by > reach * reach) return null;
+  let depth = Infinity, nx = 0, ny = 0;
+  for (let o = 0; o < 2; o++) {
+    const O = o ? B : A, c = Math.cos(O.ang), s = Math.sin(O.ang);
+    for (let k = 0; k < 2; k++) {
+      const ax = k ? -s : c, ay = k ? c : s;
+      let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+      for (let i = 0; i < 4; i++) {
+        const pa = A.pts[i][0] * ax + A.pts[i][1] * ay, pb = B.pts[i][0] * ax + B.pts[i][1] * ay;
+        if (pa < a0) a0 = pa; if (pa > a1) a1 = pa;
+        if (pb < b0) b0 = pb; if (pb > b1) b1 = pb;
+      }
+      if (a1 < b0 || b1 < a0) return null;
+      // Leave through whichever end of the overlap is nearer, so a body already most of the way
+      // through a wall comes out the far side instead of being dragged back the way it came.
+      const out = b1 - a0, back = a1 - b0, least = out < back ? out : back;
+      if (least < depth) { depth = least; const sign = out < back ? 1 : -1; nx = ax * sign; ny = ay * sign; }
+    }
+  }
+  return { nx, ny, depth };
+}
+
 function hitCircle(p, r, C) {
   const dx = p.x - C.x, dy = p.y - C.y, reach = r + C.r;
   const d2 = dx * dx + dy * dy;
@@ -148,7 +175,7 @@ const parkedNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).parkedGrid,
 const lampsNear = (g, x, y, r, out, pad) => gridNear(staticIndex(g).lampGrid, x, y, r, out, pad);
 
 return Object.freeze({
-  hitOBB, obbHit, hitCircle, staticIndex,
+  hitOBB, obbHit, obbPush, hitCircle, staticIndex,
   solidsNear, treesNear, softNear, parkedNear, lampsNear
 });
 })();

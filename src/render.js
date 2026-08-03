@@ -385,6 +385,21 @@ function draw(g) {
   // Zombies.
   for (const z of g.zombies) if (visible(z.x, z.y, 48)) { drawZombie(ctx, z); drawNotice(ctx, z); }
 
+  // Prompt over a car that can be got into right now. Drawn on the roof of the car rather than
+  // over the courier, because it is the car the key acts on.
+  if (p.carTarget) {
+    const c = p.carTarget;
+    ctx.save();
+    ctx.globalAlpha = .55 + .45 * Math.sin(g.time * 7);
+    ctx.fillStyle = '#e8f0ff';
+    ctx.font = 'bold 11px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('E', c.x, c.y - 24);
+    ctx.strokeStyle = 'rgba(232,240,255,.7)'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(c.x, c.y, 30, 0, 6.283); ctx.stroke();
+    ctx.restore();
+  }
+
   // Prompt over a zombie that can be finished silently right now.
   if (p.finishTarget) {
     const z = p.finishTarget;
@@ -419,8 +434,11 @@ function draw(g) {
   // Player.
   // Everyone on the shift is drawn; the local courier last, so they are never hidden under a
   // partner standing on the same doorstep.
-  for (const courier of g.players) if (courier !== p && visible(courier.x, courier.y, 30)) drawPlayer(ctx, courier, g);
-  drawPlayer(ctx, p, g);
+  // A courier at a wheel is inside the body that gets drawn below, so drawing them here as well
+  // would put a figure on the roof of their own car.
+  for (const courier of g.players)
+    if (courier !== p && !courier.car && visible(courier.x, courier.y, 30)) drawPlayer(ctx, courier, g);
+  if (!p.car) drawPlayer(ctx, p, g);
 
   // Standing over a fallen partner is the one thing on a shift that either of them can do for
   // the other, so it says what it wants rather than leaving a ring to be worked out.

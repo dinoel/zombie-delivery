@@ -176,6 +176,10 @@ function makeCourier(start, index, torch) {
     // Which roof they are standing on, or null for the street. A courier up there cannot be
     // reached, cannot pick anything up, and shoots over everything in the way.
     roof: null, climb: 0, climbTo: null,
+    // The car they are driving, or null for on foot. A courier at a wheel is carried by the body
+    // they are sitting in: nothing walking can reach them, they cannot handle a parcel, and their
+    // input record steers a ton of metal instead of a pair of legs.
+    car: null,
     torchSeen: null, sneakSeen: null, weaponSeen: null,   // Adopted from the press counters on the first frame.
     // What is in their hands. Zero is the pistol and the only thing a night shift ever issues;
     // madness also hands out a flamethrower, and the courier can put one down for the other.
@@ -572,6 +576,10 @@ function buildTown(level, couriers = 1, madness = false) {
                   // than where the nose points. `lost` is set when the driver stops being in
                   // charge of either.
                   steer: 0, slip: 0, spin: 0, lost: null, lostT: 0, tyreCd: 0,
+                  // Where the body is relative to the plan it is meant to be following. `offPlan`
+                  // switches the corridor scan from the lane to the nose; `wasStrayed` is what
+                  // makes rejoining the road happen once on the way out rather than every frame.
+                  offPlan: false, wasStrayed: false,
                   // Untangling a jam: back out, yield, and finally take another road.
                   rev: 0, revCd: 0, yieldTo: null, yieldT: 0, jamTries: 0, freeT: 0,
                   broken: false, breakReason: '', hazard: 0, smokeCd: 0, zombieHits: 0, zombieLoad: 0,

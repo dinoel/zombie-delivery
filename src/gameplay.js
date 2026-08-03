@@ -3,12 +3,30 @@ window.TownGame.gameplay = (() => {
 'use strict';
 
 const {
-  cv, WORLD, ROAD, PR, ZR, CAR_L, CAR_W, BV, FIRE_CD, WALK, RUN,
-  BATT_DRAIN, STAM_DRAIN, STAM_REGEN,
-  clamp, rnd, pick, inOBB, distOBB, LIVES_MAX, CARRY_MAX,
+  cv, clamp, rnd, pick, inOBB, distOBB,
   UI, STORAGE_KEYS, gameStorage, runtime,
   camOf, torchHand, gunHand, overlay, startBtn
 } = window.TownGame.core;
+// Every tuning figure this file reads, with the reason each one is what it is beside it there.
+const {
+  WORLD, ROAD, PR, CAR_L, CAR_W, BV, FIRE_CD, WALK, RUN,
+  BATT_DRAIN, STAM_DRAIN, STAM_REGEN, LIVES_MAX, CARRY_MAX,
+  FILTH_MIN_RANGE, FILTH_MAX_RANGE, FILTH_DMG, DODGE_TIME, DODGE_RANGE,
+  FLAME_REACH, FLAME_SPREAD, FLAME_DPS, FLAME_FALLOFF, FLAME_IGNITE, FLAME_BURN_MAX, FLAME_NOISE,
+  FLAME_PARTICLES, FLAME_CAP,
+  BURN_TICK, BURN_DAMAGE, BURN_NOISE, PANIC_SPEED, PANIC_WANDER, PANIC_AT,
+  BLAST_SHAKE, HEAD_BLAST_R, WRECK_RADIUS, WRECK_POWER, WRECK_NEAR, WRECK_CAR_R, WRECK_SHAKE,
+  CASH_DROP, CASH_CHANCE,
+  COP_CD, COP_AGGRO, COP_DROP, GUNS, MG_ROF, MG_BURST, MG_PAUSE, MG_SWING,
+  FEUD_TIME, INFIGHT_SCALE,
+  FRONT_ARC, NOTICE_RUN, NOTICE_WALK, NOTICE_STILL, NOTICE_SNEAK, BACK_FACTOR,
+  NOTICE_FILL, NOTICE_FILL_BEAM, NOTICE_FADE, NOTICE_SNEAK_FILL, CONTACT_NOTICE_PAD,
+  PICKUP_REACH, LADDER_REACH, CLIMB_TIME, ROOF_EDGE,
+  CAR_REACH, CAR_TOP, CAR_TOP_MADNESS, CAR_REV, CAR_BRAKE_AT, CAR_YAW_MAX,
+  TAKEDOWN_RANGE, TAKEDOWN_ARC, TAKEDOWN_LOCK, SNEAK_SPEED, REVIVE_REACH, REVIVE_TIME,
+  MADNESS_LIVE_CAP, MADNESS_SLOW, MADNESS_FAST, MADNESS_RAMP, MADNESS_BURST, MADNESS_MIN_GAP,
+  LOST_SPIN, LOST_SETTLE, LOST_MAX, REV_SPEED, TURN_MAX, SLIP_MAX, BURNT_DEBRIS
+} = window.TownGame.config;
 const SND = window.TownGame.audio;
 const {
   TURN_IN, updateFog, updateWeather, updateWeatherVisuals,
@@ -29,10 +47,6 @@ const {
 const { readLocalInput, readSecondInput } = window.TownGame.input;
 const { resetZombie } = window.TownGame.world;
 
-const FILTH_MIN_RANGE = 145;
-const FILTH_MAX_RANGE = 360;
-const DODGE_TIME = .34;
-const DODGE_RANGE = 430;
 
 // An alerted zombie can notice a muzzle flash and leave the firing line.
 // The reaction is deliberately unreliable and has a cooldown, so a good shot is still rewarded.
@@ -92,28 +106,15 @@ function fire(g, p) {
 //
 // It is short, wide and slow to kill. What it is for is not the body in front of you; it is that
 // the body walks away on fire and takes the street's attention with it.
-const FLAME_REACH = 155;
-const FLAME_SPREAD = .42;         // Half-angle. Wide enough that aiming is barely a skill at this range.
-const FLAME_DPS = 1;              // The stream itself barely hurts. It is not what kills anybody.
-const FLAME_FALLOFF = .45;        // What is left of that at the tip of the stream.
-const FLAME_IGNITE = 8;           // Seconds of burning added per second of contact,
-const FLAME_BURN_MAX = 7;         // and the most a body can be carrying at once.
-const FLAME_NOISE = 210;          // A roar, but a much quieter one than a gunshot.
 
 // What being on fire costs, and what it does to whoever is wearing it. The damage is slow on
 // purpose: a full seven seconds of burning is worth about nine hits, so a walker is finished by
 // it, a brute needs a proper soaking and a tank needs the stream held on it more than once.
-const BURN_TICK = .4;
-const BURN_DAMAGE = .5;
-const BURN_NOISE = 175;           // Loud enough to keep pulling the street after it.
-const PANIC_SPEED = 1.5;          // Running rather than walking.
-const PANIC_WANDER = 2.2;         // Radians a second the heading drifts: panic, not a withdrawal.
 // How far alight something has to be before it stops caring about the courier. Bolting on the
 // first spark made the weapon useless: a body was singed, fled the cone within a few frames, and
 // walked back a second later barely hurt, so the stream never got to soak anybody. A body has to
 // be properly alight before it panics — which also means walking into the stream and staying
 // there is what sets somebody on fire, rather than brushing past them.
-const PANIC_AT = 2;
 
 // Everything the stream is touching this frame. Kept apart from what it does to them so the same
 // answer can drive damage on one end and nothing at all on the other.
@@ -255,8 +256,6 @@ function bounceHeadFromCorrection(head, beforeX, beforeY, restitution = .48) {
   head.spin *= .72;
 }
 
-const BLAST_SHAKE = 3.5;          // What a head going off does to a screen standing on top of it.
-const HEAD_BLAST_R = 190;
 function explodeZombieHead(g, head) {
   if (head.exploded) return false;
   head.exploded = true;
@@ -368,11 +367,6 @@ function blastWave(g, x, y, opt) {
 // A courier standing on it does not survive — five hits is all they have, and a car going up on
 // top of somebody should not be survivable after half a minute of it saying so. Two hits out in
 // the rest of the ring leaves the mistake payable.
-const WRECK_RADIUS = 380;
-const WRECK_POWER = 4;
-const WRECK_NEAR = 128;
-const WRECK_CAR_R = 130;          // What it does to other traffic reaches barely past the next parking space.
-const WRECK_SHAKE = 6;            // Firmly more than a head, and the most a screen is asked to take.
 
 function explodeWreck(g, c) {
   if (c.exploded) return false;
@@ -526,8 +520,6 @@ function segmentCircleT(x1, y1, x2, y2, cx, cy, radius) {
 // ---------- cash ----------
 // The horde carries what it was carrying when the district went quiet. There is nothing to
 // spend it on yet, so the wallet only accumulates across a run.
-const CASH_DROP = { runner: [2, 5], walker: [3, 8], brute: [9, 16], tank: [26, 42] };
-const CASH_CHANCE = .62;          // Not every body has a wallet on it.
 function dropCash(g, z) {
   if (!z.dumb && Math.random() > CASH_CHANCE) return;   // A tank costs enough to always pay out.
   const band = CASH_DROP[z.kind] || CASH_DROP.walker;
@@ -554,7 +546,6 @@ function breakLamp(g, l) {
   return true;
 }
 
-const BURNT_DEBRIS = ['#2b2724', '#4a423c', '#ff7a2e', '#8a7d72', '#1d1a18', '#ffc46b'];
 function killZombie(g, z) {
   if (z.gone) return;
   z.hp = 0;
@@ -575,9 +566,6 @@ function killZombie(g, z) {
 }
 
 // ---------- patrol gunfire ----------
-const COP_CD = [.42, .8];         // Cadence, not an ammunition count: the patrol never runs dry.
-const COP_AGGRO = 250;            // A patrol closer than this becomes a target for the horde.
-const COP_DROP = 420;             // And is forgotten past this range.
 
 // What a patrol is holding. A night shift issues the service weapon out of a side window; madness
 // bolts a heavy gun to the roof and hands the crew a belt nobody counts. Firing is one code path
@@ -589,30 +577,6 @@ const COP_DROP = 420;             // And is forgotten past this range.
 // madness can fill it. What it does have is weight — a round goes through the body it hits and
 // keeps going, so a queue of the horde walking at the car is a bad place to stand rather than a
 // wall the patrol has to chew through one at a time.
-const GUNS = Object.freeze({
-  service: Object.freeze({
-    speed: 700, dmg: .5,          // Half a hit, so a standard walker takes four.
-    range: 330,                   // Anything further is hopeless from a moving car.
-    pierce: 0, phantom: true,     // A miss is not a real round; see below.
-    acc: .45, sway: .1,           // Hit chance standing still, and what a car at full speed costs.
-    wild: [6, 32], drift: 4,      // Pixels a miss is thrown wide by, and the wobble left on an aimed one.
-    flash: .07, sparks: 3, noise: 300, roof: false, sound: 'copshot'
-  }),
-  heavy: Object.freeze({
-    speed: 1050, dmg: 2,          // A walker in one round, a brute in two, a tank in five.
-    range: 430,
-    pierce: 2, phantom: false,    // Every round is real: a burst into a crowd should find somebody.
-    acc: .3, sway: .12,
-    wild: [10, 52], drift: 9,
-    flash: .055, sparks: 6, noise: 420, roof: true, sound: 'mgshot'
-  })
-});
-const MG_ROF = .075;              // Seconds between rounds while the trigger is held.
-const MG_BURST = [5, 12];         // How many go before the gunner lets go of it,
-const MG_PAUSE = [1.2, 2.4];      // and how long the barrel gets before the next burst.
-const MG_SWING = 3.4;             // Radians a second the mount can traverse. It is the real limit on
-                                  // the gun: it cannot snap from one body to the next, so the rounds
-                                  // walk across the street and some of them land on the way.
 const TAU = Math.PI * 2;
 
 // The patrol does not fire through houses, hedges, or parked cars.
@@ -723,14 +687,11 @@ function updatePoliceFire(g, c, dt) {
 }
 
 // ---------- infighting ----------
-const FEUD_TIME = [8, 13];        // How long a grudge lasts before the horde re-focuses on the courier.
 // A grudge between two of the horde is a brawl, not an execution. At full strength a walker put
 // another one down in two swings, which emptied a street faster than the courier ever could and
 // turned a feud into a way of clearing the district by standing still. Thirty per cent of what
 // the same blow does to a courier means a fight lasts most of the grudge and often settles
 // nothing, which is what makes it worth watching instead of worth waiting for.
-const INFIGHT_SCALE = .3;
-const FILTH_DMG = 1;
 
 // Doom rules: whoever gets splattered by a neighbour turns on the thrower.
 function startFeud(a, b) {
@@ -753,19 +714,10 @@ function hitByFilth(g, z, s) {
 }
 
 // ---------- stealth ----------
-const FRONT_ARC = 1.75;           // A zombie watches roughly a 200-degree arc in front of itself.
-const NOTICE_RUN = 150, NOTICE_WALK = 90, NOTICE_STILL = 45, NOTICE_SNEAK = 38;
-const BACK_FACTOR = .38;          // From behind everything shrinks: 57 / 34 / 17 steps.
-const NOTICE_FILL = 1 / .55;      // Full awareness in just over half a second in the open.
-const NOTICE_FILL_BEAM = 1 / .2;  // A beam in the face is almost instant.
-const NOTICE_FADE = 1 / 2.4;      // And it cools down slowly.
-const NOTICE_SNEAK_FILL = .65;     // Crawling buys time, not invisibility at close range.
-const CONTACT_NOTICE_PAD = 2;      // Physical contact always defeats stealth from any direction.
 
 // Whoever is standing close enough to pick something up off the ground. Reaching in list order
 // means that when two couriers arrive on the same frame the same one gets it every time, which
 // matters rather more once one of them is deciding it on a different machine.
-const PICKUP_REACH = 22;
 function pickerAt(g, x, y) {
   for (const p of g.players) {
     // Nothing on the street is within reach from a roof, and nothing at all is within reach of
@@ -816,10 +768,6 @@ function noticeFor(g, z, p, canNotice, lightRange) {
 // would otherwise be in the way. The horde still knows where they are and gathers underneath, and
 // anything that throws can still throw — which is the only thing that makes standing up there a
 // decision rather than a button that ends the district.
-const LADDER_REACH = 22;          // How close to the foot, or to the parapet above it, you must be.
-const CLIMB_TIME = .9;            // Rooted for this long, both ways. Long enough to be a bad idea in a crowd.
-const ROOF_EDGE = 9;              // How far in from the parapet a courier is kept.
-const ROOF_SIGHT = 1.7;           // How much further the fog opens from up there.
 
 // The ladder within reach, if the courier is beside the right end of one. On the street that is
 // the foot; on a roof it is the parapet the same ladder comes over.
@@ -858,17 +806,11 @@ function keepOnRoof(p, h) {
 // the camera, the fog, the light and every zombie that is hunting them working with no changes at
 // all. What they lose is their hands — no shooting, no parcels — and what they gain is a ton of
 // metal that the horde has to come through.
-const CAR_REACH = 20;             // How close to the panels you must stand to open a door.
-const CAR_TOP = 1.15;             // A little brisker than traffic: taking a car should be an upgrade.
-const CAR_TOP_MADNESS = 1.7;      // Madness is not a district to be crossed at the speed of traffic.
-const CAR_REV = 96;               // Reverse. Faster than the AI's crawl, still clearly a manoeuvre.
-const CAR_BRAKE_AT = 24;          // Below this the car has stopped, so the brake key means reverse.
 // How fast a player may turn the car, in rad/s. Swept over four values against drift angle on dry
 // asphalt and in the rain: 1.6 never breaks traction at all and throws the slide physics away, 2.8
 // is loose enough on dry asphalt to cost speed on every corner. 2.4 is clean and predictable dry
 // (2 degrees of drift off a flick) and genuinely slides in the wet (17 degrees), which is where a
 // slide belongs — in the conditions rather than in the first corner.
-const CAR_YAW_MAX = 2.4;
 
 // The car within reach, if there is one worth getting into. A wreck is scenery, and a car somebody
 // else is already driving is theirs.
@@ -1009,10 +951,6 @@ function drivePlayerCar(g, c, dt) {
   }
 }
 
-const TAKEDOWN_RANGE = 26;
-const TAKEDOWN_ARC = 1.9;         // The courier must be well behind the shoulder line.
-const TAKEDOWN_LOCK = .35;        // A short freeze: finishing inside a crowd is a bad idea.
-const SNEAK_SPEED = 68;
 
 // One courier's own frame: what they are carrying out with their body, from the input record
 // and nothing else. Pulling it out of update is what lets the same code move a courier standing
@@ -1235,7 +1173,6 @@ function actCourier(g, p, dt) {
 // A courier who is down can be brought back by their partner kneeling over them. It is the one
 // thing on a shift that either of them can do for the other, and it is deliberately slow enough
 // to be a decision: three seconds standing still beside a body, in a district that has noticed.
-const REVIVE_REACH = 28, REVIVE_TIME = 3;
 function reviveCouriers(g, dt) {
   for (const p of g.players) {
     if (!p.down) continue;
@@ -1263,13 +1200,6 @@ function reviveCouriers(g, dt) {
 // They arrive where nobody is looking. Something that appeared in front of a courier would read
 // as a bug rather than as pressure, so an arrival has to be further away than a screen is wide,
 // and it walks in already knowing roughly where the shift is.
-const MADNESS_LIVE_CAP = 64;                  // What the frame can carry at once.
-const MADNESS_SLOW = 1.9;                     // Seconds between arrivals at the start,
-const MADNESS_FAST = .3;                      // and at their most relentless.
-const MADNESS_RAMP = 110;                     // How long it takes to get from one to the other.
-const MADNESS_BURST = 2.6;                    // How many arrive at once by the end. Traffic thins
-                                              // the street faster than one at a time can fill it.
-const MADNESS_MIN_GAP = 520;                  // Further from every courier than a screen is wide.
 
 function madnessArrival(g) {
   const ground = g.ground;
@@ -1330,9 +1260,6 @@ function takedownTarget(g, p) {
 // and whatever is beside the road is now in play. It ends when the car is slow enough to be
 // driven again, and then the nearest lane is adopted — which may well be the one going the other
 // way, and a car that finds itself pointing up the wrong road simply turns round like anyone else.
-const LOST_SPIN = 2.6;            // Rotating faster than this and it is no longer a correction.
-const LOST_SETTLE = 34;           // Slow enough to gather it up again.
-const LOST_MAX = 6;               // Nobody stays out of control forever; the district has to keep moving.
 
 function loseControl(c, why) {
   if (c.lost) return;
@@ -1429,8 +1356,6 @@ function driveBody(g, c, aim, dt, grip, wheelDamage) {
 }
 
 // ---------- untangling traffic ----------
-const REV_SPEED = 62;             // Reversing is slow: this is a manoeuvre, not an escape.
-const TURN_MAX = 6;               // An arc is 24-200 px taken at about 85 px/s. Six seconds is a jam, not a corner.
 
 // Escalating jam resolution. Backing out alone changes nothing — the geometry stays the
 // same and the car drives straight back into the same conflict. Each repeat escalates.
@@ -2826,7 +2751,9 @@ function emitTyreSmoke(g, c, slid, dt) {
   const side = c.slip > 0 ? -1 : 1;
   const bx = c.x - c.hx * 13 - c.hy * side * 9;
   const by = c.y - c.hy * 13 + c.hx * side * 9;
-  const heat = clamp(slid / SLIP_MAX_SEEN, 0, 1);
+  // Scaled against the ceiling the slide is clamped to, so the haze saturates exactly when the
+  // slide does. This used to be a second copy of that number sitting in this file.
+  const heat = clamp(slid / SLIP_MAX, 0, 1);
   g.carSmoke.push({
     x: bx, y: by,
     vx: -c.hx * rnd(10, 40) + rnd(-14, 14), vy: -c.hy * rnd(10, 40) + rnd(-14, 14),
@@ -2834,10 +2761,7 @@ function emitTyreSmoke(g, c, slid, dt) {
     darkness: .3, opacity: .26 + heat * .2, hot: false
   });
 }
-const SLIP_MAX_SEEN = 300;        // The ceiling in environment.js, for scaling how thick it looks.
 
-const FLAME_PARTICLES = 5;        // Per frame while the trigger is held, at sixty of them a second.
-const FLAME_CAP = 190;
 // The jet, made where the rules would have made it and made again by a peer that ran no rules.
 // It takes the cone rather than the courier so the host does not compute the same angle twice.
 function emitFlame(g, x, y, a, dt) {

@@ -3,6 +3,13 @@ window.TownGame.lighting = (() => {
 'use strict';
 
 const { ctx, W, H, len, torchHand, gunHand } = window.TownGame.core;
+const {
+  RGB_LAMP, RGB_HEAD, RGB_WARM, RGB_RED, RGB_HAZARD, RGB_BEACON_RED, RGB_BEACON_BLUE,
+  RGB_ROOF_RED, RGB_ROOF_BLUE, RGB_MUZZLE, RGB_FILTH, RGB_PARCEL, RGB_AMMO, RGB_GOAL,
+  RGB_ZOMBIE, RGB_CASH, RGB_FLAME,
+  LAMP_INTENSITY, LAMP_POOL_R, LAMP_POOL_INT, LAMP_POOL_REACH,
+  LAMP_HAZE_R, LAMP_HAZE_INT, SHADOW_LEN, MAX_FOLIAGE_LOBES, AMB, ROOF_AMB
+} = window.TownGame.config;
 const quality = window.TownGame.quality;
 const { bodyPointWorld } = window.TownGame.carPhysics;
 const { solidsNear, treesNear, softNear } = window.TownGame.physics;
@@ -18,31 +25,15 @@ const tmpCv = document.createElement('canvas');       // Buffer for one light so
 tmpCv.width = tmpCv.height = 560;
 const tctx = tmpCv.getContext('2d');
 
-const RGB_LAMP = [1, .84, .55], RGB_HEAD = [1, .96, .82], RGB_WARM = [1, .96, .78];
-const RGB_RED = [1, .25, .2], RGB_HAZARD = [1, .56, .16], RGB_BEACON_RED = [1, .16, .18];
-const RGB_BEACON_BLUE = [.24, .38, 1], RGB_ROOF_RED = [1, .2, .24], RGB_ROOF_BLUE = [.3, .42, 1];
-const RGB_MUZZLE = [1, .95, .75], RGB_FILTH = [.67, .8, .24], RGB_PARCEL = [1, .82, .35];
-const RGB_AMMO = [.63, .82, 1], RGB_GOAL = [.47, .94, .47], RGB_ZOMBIE = [1, .27, .2];
-const RGB_CASH = [.66, .9, .69];
-const RGB_FLAME = [1, .62, .22];
-const LAMP_RANGE = 205;                               // Reach of one street lamp over the road.
 // Lamps used to flatten the night into an evenly lit stage. A street should be walkable and
 // still feel like somewhere you would rather not be standing, so they throw about a third less.
-const LAMP_INTENSITY = .85;
 // A street lamp points down. From above that is a compact patch on the asphalt under the head,
 // not something spraying sideways across the map, and along a street you should be able to count
 // the patches. Around each one there is a soft lift — the haze a lamp puts into the air — which
 // keeps the road from going black between lamps without being light anyone could read a street by.
 // Two sources per lamp, because those are two different things: one you can see by, and one you
 // can only just see.
-const LAMP_POOL_R = 148;                              // The lit patch itself: wide and close to even.
-const LAMP_POOL_INT = 1.1;
-const LAMP_POOL_REACH = 13;                           // A head tilts down and a little out over the road.
-const LAMP_HAZE_R = 260;                              // The lift around it.
-const LAMP_HAZE_INT = .2;
-const SHADOW_LEN = 2400;                              // Shadow wedges extend beyond the screen.
 const GOLDEN_ANGLE = 2.399963;
-const MAX_FOLIAGE_LOBES = 8;
 
 const foliageNoise = (seed, i) => {
   const n = Math.sin((seed || .37) * 913.7 + i * 78.233) * 43758.5453;
@@ -367,12 +358,10 @@ function drawLight2D(g, camx, camy) {
 // ---------- WebGL: shadow volumes with multisample penumbra ----------
 const glCv = document.createElement('canvas');
 glCv.width = W; glCv.height = H;
-const AMB = [.085, .105, .21];                        // Night multiplier for unlit pixels.
 // A roof is the one surface in the district that faces the sky, so it is the one surface lit
 // by it. Street lamps still never reach up there — the roof simply gets more moonlight than
 // the ground does, which is what keeps a row of houses reading as slate and tile at night
 // instead of as holes cut out of the street.
-const ROOF_AMB = [.24, .28, .37];
 let gl = (() => {
   if (location.search.includes('2d')) return null;    // ?2d forces the fallback path.
   const opt = { alpha: false, depth: false, stencil: true, antialias: false, preserveDrawingBuffer: false };

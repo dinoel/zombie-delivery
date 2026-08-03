@@ -44,24 +44,10 @@ const gameStorage = Object.freeze({
   }
 });
 
-// ---------- town dimensions ----------
-const ROAD  = 116;                   // Asphalt width.
-const GN    = 5;                     // Road nodes per side.
-const GS    = 530;                   // Node spacing: wide blocks leave room to build.
-const MRG   = 165;                   // Grid margin from the world edge.
-const WORLD = MRG * 2 + (GN - 1) * GS;
-const LANE  = 29;                    // Lane offset from the centerline.
-const PR    = 12;                    // Player radius.
-const ZR    = 12;                    // Zombie radius.
-const CAR_L = 46, CAR_W = 22;
-const BV    = 660;                   // Bullet speed.
-const FIRE_CD = .26;                 // Delay between shots.
-const WALK  = 166, RUN = 252;        // Walk and sprint speeds.
-const HP_MAX = 5;                    // Hits the courier survives inside one district.
-const LIVES_MAX = 3;                 // Districts may be retried this many times per run.
-const CARRY_MAX = 2;                 // Parcels the courier can carry at once.
-const BATT_DRAIN = 1 / 52;           // The flashlight drains in about 52 seconds.
-const STAM_DRAIN = .42, STAM_REGEN = .3;
+// Only what the helpers below are written in terms of. Everything else that used to be declared
+// here is a setting and lives in `config.js`, which every module reads directly. `core` is not a
+// settings API and should not grow back into one.
+const { WORLD, LIVES_MAX, HAND_T, HAND_G } = window.TownGame.config;
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rnd  = (a, b) => a + Math.random() * (b - a);
@@ -116,7 +102,6 @@ const camOf = g => ({
 });
 
 // Courier hands in aim space: flashlight on the left, pistol on the right.
-const HAND_T = { f: 13, s: -10 }, HAND_G = { f: 14, s: 8 };
 const handAt = (p, h) => {
   const c = Math.cos(p.aim), s = Math.sin(p.aim);
   return { x: p.x + c * h.f - s * h.s, y: p.y + s * h.f + c * h.s };
@@ -131,17 +116,9 @@ function roundRect(c, x, y, w, h, r) {
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
 
-// ---------- palettes ----------
-const WALLS  = ['#e9dcc3', '#dcc8ac', '#cdd8dd', '#e7cfc1', '#dae0c6', '#d8cbd8'];
-const ROOFS  = ['#a4503f', '#7d4c39', '#4e6b7c', '#6c7052', '#8a5a4a', '#5a5f6e'];
-const CARCOL = ['#d94f45', '#3f7fd0', '#e0b23c', '#5aa35c', '#e8e4dc', '#7a4fb0', '#3b3f46', '#d8752f'];
-
 return Object.freeze({
   cv, ctx, W, H, overlay, startBtn, UI,
   STORAGE_KEYS, gameStorage, runtime,
-  ROAD, GN, GS, MRG, WORLD, LANE, PR, ZR, CAR_L, CAR_W,
-  BV, FIRE_CD, WALK, RUN, BATT_DRAIN, STAM_DRAIN, STAM_REGEN, HP_MAX, LIVES_MAX, CARRY_MAX,
-  WALLS, ROOFS, CARCOL,
   clamp, rnd, pick, len,
   setOBB, obb, inOBB, distOBB,
   camOf, torchHand, gunHand, roundRect

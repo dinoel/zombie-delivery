@@ -13,6 +13,7 @@ window.TownGame.net = (() => {
 'use strict';
 
 const { runtime } = window.TownGame.core;
+const { SNAPSHOT_HZ, DELAY, KEEP, SNAP_AT, HISTORY_MAX } = window.TownGame.config;
 
 const PROTOCOL = 1;
 
@@ -179,9 +180,6 @@ function declareLayout(g, sum) {
 // Cosmetic debris is not sent at all. Sparks, stains, blood, smoke and noise rings are made
 // locally from the events beside the snapshot, so the two screens differ in where a particular
 // spark landed and agree about everything a rule can read.
-const SNAPSHOT_HZ = 20;
-const DELAY = .1;                     // Render this far behind the host, to have something to interpolate toward.
-const KEEP = 16;                      // Snapshots kept for interpolation.
 
 let snapshotSerial = 0, lastReconciled = -1;
 const q1 = v => Math.round(v * 10) / 10;
@@ -445,9 +443,7 @@ function carryProjectiles(g, dt) {
 // Aim is deliberately not predicted, and does not need to be: it travels in world coordinates,
 // so the host fires along exactly the line the guest drew. Only the muzzle lags, by latency
 // times walking speed — about fifteen pixels at sixty milliseconds.
-const SNAP_AT = 60;                   // Past this the host is telling us something we cannot ease into.
 const history = [];                   // { n, x, y } for each step this end has taken.
-const HISTORY_MAX = 240;
 let errX = 0, errY = 0;
 
 function predict(g, dt) {

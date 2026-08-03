@@ -3,8 +3,9 @@ window.TownGame.render = (() => {
 'use strict';
 
 const {
-  ctx, W, H, WORLD, clamp, rnd, gunHand, roundRect, runtime
+  ctx, W, H, clamp, rnd, gunHand, roundRect, runtime
 } = window.TownGame.core;
+const { WORLD, TRACER, TRACER_PASSES } = window.TownGame.config;
 const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
 const { drawCarShape, drawLamp, lampGlow } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
@@ -140,20 +141,8 @@ function drawZombiePart(part) {
 // It is drawn after the night pass rather than inside it, because a round in flight is a light
 // and not a painted surface. In the world pass the lighting multiplied it down to six luma above
 // bare ground the moment it left the flashlight cone, which is not what a tracer does.
-const TRACER = [
-  { reach: 2.6, width: 5.2, warm: 'rgba(255,196,88,.17)', cold: 'rgba(150,196,255,.15)' },
-  { reach: 1.5, width: 2.6, warm: 'rgba(255,224,140,.52)', cold: 'rgba(186,220,255,.46)' },
-  { reach: .55, width: 1.3, warm: '#fff6d8', cold: '#eaf4ff' }
-];
-// Three kinds of round can be in the air, and they should not look alike, because which one is
-// coming is worth knowing at a glance. The courier's is warm; a service round out of a patrol
-// window is cold and thin; a heavy round off a roof mount is the same cold at twice the width
-// with a longer tail behind it.
-const TRACER_PASSES = [
-  { own: false, heavy: false, tint: 'warm', scale: 1, stretch: 1, head: 1.7, dot: '#fffbe8' },
-  { own: true, heavy: false, tint: 'cold', scale: 1, stretch: 1, head: 1.7, dot: '#f4faff' },
-  { own: true, heavy: true, tint: 'cold', scale: 2.1, stretch: 1.35, head: 2.8, dot: '#ffffff' }
-];
+//
+// The three passes and the three kinds of round are described in `config.js`.
 function drawTracers(g, camx, camy) {
   if (!g.bullets.length) return;
   ctx.lineCap = 'round';

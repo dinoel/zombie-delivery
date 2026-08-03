@@ -171,7 +171,10 @@ function load({ modules, seed = null, search = '' } = {}) {
   vm.runInContext(SEED_PRELUDE, context, { filename: 'seed-prelude.js' });
   if (seed !== null) sandbox.__seed(seed);
 
-  for (const name of modules) {
+  // `config.js` is data with no dependencies and everything else is written in terms of it, so it
+  // belongs to the bootstrap alongside the namespace this stub synthesises rather than to any
+  // caller's module list. Loading it here means a new test cannot forget it.
+  for (const name of modules.includes('config') ? modules : ['config', ...modules]) {
     const file = path.join(SRC, `${name}.js`);
     vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: `${name}.js` });
   }

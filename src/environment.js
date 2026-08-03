@@ -3,9 +3,14 @@ window.TownGame.environment = (() => {
 'use strict';
 
 const {
-  ctx, W, H, WORLD, ROAD, GN, GS, MRG, LANE, CAR_L, CAR_W,
-  clamp, rnd, pick, obb, setOBB, torchHand
+  ctx, W, H, clamp, rnd, pick, obb, setOBB, torchHand
 } = window.TownGame.core;
+const {
+  WORLD, ROAD, GN, GS, MRG, LANE, CAR_L, CAR_W,
+  SHAKE_MAX, FCELL, REMEMBER, RAIN_Z, ROOF_SIGHT,
+  WHEELBASE, MAX_LOCK, STEER_RATE, GRIP, SLIP_KEEP, SLIP_YAW, SLIP_MAX, SPIN_MAX, SLIP_LOST,
+  CAR_EDGE, TURN_IN, WRECK_FUSE, MADNESS_DRIVER_DURABILITY, CLAW_IMPACT
+} = window.TownGame.config;
 const SND = window.TownGame.audio;
 const quality = window.TownGame.quality;
 const { createCarBody, syncCarBody, deformCarBody, circleCarContact, worldToLocal } = window.TownGame.carPhysics;
@@ -30,13 +35,8 @@ function emit(g, code, ...args) {
 // somebody else's problem. Each peer works out how much of an event it actually felt from where
 // its own courier is standing, so the event travels and the feeling does not.
 //
-// The ceiling is here because this is the only place shake is ever raised, so nothing that gets
-// added later can forget it. It is needed: the number is multiplied by seven and added to the
-// camera in pixels, and it winds down at three a second, so a request for fourteen is a screen
-// jumping half its own width for the better part of five seconds. That is what a wreck going up
-// asked for when its shake was written as four times a head's without checking what four times
-// meant on the far end.
-const SHAKE_MAX = 6;              // Six is 42 pixels and two seconds, which is already a lot.
+// The ceiling is applied here because this is the only place shake is ever raised, so nothing
+// added later can forget it. `SHAKE_MAX` and the measurement behind it live in `config.js`.
 function shakeAt(g, x, y, power, falloff = 540) {
   const felt = x === null ? 1 : clamp(1 - Math.hypot(g.p.x - x, g.p.y - y) / falloff, 0, 1);
   g.shake = Math.min(SHAKE_MAX, Math.max(g.shake, power * felt));
@@ -70,9 +70,7 @@ function nearestPlayer(g, x, y) {
 const surfaceAt = (g, x, y) => clamp((ROAD / 2 + 8 - g.roadDist(x, y)) / 22, 0, 1);
 
 // ---------- fog of war: cells the courier has already seen ----------
-const FCELL = 14;
 const FW = Math.ceil(WORLD / FCELL);
-const REMEMBER = .46;                             // Brightness of explored but currently hidden areas.
 const fogCv = document.createElement('canvas');
 fogCv.width = fogCv.height = FW;
 const fctx = fogCv.getContext('2d');
@@ -106,7 +104,7 @@ function revealAround(g, p, rise) {
   // Rain shortens the beam, while lightning briefly reveals the whole block.
   // A roof is the only place in the district you can see out of, and that is half of why anybody
   // climbs one: the fog opens a long way further than it ever does at street level.
-  const high = p.roof ? 1.7 : 1;
+  const high = p.roof ? ROOF_SIGHT : 1;
   const R = (lit ? 250 - 40 * w.rain : 74) * (1 + w.flash * 2.6) * high, R2 = R * R;
   const PER2 = ((lit ? 96 : 74) * (1 + w.flash * 6) * high) ** 2;
   const ca = Math.cos(p.aim), sa = Math.sin(p.aim), LIM = Math.cos(.6);
@@ -155,7 +153,6 @@ const fogAt = (g, x, y) =>
   g.fog[clamp((y / FCELL) | 0, 0, FW - 1) * FW + clamp((x / FCELL) | 0, 0, FW - 1)];
 
 // ---------- weather: rain comes and goes; thunder distracts zombies ----------
-const RAIN_Z = [.15, .55, 1];                     // Three depth layers; distant drops are smaller and slower.
 const drops = [];
 for (let i = 0; i < 480; i++)
   drops.push({ x: Math.random() * (W + 260) - 130, y: Math.random() * H, z: RAIN_Z[i % 3] });
@@ -386,21 +383,10 @@ function placeCar(c) {                            // On a straight segment.
 // when the corner asks for more than they have the rear steps out, which rotates the car further
 // into the corner, which asks for more still. That runaway is what a slide is. It is bounded by
 // damping and by hard ceilings rather than by hoping the numbers stay small.
+// The figures the model is written in terms of — wheelbase, lock, grip, the slide ceilings and the
+// district border the body is held inside — are in `config.js`, each with what it was measured
+// against. What is left here is the model itself.
 const TAU = Math.PI * 2;
-const WHEELBASE = 26;             // The wheels are drawn at ±13, so this is the real figure.
-const MAX_LOCK = .62;             // About thirty-five degrees, which is a road car on full lock.
-const STEER_RATE = 3.6;           // How fast the wheels themselves can be turned.
-const GRIP = 430;                 // Sideways pixels per second per second the tyres hold on dry asphalt.
-const SLIP_KEEP = .045;           // What is left of a slide after a second of tyres clawing it back.
-const SLIP_YAW = .02;             // How hard a sliding tail rotates the car. This is the oversteer.
-const SLIP_MAX = 300;
-const SPIN_MAX = 4.2;             // Nothing rotates faster than this, however badly it goes.
-const SLIP_LOST = 95;             // Sideways speed at which the driver has stopped being in charge.
-// The district ends at its own border. The courier is clamped to it, so is every zombie and every
-// severed part; traffic was the one thing still allowed through, and a car that slid off the outer
-// road simply kept going into the void. Half the diagonal keeps the whole body inside rather than
-// only its centre, so a car pinned against the border never has a corner hanging over the edge.
-const CAR_EDGE = Math.hypot(CAR_L, CAR_W) / 2;
 
 const shortestTurn = a => {
   while (a > Math.PI) a -= TAU;
@@ -519,7 +505,6 @@ function anchorToEdge(c, from) {
 }
 
 // ---------- turn: an arc from the current lane to the next road ----------
-const TURN_IN = ROAD * .62;                       // Distance before an intersection where turning begins.
 const bezAt = (T, t) => {
   const u = 1 - t, a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t;
   return { x: a * T.x0 + b * T.x1 + d * T.x2 + e * T.x3, y: a * T.y0 + b * T.y1 + d * T.y2 + e * T.y3 };
@@ -630,11 +615,6 @@ function ensureCarDamage(c) {
   return c.damage || (c.damage = newCarDamage());
 }
 
-// How long a wreck burns before the fuel goes. A wreck used to smoke for the rest of the
-// district: half a minute of that is atmosphere, ten minutes of it is a street nobody can see
-// across, and a district with a few of them in it ends up behind a permanent grey wall. So the
-// smoke is a fuse now rather than a state, and it runs out.
-const WRECK_FUSE = 30;
 
 // Smoke communicates damage continuously instead of acting as a binary failure effect.
 function carSmokeProfile(c) {
@@ -699,7 +679,6 @@ function disableCar(g, c, reason) {
 // write-off speed rises by its square root, which is the relation the model already used. Derived
 // on read rather than written onto the car, so there is no saved figure to restore, nothing to get
 // out of step, and a wreck the courier is thrown out of is instantly an ordinary wreck again.
-const MADNESS_DRIVER_DURABILITY = 10;
 const carDurability = (g, c) =>
   (c.durability || 1) * (g.madness && c.driver ? MADNESS_DRIVER_DURABILITY : 1);
 
@@ -794,11 +773,6 @@ function softBodyContact(c, body, radius, contact, mass, relativeSpeed = c.v, ba
 // zombies, which is no time at all to be sitting in one. So a siege keeps the geometry and the
 // sound and takes its own, far smaller bite: a body that was never run over adds nothing to the
 // load on the suspension, and hands do panel damage rather than engine damage.
-// Measured with a parked car and the horde on it: 21 s under three, 12 s under six, and about 10 s
-// from ten upwards — the last is a plateau because only so many pairs of hands reach the panels at
-// once. That is the worst case, a car standing still; one that keeps moving is running them over
-// instead, which is the other rule and a much faster way to lose a car.
-const CLAW_IMPACT = 23;
 
 function damageCarWithZombie(g, c, z, contact, clawing = false) {
   if (c.broken) return;

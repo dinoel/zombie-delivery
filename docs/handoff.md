@@ -21,11 +21,17 @@ Break any of these and the project stops being what it is.
 - **Comments explain why, not what.** Every non-obvious number has the reason beside it, usually
   the measurement or the bug that produced it. This is the house style and it is load-bearing —
   most of the constants in the game were arrived at by measuring something.
+- **Every tuning number lives in `config.js`, and its reason travels with it.** No module declares
+  a settings constant of its own any more; it takes what it needs off `window.TownGame.config`.
+  `core` is not a settings API and must not grow back into one — it exports the canvas, the
+  helpers and `runtime`, nothing tunable. What legitimately stays in a module is what is not a
+  setting: a module reference, a maths constant, an event enum, a value derived internally from a
+  setting (`FW` from `FCELL`), or geometry a subsystem is defined by (the deformable car mesh).
 
 ## 2. Load order
 
-`namespace → core → quality → audio → car-physics → environment → world → physics → input →
-gameplay → lighting → entities → render → net → main`
+`namespace → config → core → quality → audio → car-physics → environment → world → physics →
+input → gameplay → lighting → entities → render → net → main`
 
 Dependencies only ever point backwards. `net.js` loads after `render.js` and before `main.js`, so
 **gameplay cannot call into net** — that is why cosmetic messages travel as district state
@@ -88,7 +94,9 @@ a dry night and mute, because all three silently change where later draws land.
 ## 5. The test harness — three layers
 
 - **`tools/browser-sandbox.js`** — a browser stub good enough to load the real subsystems under
-  node. Deliberately does *not* pass the host realm's `Math`.
+  node. Deliberately does *not* pass the host realm's `Math`. It loads `config.js` itself, ahead of
+  whatever module list it is given, because config has no dependencies and everything is written in
+  terms of it — a new test cannot forget it.
 - **`tools/scene.js`** — a district you can drive: `step`, `hold`, `present`, `tap`, `place`,
   `scatter`, `courierAt`, `quiet`, `immortal`. **Use this.** It is where the traps are written
   down, and every one of them cost a debugging round trip to find:

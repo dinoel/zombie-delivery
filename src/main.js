@@ -3,8 +3,9 @@
 'use strict';
 
 const {
-  cv, ctx, W, H, UI, overlay, startBtn, runtime, clamp, LIVES_MAX
+  cv, ctx, W, H, UI, overlay, startBtn, runtime, clamp
 } = window.TownGame.core;
+const { LIVES_MAX } = window.TownGame.config;
 const SND = window.TownGame.audio;
 const { buildTown, layoutChecksum } = window.TownGame.world;
 const { prepareCarImpactComparison } = window.TownGame.environment;

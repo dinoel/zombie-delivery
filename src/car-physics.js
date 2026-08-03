@@ -2,7 +2,8 @@
 window.TownGame.carPhysics = (() => {
 'use strict';
 
-const { CAR_L, CAR_W, clamp, len } = window.TownGame.core;
+const { clamp, len } = window.TownGame.core;
+const { CAR_L, CAR_W } = window.TownGame.config;
 const X = [-CAR_L / 2, -16, -8, 0, 8, 16, CAR_L / 2];
 const Y = [-CAR_W / 2, -6, 0, 6, CAR_W / 2];
 const COLS = X.length, ROWS = Y.length;

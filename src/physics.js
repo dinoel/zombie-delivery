@@ -2,7 +2,8 @@
 window.TownGame.physics = (() => {
 'use strict';
 
-const { WORLD, clamp } = window.TownGame.core;
+const { clamp } = window.TownGame.core;
+const { WORLD, GRID_CELL: CELL, QUERY_PAD } = window.TownGame.config;
 
 // ---------- collisions ----------
 // Circle against an oriented box: calculate in box space, then push back into world space.
@@ -89,10 +90,8 @@ function hitCircle(p, r, C) {
 // whole list every time. The grid only narrows the candidate set: every candidate still
 // goes through the exact test above, and candidates come back in list order, so resolution
 // behaves exactly as it did against the full array.
-const CELL = 128;
 // Resolving one obstacle nudges a body toward the next, and the query happens before any
 // of that. The margin keeps objects just out of reach in the candidate list.
-const QUERY_PAD = 48;
 
 function makeGrid(items, xOf, yOf, rOf) {
   const cols = Math.max(1, Math.ceil(WORLD / CELL));

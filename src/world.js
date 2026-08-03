@@ -3,10 +3,16 @@ window.TownGame.world = (() => {
 'use strict';
 
 const {
-  W, H, WORLD, ROAD, CAR_L, CAR_W, ZR, HP_MAX,
-  clamp, rnd, pick, obb, setOBB, distOBB, inOBB, roundRect,
-  WALLS, ROOFS, CARCOL
+  clamp, rnd, pick, obb, setOBB, distOBB, inOBB, roundRect
 } = window.TownGame.core;
+const {
+  WORLD, ROAD, CAR_L, CAR_W, ZR, HP_MAX,
+  WALLS, ROOFS, CARCOL, CAR_BUILDS, ZOMBIE_TYPES, TANK_TYPE, AREA,
+  SIDEWALK_CENTER, SIDEWALK_INNER, SIDEWALK_OUTER, FURNITURE_NODE_CLEARANCE,
+  LAMP_ARM, LAMP_FAULTY_SHARE, LAMP_HEAD_R, LAMP_TEMPERATURES,
+  CROSSWALK_SETBACKS, CROSSWALK_MIN_GAP, LADDER_SHARE, LADDER_OUT, LADDER_IN,
+  MADNESS_RESERVE, MADNESS_FIRST
+} = window.TownGame.config;
 const {
   FW, makeRoads, onEdge, nearRoad, newWeather, placeCar, newCarDamage
 } = window.TownGame.environment;
@@ -14,54 +20,27 @@ const { createCarBody, syncCarBody, deformCarBody, bodyPointLocal } = window.Tow
 
 // The three body constructions differ in more than color: light cars crumple more
 // and accelerate faster, while heavy cars transfer more impulse and survive impacts.
-const CAR_BUILDS = Object.freeze([
-  Object.freeze({ name: 'light', mass: .78, stiffness: .76, durability: .82, speed: 1.08 }),
-  Object.freeze({ name: 'standard', mass: 1, stiffness: 1, durability: 1, speed: 1 }),
-  Object.freeze({ name: 'heavy', mass: 1.38, stiffness: 1.36, durability: 1.32, speed: .88 })
-]);
 // Street lighting in a town like this is sodium, not daylight: the whole range sits in the
 // yellows, and the coolest lamp on the block is a tired white rather than anything blue. The
 // spread is kept because a street where every lamp matches looks designed instead of built.
-const LAMP_TEMPERATURES = Object.freeze([
-  Object.freeze({ rgb: Object.freeze([1, .52, .17]), bulb: '#ffbe62', power: 1.04 }),
-  Object.freeze({ rgb: Object.freeze([1, .62, .25]), bulb: '#ffcc78', power: 1.02 }),
-  Object.freeze({ rgb: Object.freeze([1, .71, .34]), bulb: '#ffd68e', power: 1 }),
-  Object.freeze({ rgb: Object.freeze([1, .79, .46]), bulb: '#ffe1a6', power: .98 }),
-  Object.freeze({ rgb: Object.freeze([1, .88, .62]), bulb: '#ffecc4', power: .95 })
-]);
 // Everything below is tuned per unit of area rather than per district, so the density of
 // houses, trees, traffic, and the horde survives any change to the road grid. The
 // reference is the original 1530-pixel town.
-const AREA = (WORLD / 1530) ** 2;
 const per = n => Math.round(n * AREA);
 
 // Street furniture must stay inside the narrow visible sidewalk strip. Checking
 // the nearest road, rather than only offsetting from the current edge, keeps a
 // lamp beside an acute junction from landing on another branch of asphalt.
-const SIDEWALK_CENTER = ROAD / 2 + 14;
-const SIDEWALK_INNER = ROAD / 2 + 9;
-const SIDEWALK_OUTER = (ROAD + 42) / 2 - 4;
-const FURNITURE_NODE_CLEARANCE = ROAD * 1.15;
 // A street lamp is a mast on the kerb with a bracket reaching out over the asphalt, so the
 // pool of light lands on the lane rather than on the pavement behind it.
-const LAMP_ARM = 38;
-const LAMP_FAULTY_SHARE = .16;                    // Roughly one lamp in six is failing.
 
 // ---------- madness ----------
 // The bench, and how fast it empties. A body that falls goes back on the bench and comes out
 // again as somebody else, so the reserve is a limit on how many can be on the street at once
 // rather than on how long the mode lasts.
-const MADNESS_RESERVE = 96;
-const MADNESS_FIRST = 3;                          // Seconds of quiet before the first arrival.
 // ---------- fire escapes ----------
 // How many houses carry one, how far the foot stands off the wall, and how far inside the
 // parapet a climber comes over the edge.
-const LADDER_SHARE = .28;
-const LADDER_OUT = 15;
-const LADDER_IN = 16;
-const LAMP_HEAD_R = 6.5;                          // The glass a bullet has to find.
-const CROSSWALK_SETBACKS = [ROAD * 1.05, ROAD * 1.35, ROAD * 1.65];
-const CROSSWALK_MIN_GAP = ROAD * .74;
 
 // One lamp: the mast stands where it was placed, the head hangs at the end of the bracket,
 // and the light is emitted from the head. A broken lamp keeps its geometry and loses its glow.
@@ -129,38 +108,10 @@ function applyCarBuild(c) {
 }
 
 // Base archetypes cycle so every district is guaranteed to contain all types.
-const ZOMBIE_TYPES = Object.freeze([
-  Object.freeze({
-    id: 'walker', hp: 2, speed: [104, 132], skin: '#8fae63', clothes: '#5d6b4a', eye: '#ff5a45',
-    trail: '#a8cc79', map: '#9fd36a', blood: ['#8bc83e', '#568b27', '#b1df5a'], stain: [58, 102, 28],
-    shot: Object.freeze({ speed: 230, radius: 7, life: 2.2, windup: .62, cooldown: [4.5, 7.2],
-      body: '#9fb43f', edge: '#d2dd72', dark: '#66772a', held: '#a8bd47', heldEdge: '#d9e982',
-      trail: 'rgba(177,200,75,.45)', splash: ['#8da63a', '#b1c84b', '#62752d'], splat: [104, 126, 42], light: [.67, .8, .24] })
-  }),
-  Object.freeze({
-    id: 'runner', hp: 1, speed: [152, 178], skin: '#d78352', clothes: '#7d4035', eye: '#ffd05a',
-    trail: '#efad6f', map: '#f0a25d', blood: ['#76bd2c', '#477f20', '#a5e446'], stain: [66, 112, 25],
-    shot: Object.freeze({ speed: 275, radius: 5.5, life: 1.9, windup: .48, cooldown: [5, 7.4],
-      body: '#d99a35', edge: '#ffe08a', dark: '#8d5524', held: '#e6a93d', heldEdge: '#ffe6a2',
-      trail: 'rgba(255,185,65,.5)', splash: ['#d98c2f', '#f2b94b', '#9b5f26'], splat: [184, 116, 39], light: [1, .55, .16] })
-  }),
-  Object.freeze({
-    id: 'brute', hp: 4, speed: [72, 92], skin: '#7d86ae', clothes: '#4b4968', eye: '#e0a8ff',
-    trail: '#a7acd0', map: '#aab2e4', blood: ['#669b32', '#3c6a22', '#8fbd48'], stain: [49, 88, 27],
-    shot: Object.freeze({ speed: 185, radius: 10, life: 2.5, windup: .82, cooldown: [6, 8.4],
-      body: '#8560b2', edge: '#d7b1ff', dark: '#4d3568', held: '#936ac2', heldEdge: '#e1c3ff',
-      trail: 'rgba(170,112,225,.48)', splash: ['#8560b2', '#a778d7', '#5d427e'], splat: [105, 70, 138], light: [.65, .35, 1] })
-  })
-]);
 
 // The tank is deliberately kept out of the cycled archetypes: it never guards a parcel and
 // never appears alone. It roams the map in packs, soaks ten hits, throws nothing, and has
 // no tactics at all — it simply walks at whatever it noticed. It is meant to be walked around.
-const TANK_TYPE = Object.freeze({
-  id: 'tank', hp: 10, speed: [44, 56], size: 1.7, dumb: true,
-  skin: '#7a8878', clothes: '#3d4753', eye: '#ff7a2f', trail: '#93a2ae', map: '#cdd8e4',
-  blood: ['#6f9c33', '#456f22', '#95c247'], stain: [56, 92, 26], shot: null
-});
 
 // One courier on the shift. Health, ammunition, the flashlight and what is on the back belong
 // to the person carrying them rather than to the district, which is what lets a second one

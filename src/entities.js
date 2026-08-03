@@ -2,10 +2,10 @@
 window.TownGame.entities = (() => {
 'use strict';
 
-const { ctx, W, H, WORLD, ROAD, clamp, roundRect } = window.TownGame.core;
+const { ctx, W, H, clamp, roundRect } = window.TownGame.core;
+const { WORLD, ROAD, TORCH_BTN } = window.TownGame.config;
 const SND = window.TownGame.audio;
 const { FW, fogCv, fogAt } = window.TownGame.environment;
-const { TORCH_BTN } = window.TownGame.input;
 
 // Awareness arc above a zombie that has started to notice the courier but has not
 // locked on yet. Without it stealth reads as random luck.

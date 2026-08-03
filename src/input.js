@@ -3,6 +3,7 @@ window.TownGame.input = (() => {
 'use strict';
 
 const { cv, startBtn, runtime } = window.TownGame.core;
+const { TORCH_BTN } = window.TownGame.config;
 const SND = window.TownGame.audio;
 
 // The flashlight and the crawl are presses, not states. A handler cannot simply flip them on the
@@ -51,7 +52,6 @@ const tpos = t => {
   return [(t.clientX - r.left) * cv.width / r.width, (t.clientY - r.top) * cv.height / r.height];
 };
 // First finger controls movement, additional fingers fire; the top-left corner toggles the flashlight.
-const TORCH_BTN = { x: 58, y: 52, r: 34 };
 cv.addEventListener('touchstart', e => {
   e.preventDefault();
   for (const t of e.changedTouches) {
@@ -171,6 +171,6 @@ function readSecondInput(g, p) {
   return rec;
 }
 
-return Object.freeze({ inputDir, readLocalInput, readSecondInput, TORCH_BTN });
+return Object.freeze({ inputDir, readLocalInput, readSecondInput });
 })();
 

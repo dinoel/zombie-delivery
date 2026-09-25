@@ -5,12 +5,13 @@ window.TownGame.render = (() => {
 const {
   ctx, W, H, clamp, rnd, gunHand, roundRect, runtime
 } = window.TownGame.core;
-const { WORLD, TRACER, TRACER_PASSES } = window.TownGame.config;
+const { WORLD, TRACER, TRACER_PASSES, ZOMBIE_SCALE } = window.TownGame.config;
 const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
 const { drawCarShape, drawLamp, lampGlow } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
 const {
-  drawZombie, drawNotice, nearestParcel, nearestDrop, drawPlayer, drawGauges, drawMinimap
+  drawZombie, drawNotice, drawLooseArm, drawLooseHead, looseHeadSize,
+  nearestParcel, nearestDrop, drawPlayer, drawGauges, drawMinimap
 } = window.TownGame.entities;
 const legacyPerf = typeof URLSearchParams !== 'undefined' && typeof location !== 'undefined' &&
   new URLSearchParams(location.search).get('qa') === 'perf-legacy';
@@ -85,47 +86,41 @@ function drawFlames(g, camx, camy) {
 function drawZombiePart(part) {
   const height = Math.max(0, part.h), size = part.size || 1;
   ctx.globalAlpha = Math.min(1, part.l * .5);
+  // Parts are drawn by the same model as the body, at the same scale. An arm lies at its full
+  // length, about three times the length of a head.
+  const k = size * ZOMBIE_SCALE;
   ctx.fillStyle = 'rgba(0,0,0,.28)';
-  ctx.beginPath(); ctx.ellipse(part.x + 2, part.y + 4, (part.kind === 'head' ? 8 : 10) * size,
-    (part.kind === 'head' ? 4 : 3.5) * size, 0, 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(part.x + 2, part.y + 4, (part.kind === 'head' ? 6 : 13) * k,
+    (part.kind === 'head' ? 3.4 : 3.2) * k, part.kind === 'head' ? 0 : part.ang, 0, 6.283); ctx.fill();
   ctx.save();
   ctx.translate(part.x, part.y - height * .28);
   ctx.rotate(part.ang);
-  if (size !== 1) ctx.scale(size, size);
-  if (part.kind === 'arm') {
-    ctx.fillStyle = part.skin; roundRect(ctx, -8, -2.5, 17, 5, 2.5); ctx.fill();
-    ctx.fillStyle = part.blood && part.blood[0] || '#8fd34f';
-    ctx.beginPath(); ctx.arc(-7.5, 0, 2.5, 0, 6.283); ctx.fill();
-    ctx.fillStyle = 'rgba(210,255,145,.42)';
-    ctx.beginPath(); ctx.arc(-8, -.6, 1, 0, 6.283); ctx.fill();
-  } else {
-    ctx.fillStyle = part.skin; ctx.beginPath(); ctx.arc(0, 0, 7.5, 0, 6.283); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.fillStyle = '#7b3b2a'; ctx.beginPath(); ctx.arc(-3, 0, 6.8, 1.7, 4.6); ctx.fill();
-    ctx.fillStyle = part.eye; ctx.beginPath(); ctx.arc(4, -2.5, 1.6, 0, 6.283); ctx.fill();
-    ctx.beginPath(); ctx.arc(4, 2.5, 1.6, 0, 6.283); ctx.fill();
-    ctx.fillStyle = part.blood && part.blood[0] || '#8fd34f';
-    ctx.beginPath(); ctx.arc(-6.4, 0, 2.2, 0, 6.283); ctx.fill();
+  ctx.scale(k, k);
+  if (part.kind === 'arm') drawLooseArm(ctx, part);
+  else {
+    drawLooseHead(ctx, part);
     if (part.explosive && part.heat > 0) {
+      // Laid over the head the model drew, so every radius is a share of that head.
+      const head = looseHeadSize(part), hl = head.headLen, hw = head.headWid, hr = (hl + hw) * .5;
       const heat = clamp(part.heat, 0, 1), pulse = .5 + Math.sin(performance.now() * .018) * .5;
       ctx.fillStyle = `rgba(255,35,24,${.08 + heat * .64})`;
-      ctx.beginPath(); ctx.arc(0, 0, 7.6, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-.2, 0, hl * 1.02, hw * 1.02, 0, 0, 6.283); ctx.fill();
       ctx.strokeStyle = `rgba(255,180,72,${.3 + heat * .55 + pulse * heat * .12})`;
-      ctx.lineWidth = .7 + heat * 1.4;
-      ctx.beginPath(); ctx.arc(0, 0, 8.2 + pulse * heat * 1.4, 0, 6.283); ctx.stroke();
-      ctx.strokeStyle = `rgba(79,10,4,${.42 + heat * .48})`; ctx.lineWidth = .8;
+      ctx.lineWidth = .5 + heat * 1;
+      ctx.beginPath(); ctx.ellipse(-.2, 0, hl * 1.1 + pulse * heat, hw * 1.1 + pulse * heat, 0, 0, 6.283); ctx.stroke();
+      ctx.strokeStyle = `rgba(79,10,4,${.42 + heat * .48})`; ctx.lineWidth = .6;
       for (let k = 0; k < (part.shotHits || 0); k++) {
         const a = -.9 + k * 1.37;
-        ctx.beginPath(); ctx.moveTo(Math.cos(a) * 2, Math.sin(a) * 2);
-        ctx.lineTo(Math.cos(a + .16) * 5.2, Math.sin(a + .16) * 5.2);
-        ctx.lineTo(Math.cos(a - .12) * 7.3, Math.sin(a - .12) * 7.3); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * hr * .27, Math.sin(a) * hr * .27);
+        ctx.lineTo(Math.cos(a + .16) * hr * .7, Math.sin(a + .16) * hr * .7);
+        ctx.lineTo(Math.cos(a - .12) * hr * .97, Math.sin(a - .12) * hr * .97); ctx.stroke();
       }
       ctx.fillStyle = `rgba(255,238,180,${.3 + heat * .68})`;
-      ctx.beginPath(); ctx.arc(4, -2.5, 1.25 + heat * .55, 0, 6.283); ctx.fill();
-      ctx.beginPath(); ctx.arc(4, 2.5, 1.25 + heat * .55, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc(hl * .78, -hw * .34, .8 + heat * .4, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.arc(hl * .78, hw * .34, .8 + heat * .4, 0, 6.283); ctx.fill();
       if (part.hitFlash > 0) {
         ctx.fillStyle = `rgba(255,255,224,${clamp(part.hitFlash * 3.8, 0, .82)})`;
-        ctx.beginPath(); ctx.arc(0, 0, 8.1, 0, 6.283); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(-.2, 0, hl * 1.08, hw * 1.08, 0, 0, 6.283); ctx.fill();
       }
     }
   }

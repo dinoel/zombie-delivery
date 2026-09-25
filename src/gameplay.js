@@ -452,6 +452,8 @@ function severZombiePart(g, z, kind, side, dx, dy) {
     vy: ny * impulse + lateralY * rnd(25, 70) * quiet,
     vh: rnd(85, 145) * quiet, ang: z.ang, spin: rnd(-8, 8), size: z.size || 1,
     skin: z.skin || '#8fae63', eye: z.eye || '#ff5a45', blood: z.blood, stain: z.stain,
+    // Only the picture reads these: they pick the same hair, sleeve and wardrobe as the body.
+    clothes: z.clothes, seed: z.seed, zkind: z.kind,
     explosive: kind === 'head' && z.kind === 'tank', shotHits: 0, heat: 0, hitFlash: 0,
     bleed: kind === 'arm' ? 3.4 : 1.5, bleedCd: 0, kickCd: 0,
     l: kind === 'head' ? Infinity : 18

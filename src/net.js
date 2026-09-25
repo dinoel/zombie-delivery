@@ -363,6 +363,7 @@ function applyParts(g, rows) {
         skin: owner ? owner.skin : '#7f8f7a', clothes: owner ? owner.clothes : '#3d4753',
         eye: owner ? owner.eye : '#ff7a2f', blood: owner ? owner.blood : ['#6f9c33'],
         stain: owner ? owner.stain : [56, 92, 26], seed: owner ? owner.seed : .5,
+        zkind: owner ? owner.kind : 'walker',
         shotHits: 0
       };
     }

@@ -242,6 +242,13 @@ The structural refactor and the first major gameplay pass are complete:
 - Canvas 2D rendering avoids intermediate light buffers when shadows are disabled and culls off-screen dynamic objects;
 - zombies flank during a hunt, sometimes dodge the firing line, and perform short surges after a retreating player;
 - every district mixes standard green walkers (2 HP), fast orange runners (1 HP), and slow purple brutes (4 HP);
+- a zombie is drawn as a person seen from above rather than as a token: proportions measured off
+  people, one light fixed in the world that the body turns under, and feet driven by the distance
+  actually covered, so a planted foot stays planted. Each body dresses itself from its own seed —
+  shirt, hoodie, jacket or overalls, hair or none, old blood, tears, a lost shoe, a limp on one
+  side — and reaches for prey, winds up a throw, beats at itself when it is on fire, and loses its
+  arms and head where they really were. Everything static on a torso and a head is painted once
+  per body and stamped each frame;
 - the first district contains about 14 zombies, three guards patrol every parcel, and later districts scale to 32 enemies;
 - the courier starts with 24 rounds, while supply boxes and zombie ammo drops are more plentiful;
 - a round in flight is a tapered tracer with a hot head, and it is composited above the night

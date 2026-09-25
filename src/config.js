@@ -323,6 +323,96 @@ const TANK_TYPE = Object.freeze({
   blood: ['#6f9c33', '#456f22', '#95c247'], stain: [56, 92, 26], shot: null
 });
 
+// ---------- how the horde is drawn ----------
+// Nothing below reaches the rules. It decides what a body looks like and how it is drawn walking,
+// never where it walks, what it can reach or where it can be hit.
+//
+// Builds are in the body's own pixels before `size` scales it, at about 2 cm to the pixel: ZR = 12
+// is a 48 cm body, which is a person's shoulders. They were measured off people, not tuned: from
+// above a head is about 16 by 20 cm against 40-45 cm of shoulder, so it is a third of the shoulders
+// and not the half the old token used. `chest` and `back` are how far the torso reaches in front of
+// and behind the shoulder line; `shoulderX` is where that line sits over the hips, which is the
+// stoop; `hunch` pushes the head forward of the collar the way a stooped neck does. `stride` caps
+// how far a foot reaches from the hip: past it the body takes quicker steps rather than longer
+// ones, so no build ever skates. `limp` is the range a limping body drags its bad leg by and
+// `limpShare` how many of that kind limp at all. `pallor` is how far the kind's skin colour is
+// pulled toward dead grey: far enough to read as a corpse, not so far that the kinds stop reading
+// apart, because the colours are how the manual and the minimap tell them apart.
+const ZOMBIE_BUILDS = Object.freeze({
+  walker: Object.freeze({ shoulder: 10, chest: 4.4, back: 5.8, shoulderX: .8, lean: 1, hunch: 1,
+    headLen: 5.1, headWid: 4.3, limb: 1, leg: 1, armLen: 1, stance: 4, stride: 12.5, sway: 1,
+    reach: 1, pallor: .36, limp: Object.freeze([.35, .9]), limpShare: .65 }),
+  // Recently turned: leaner, upright until it runs, and hardly ever lame.
+  runner: Object.freeze({ shoulder: 9.3, chest: 4, back: 5.2, shoulderX: .5, lean: 1.25, hunch: .5,
+    headLen: 5, headWid: 4.2, limb: .88, leg: .92, armLen: 1, stance: 3.6, stride: 15, sway: .8,
+    reach: 1, pallor: .26, limp: Object.freeze([0, .3]), limpShare: .2 }),
+  brute: Object.freeze({ shoulder: 11.4, chest: 5.4, back: 7, shoulderX: 1, lean: .8, hunch: 1.4,
+    headLen: 5.3, headWid: 4.6, limb: 1.3, leg: 1.2, armLen: 1.06, stance: 4.8, stride: 12, sway: 1.3,
+    reach: .9, pallor: .26, limp: Object.freeze([.2, .6]), limpShare: .45 }),
+  // Huge and slow: a hunched mass of back and shoulder, a small head sunk between them, a waddle
+  // rather than a stride. It hardly lifts its arms, because it has no tactics to lift them for.
+  tank: Object.freeze({ shoulder: 12.6, chest: 5.6, back: 7.8, shoulderX: .2, lean: .3, hunch: .35,
+    headLen: 4.6, headWid: 4.1, limb: 1.55, leg: 1.5, armLen: 1, stance: 6.2, stride: 8, sway: 2.2,
+    reach: .45, pallor: .3, limp: Object.freeze([0, 0]), limpShare: 0 })
+});
+
+// The builds are true to life, and a person true to life is a speck on a 720 px canvas: at 2 cm to
+// the pixel the shoulders are 21 px across inside a 24 px body. The old token filled its circle, and
+// a body that does not is hard to read and hard to aim at, so the whole figure is drawn this much
+// larger. Proportions do not change, only the size they are drawn at; the shoulders then span the
+// body's circle, as they did before.
+const ZOMBIE_SCALE = 1.2;
+
+// The stride is driven by how far a body actually moved, never by a clock, so a foot on the ground
+// stays where it was put. `CYCLE` is the distance one full stride (two steps) covers at a
+// standstill and `CYCLE_PER_SPEED` how much longer it gets per px/s. Picked so the cadence lands
+// where people's does: a wandering walker (~40 px/s) takes 1.7 steps a second. Faster than that the
+// build's `stride` cap takes over, so a hunting walker (~118 px/s) takes 3.9 short, quick steps and
+// a runner at full tilt (~165 px/s) 3.9 long ones. `STANCE_*` is the share of a stride a foot spends on the ground — walking keeps
+// one down more than half the time, running is mostly in the air — blended across `RUN_FROM` to
+// `RUN_AT` px/s. The two easings are seconds: the drawn speed and the arms catch up with the body
+// over that long. Faster and a body snaps between poses when a co-op snapshot lands; slower and it
+// visibly glides into a stop.
+const ZOMBIE_GAIT = Object.freeze({
+  CYCLE: 36, CYCLE_PER_SPEED: .3,
+  STANCE_WALK: .62, STANCE_RUN: .42, RUN_FROM: 70, RUN_AT: 150,
+  SPEED_EASE: .12, REACH_EASE: .35,
+  FLAIL_EASE: .2,                   // Catching fire is not something a body eases into.
+  SWAY: 1.1                         // Pixels of lurch over the standing foot, before build and limp.
+});
+
+// What they were wearing. Each body draws from these lists with its own seed, so a crowd is not a
+// row of copies, and the kind's own colours from ZOMBIE_TYPES are mixed in so the kinds still read
+// apart. Old blood is brown on purpose: it is from when they were still people. What they bleed
+// now is the kind's own `blood`, and wet wounds use that so they match the spray.
+const ZOMBIE_WARDROBE = Object.freeze({
+  fabrics: Object.freeze(['#6b4a3a', '#3f4c5c', '#77746c', '#8a3a32', '#46553d', '#c9c1ae', '#2f3033', '#5b4a6b']),
+  pants: Object.freeze(['#3c4a5e', '#2f3b4f', '#6b6250', '#2b2a2c', '#4b4a3c', '#5a4f45']),
+  shoes: Object.freeze(['#2a2522', '#3b3836', '#1f1f22', '#8c8a84', '#5a4030']),
+  hair: Object.freeze(['#3a2e24', '#2b241c', '#6b5536', '#8d8779', '#4a3322', '#a88f5f', '#5e5a52']),
+  garments: Object.freeze({
+    walker: Object.freeze(['shirt', 'flannel', 'tee', 'tee']),
+    runner: Object.freeze(['hoodie', 'hoodie', 'tee']),
+    brute: Object.freeze(['jacket', 'overalls', 'jacket']),
+    tank: Object.freeze(['vest'])
+  }),
+  hairdos: Object.freeze({
+    walker: Object.freeze(['short', 'long', 'balding', 'balding', 'bald', 'bald']),
+    runner: Object.freeze(['short', 'long', 'short']),
+    brute: Object.freeze(['short', 'bald', 'balding']),
+    tank: Object.freeze(['bald'])
+  }),
+  deadGrey: Object.freeze([150, 150, 138]),
+  grime: Object.freeze([70, 62, 52]),
+  oldBlood: Object.freeze([70, 28, 23]),
+  flesh: Object.freeze([118, 48, 40]),
+  bone: Object.freeze([224, 214, 190]),
+  char: Object.freeze([26, 18, 14]),
+  flash: Object.freeze([255, 214, 214]),     // The hit flash the old token used, kept so a hit reads the same.
+  vest: Object.freeze([47, 55, 66]),         // The tank's riot vest: the slab shoulders it always had.
+  courierBag: '#8e3a26'                      // A guard is a courier who did not make it: same bag, faded.
+});
+
 // ---------- palettes ----------
 const WALLS = ['#e9dcc3', '#dcc8ac', '#cdd8dd', '#e7cfc1', '#dae0c6', '#d8cbd8'];
 const ROOFS = ['#a4503f', '#7d4c39', '#4e6b7c', '#6c7052', '#8a5a4a', '#5a5f6e'];
@@ -426,7 +516,7 @@ return Object.freeze({
   LAMP_ARM, LAMP_FAULTY_SHARE, LAMP_HEAD_R, CROSSWALK_SETBACKS, CROSSWALK_MIN_GAP,
   LADDER_SHARE, LADDER_OUT, LADDER_IN,
   MADNESS_RESERVE, MADNESS_FIRST,
-  CAR_BUILDS, ZOMBIE_TYPES, TANK_TYPE,
+  CAR_BUILDS, ZOMBIE_TYPES, TANK_TYPE, ZOMBIE_BUILDS, ZOMBIE_GAIT, ZOMBIE_WARDROBE, ZOMBIE_SCALE,
   WALLS, ROOFS, CARCOL, BURNT_DEBRIS, HAND_T, HAND_G,
   RGB_LAMP, RGB_HEAD, RGB_WARM, RGB_RED, RGB_HAZARD, RGB_BEACON_RED, RGB_BEACON_BLUE,
   RGB_ROOF_RED, RGB_ROOF_BLUE, RGB_MUZZLE, RGB_FILTH, RGB_PARCEL, RGB_AMMO, RGB_GOAL,

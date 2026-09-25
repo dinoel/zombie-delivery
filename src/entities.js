@@ -984,8 +984,9 @@ function courierMotion(p, L, prone) {
 }
 
 // Two bones from the shoulder to a hand that has to be at (tx, ty), `tz` above or below the
-// shoulder. The elbow falls toward the pole: down and a little back for something held at the
-// chest, which tucks it in against the ribs; out to the side for elbows on the ground.
+// shoulder. The elbow falls toward the pole: nearly straight down for something held out in front,
+// which keeps it in under the shoulder rather than jutting out; out to the side for elbows on the
+// ground.
 function reachArm(A, s, jx, jy, tx, ty, tz, len, poleY, poleZ, poleX = 0) {
   const a = UPPER * len, b = FORE * len;
   let dx = tx - jx, dy = ty - jy, dz = tz;
@@ -1107,13 +1108,14 @@ function drawCourierTorso(c, L, B, T, xs, ang, prone, carried) {
 }
 
 // What is in each hand, laid along the aim from the fist. The fist is drawn over it afterwards.
+const TORCH_LENS = 3.35;                          // From the fist to the glass.
 function drawHeld(c, A, what, T, p, lx, ly, fine) {
   const x = A.wx, y = A.wy;
   if (what === 'torch') {
-    limb(c, x - 1.2, y, x + 3.6, y, 2.1, T.torch, lx, ly, fine);
-    limb(c, x + 3.4, y, x + 4.3, y, 2.8, T.torch, lx, ly, fine);           // The head, wider.
+    limb(c, x - 1, y, x + 2.4, y, 2.1, T.torch, lx, ly, fine);
+    limb(c, x + 2.2, y, x + 3.1, y, 2.8, T.torch, lx, ly, fine);           // The head, wider.
     const lit = p.torch && p.batt > 0;
-    ellipse(c, x + 4.55, y, .4, 1.15, 0, lit ? `rgba(255,242,200,${.5 + .5 * p.flick})` : '#3c434b');
+    ellipse(c, x + TORCH_LENS, y, .4, 1.15, 0, lit ? `rgba(255,242,200,${.5 + .5 * p.flick})` : '#3c434b');
   } else if (what === 'gun') {
     limb(c, x - .6, y, x + 3.9, y, 1.6, T.gun, lx, ly, fine);
     c.strokeStyle = T.gun.l; c.lineWidth = .35;                              // The slide catches the light.
@@ -1185,9 +1187,12 @@ function drawPlayer(c, p, g) {
   const recoil = p.muzzle > 0 ? clamp(p.muzzle / .08, 0, 1) : 0;
   const stag = clamp(p.stagger || 0, 0, .4) / .4;
   const tk = p.takedown > 0 ? Math.sin(Math.PI * (1 - clamp(p.takedown / TAKEDOWN_LOCK, 0, 1))) : 0;
-  // Where the rules say the hands are, in the body's own pixels.
-  const torchX = HAND_T.f / BODY_SCALE - 4.5, torchY = HAND_T.s / BODY_SCALE;
-  const gunX = HAND_G.f / BODY_SCALE - (what === 'gun' ? 3.9 : 6.3), gunY = HAND_G.s / BODY_SCALE;
+  // Where the rules say the hands are, in the body's own pixels. The beam starts at the glass, so
+  // the torch fist sits a torch-length behind HAND_T. The pistol is held out at arm's length with
+  // the fist on HAND_G, where the rounds start; the flamethrower's nozzle is on HAND_G instead,
+  // because that is where its flames start.
+  const torchX = HAND_T.f / BODY_SCALE - TORCH_LENS, torchY = HAND_T.s / BODY_SCALE;
+  const gunX = HAND_G.f / BODY_SCALE - (what === 'gun' ? .5 : 6.5), gunY = HAND_G.s / BODY_SCALE;
   if (prone) drawProneCourier(c, p, L, T, m, ang, blx, bly, fine, close, what, torchX, torchY, gunX, gunY);
   else {
     const vn = m.v, st = strideAt(B, vn), run = st.run, move = climbing ? 0 : smooth(3, 24, vn), hipX = -1.2;
@@ -1211,22 +1216,27 @@ function drawPlayer(c, p, g) {
     for (let i = 0; i < 2; i++) {
       const s = i ? 1 : -1, A = ARMS[i], jx = xs - .6, jy = s * (B.shoulder - 1.7);
       if (climbing) {                             // Both hands on the rungs, one reaching past the other.
-        reachArm(A, s, jx, jy, 7.2, s * 4.4, 2.5 + 2.4 * Math.sin(p.walk + (i ? 0 : Math.PI)), B.armLen, .55, -1);
+        reachArm(A, s, jx, jy, 7.2, s * 4.4, 2.5 + 2.4 * Math.sin(p.walk + (i ? 0 : Math.PI)), B.armLen, .5, -1);
         A.hx = .6;
       } else if (s < 0) {
-        reachArm(A, s, jx, jy, torchX - ux - .6 * run, torchY - uy, -6.5 + bob, B.armLen, .25, -1, -.35);
+        reachArm(A, s, jx, jy, torchX - ux - .6 * run, torchY - uy, -4.5 + bob, B.armLen, .12, -1, .1);
       } else {
-        reachArm(A, s, jx, jy, gunX - ux - 1.6 * recoil + 5 * tk - .6 * run, gunY - uy - 4 * tk, -5 + bob + .9 * recoil + 2 * tk,
-          B.armLen, .25, -1, -.35);
+        reachArm(A, s, jx, jy, gunX - ux - 1.6 * recoil + 3 * tk - .6 * run, gunY - uy - 4 * tk, -3.5 + bob + .9 * recoil + 2 * tk,
+          B.armLen, .12, -1, .1);
       }
+      A.high = A.ez > -UPPER * B.armLen * .45;
     }
-    drawCourierTorso(c, L, B, T, xs, ang, false, p.carried);
-    if (what === 'flamer' && !climbing) drawFlamerTank(c, B, T, xs, blx, bly, fine);
-    for (let i = 0; i < 2; i++) {
+    // An arm whose elbow hangs below the chest goes under the torso, so the torso covers where the
+    // sleeve leaves the shoulder; what the hand holds is out in front of the chest either way.
+    const arm = i => {
       const A = ARMS[i], s = i ? 1 : -1;
       if (!climbing) drawHeld(c, A, s < 0 ? 'torch' : what, T, p, blx, bly, fine);
       drawArm(c, A, s, L, B, T, blx, bly, fine, close);
-    }
+    };
+    for (let i = 0; i < 2; i++) if (!ARMS[i].high) arm(i);
+    drawCourierTorso(c, L, B, T, xs, ang, false, p.carried);
+    if (what === 'flamer' && !climbing) drawFlamerTank(c, B, T, xs, blx, bly, fine);
+    for (let i = 0; i < 2; i++) if (ARMS[i].high) arm(i);
     const hx = xs + 1.3 + B.hunch * 2.4 + run * .8 * B.lean + .8 * tk, hy = uy * -.3;
     ellipse(c, hx - blx * 1.6, hy - bly * 1.6, B.headLen * 1.05, B.headWid * 1.05, 0, 'rgba(0,0,0,.22)');
     c.save(); c.translate(hx, hy); c.rotate(-.1 * stag);
@@ -1272,8 +1282,8 @@ function drawProneCourier(c, p, L, T, m, ang, lx, ly, fine, close, what, torchX,
     if (down) {
       reachArm(A, s, jx, jy, 3.5, s * 15, -3.5, B.armLen, 1, -.2);
       A.hx = .6; A.hy = s * .45; A.curl = .5;     // Open hands, fallen out to the sides.
-    } else if (s < 0) reachArm(A, s, jx, jy, torchX + pull, torchY, -3.5, B.armLen, 1, -.3);
-    else reachArm(A, s, jx, jy, gunX + pull, gunY, -3.5, B.armLen, 1, -.3);
+    } else if (s < 0) reachArm(A, s, jx, jy, torchX + pull, torchY, -3.5, B.armLen, .45, -.4);
+    else reachArm(A, s, jx, jy, gunX + pull, gunY, -3.5, B.armLen, .45, -.4);
   }
   for (let i = 0; i < 2; i++) {
     const A = ARMS[i], s = i ? 1 : -1;

@@ -249,6 +249,11 @@ The structural refactor and the first major gameplay pass are complete:
   side — and reaches for prey, winds up a throw, beats at itself when it is on fire, and loses its
   arms and head where they really were. Everything static on a torso and a head is painted once
   per body and stamped each frame;
+- the courier is drawn by the same model: torso square to the aim, hips toward the way they are
+  going, so a strafe is a side step and backing off is backpedalling; flashlight and pistol held
+  where the beam and the rounds start; parcels strapped on the delivery backpack; a cap whose bill
+  says where they look. They crawl on elbows and knees, lie still when down, climb the ladder hand
+  over hand and are drawn larger on a roof. A partner wears the blue cap of their minimap marker;
 - the first district contains about 14 zombies, three guards patrol every parcel, and later districts scale to 32 enemies;
 - the courier starts with 24 rounds, while supply boxes and zombie ammo drops are more plentiful;
 - a round in flight is a tapered tracer with a hot head, and it is composited above the night

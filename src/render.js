@@ -5,7 +5,7 @@ window.TownGame.render = (() => {
 const {
   ctx, W, H, clamp, rnd, gunHand, roundRect, runtime
 } = window.TownGame.core;
-const { WORLD, TRACER, TRACER_PASSES, ZOMBIE_SCALE } = window.TownGame.config;
+const { WORLD, TRACER, TRACER_PASSES, BODY_SCALE } = window.TownGame.config;
 const { drawFog, drawRain, drawGlowThroughFog } = window.TownGame.environment;
 const { drawCarShape, drawLamp, lampGlow } = window.TownGame.world;
 const { drawLight } = window.TownGame.lighting;
@@ -88,7 +88,7 @@ function drawZombiePart(part) {
   ctx.globalAlpha = Math.min(1, part.l * .5);
   // Parts are drawn by the same model as the body, at the same scale. An arm lies at its full
   // length, about three times the length of a head.
-  const k = size * ZOMBIE_SCALE;
+  const k = size * BODY_SCALE;
   ctx.fillStyle = 'rgba(0,0,0,.28)';
   ctx.beginPath(); ctx.ellipse(part.x + 2, part.y + 4, (part.kind === 'head' ? 6 : 13) * k,
     (part.kind === 'head' ? 3.4 : 3.2) * k, part.kind === 'head' ? 0 : part.ang, 0, 6.283); ctx.fill();

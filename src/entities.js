@@ -4,7 +4,8 @@ window.TownGame.entities = (() => {
 
 const { ctx, W, H, clamp, roundRect } = window.TownGame.core;
 const {
-  WORLD, ROAD, TORCH_BTN, ZOMBIE_BUILDS, ZOMBIE_GAIT, ZOMBIE_WARDROBE, ZOMBIE_SCALE, FLAME_BURN_MAX, PANIC_AT
+  WORLD, ROAD, TORCH_BTN, ZOMBIE_BUILDS, BODY_GAIT, ZOMBIE_WARDROBE, BODY_SCALE, FLAME_BURN_MAX, PANIC_AT,
+  COURIER_BUILD, CRAWL_CYCLE, ROOF_LIFT, COURIER_WARDROBE, HAND_T, HAND_G, CLIMB_TIME, TAKEDOWN_LOCK
 } = window.TownGame.config;
 const SND = window.TownGame.audio;
 const quality = window.TownGame.quality;
@@ -251,10 +252,10 @@ const STRIDE = { run: 0, beta: 0, cycle: 0 };
 // `size`), and the share of it a foot is down for. Past the build's reach a stride stops growing
 // and the steps come quicker instead. `cycle` comes back in the body's own drawn pixels.
 function strideAt(B, vn) {
-  const G = ZOMBIE_GAIT;
+  const G = BODY_GAIT;
   STRIDE.run = smooth(G.RUN_FROM, G.RUN_AT, vn);
   STRIDE.beta = G.STANCE_WALK + (G.STANCE_RUN - G.STANCE_WALK) * STRIDE.run;
-  STRIDE.cycle = Math.min((G.CYCLE + G.CYCLE_PER_SPEED * vn) / ZOMBIE_SCALE, 2 * B.stride / STRIDE.beta);
+  STRIDE.cycle = Math.min((G.CYCLE + G.CYCLE_PER_SPEED * vn) / BODY_SCALE, 2 * B.stride / STRIDE.beta);
   return STRIDE;
 }
 
@@ -271,14 +272,14 @@ function motionOf(z, L) {
   const dt = Math.min(.1, gap / 1000);
   const dx = z.x - m.x, dy = z.y - m.y, d = Math.sqrt(dx * dx + dy * dy);
   m.x = z.x; m.y = z.y; m.at = now; m.time += dt;
-  const G = ZOMBIE_GAIT, ease = k => 1 - Math.exp(-dt / k);
+  const G = BODY_GAIT, ease = k => 1 - Math.exp(-dt / k);
   // A body that was off screen, or jumped further than it can walk in a frame — the bench, a
   // snapshot too far off to ease into — was put there. That is not a stride and not a speed.
   if (gap < 250 && d < 60 * S) {
     m.v += (d / dt - m.v) * ease(G.SPEED_EASE);
     const ca = Math.cos(z.ang), sa = Math.sin(z.ang);
     const fwd = dx * ca + dy * sa, side = Math.abs(dy * ca - dx * sa) * .6;
-    m.phase += (fwd + (fwd < 0 ? -side : side)) / (strideAt(L.build, m.v / S).cycle * S * ZOMBIE_SCALE) * TAU;
+    m.phase += (fwd + (fwd < 0 ? -side : side)) / (strideAt(L.build, m.v / S).cycle * S * BODY_SCALE) * TAU;
   }
   // Arms come up for prey, halfway for something it has only half noticed, and grope blindly
   // once there is no head to aim them.
@@ -581,32 +582,32 @@ function paintHead(c, L, B, T, tex) {
   c.stroke(); c.globalAlpha = 1;
 }
 
-// Everything that does not move on a body is painted once, into two small canvases, and stamped
-// every frame; the light, the hit flash and the char of a fire change every frame and go over the
-// stamp. A body then costs the same handful of calls however much it is wearing. The stamp is
-// painted at about 1.5 texels to every screen pixel it is first seen at, and painted again finer
-// only if it is later seen much closer, so the game pays for game scale and a close-up stays sharp.
+// Everything that does not move on a body is painted once into a small canvas and stamped every
+// frame; the light, the hit flash and the char of a fire change every frame and go over the stamp.
+// A body then costs the same handful of calls however much it is wearing. A stamp covers the box
+// (x0, y0, w, h) of the frame it is painted in, is painted at about 1.5 texels to every screen pixel
+// it is first seen at, and is painted again finer only if it is later seen much closer, so the game
+// pays for game scale and a close-up stays sharp. `ox` shifts where it lands without repainting it,
+// which is how a torso leans without its stamp being painted again.
 const TORSO_PAD = 3, HEAD_BACK = 4.5, HEAD_PAD = 2;
-function stampsOf(c, L) {
-  if (typeof document === 'undefined') return false;
+function stamp(c, L, key, ox, x0, y0, w, h, paint) {
+  if (typeof document === 'undefined') { c.save(); c.translate(ox, 0); paint(c); c.restore(); return; }
   let D = 3;
   if (c.getTransform) {
     const m = c.getTransform();
     D = clamp(Math.pow(2, Math.ceil(Math.log2(Math.sqrt(m.a * m.a + m.b * m.b) * 1.5))), 2, 16);
   }
-  if (L.stampD >= D) return true;
-  const B = L.build, W = B.shoulder, hl = B.headLen, hw = B.headWid, tex = textures(c);
-  const canvas = (w, h) => { const cv = document.createElement('canvas'); cv.width = Math.ceil(w * D); cv.height = Math.ceil(h * D); return cv; };
-  const torso = canvas(B.back + B.chest + 2 * TORSO_PAD, 2 * W + 2 * TORSO_PAD);
-  let g = torso.getContext('2d');
-  g.setTransform(D, 0, 0, D, (B.back + TORSO_PAD) * D, (W + TORSO_PAD) * D);
-  paintTorso(g, L, B, L.tones, 0, tex);
-  const head = canvas(hl + HEAD_BACK + hl + 1.5, 2 * (hw + HEAD_PAD));
-  g = head.getContext('2d');
-  g.setTransform(D, 0, 0, D, (hl + HEAD_BACK) * D, (hw + HEAD_PAD) * D);
-  paintHead(g, L, B, L.tones, tex);
-  L.torso = torso; L.head = head; L.stampD = D;
-  return true;
+  const stamps = L.stamps || (L.stamps = {});
+  let s = stamps[key];
+  if (!s || s.D < D) {
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(w * D); cv.height = Math.ceil(h * D);
+    const g = cv.getContext('2d');
+    g.setTransform(D, 0, 0, D, -x0 * D, -y0 * D);
+    paint(g);
+    s = stamps[key] = { cv, D };
+  }
+  c.drawImage(s.cv, ox + x0, y0, w, h);
 }
 
 function tint(c, hit, burnt) {
@@ -617,9 +618,8 @@ function tint(c, hit, burnt) {
 
 function drawTorso(c, z, L, B, T, xs, ang, hit, burnt) {
   const WD = ZOMBIE_WARDROBE, W = B.shoulder, K = xs - B.back;
-  if (stampsOf(c, L))
-    c.drawImage(L.torso, xs - B.back - TORSO_PAD, -W - TORSO_PAD, B.back + B.chest + 2 * TORSO_PAD, 2 * W + 2 * TORSO_PAD);
-  else paintTorso(c, L, B, L.tones, xs, false);
+  stamp(c, L, 'torso', xs, -B.back - TORSO_PAD, -W - TORSO_PAD, B.back + B.chest + 2 * TORSO_PAD, 2 * W + 2 * TORSO_PAD,
+    g => paintTorso(g, L, B, L.tones, 0, textures(c)));
   torsoPath(c, L, B, xs);
   tint(c, hit, burnt);
   lightPath(c, 'torso', xs + (B.chest - B.back) * .5, 0, (B.chest + B.back) * .62, W * 1.12, ang);
@@ -665,9 +665,8 @@ function drawNeckStump(c, x, L, T, B, fine) {
 // and away. `ang` is the head frame's rotation in the world, for the light.
 function drawHead(c, L, B, ang, eye, hit, burnt) {
   const hl = B.headLen, hw = B.headWid;
-  if (stampsOf(c, L))
-    c.drawImage(L.head, -hl - HEAD_BACK, -hw - HEAD_PAD, 2 * hl + HEAD_BACK + 1.5, 2 * (hw + HEAD_PAD));
-  else paintHead(c, L, B, L.tones, false);
+  stamp(c, L, 'head', 0, -hl - HEAD_BACK, -hw - HEAD_PAD, 2 * hl + HEAD_BACK + 1.5, 2 * (hw + HEAD_PAD),
+    g => paintHead(g, L, B, L.tones, textures(c)));
   c.beginPath(); c.ellipse(-.2, 0, hl, hw, 0, 0, TAU);
   tint(c, hit, burnt);
   lightPath(c, 'head', -.2, 0, hl * 1.05, hw * 1.05, ang);
@@ -681,6 +680,35 @@ function drawHead(c, L, B, ang, eye, hit, burnt) {
     c.moveTo(hl * .78 + .5, -hw * .34); c.arc(hl * .78, -hw * .34, .5, 0, TAU);
     c.fill();
   }
+}
+
+// Feet. A foot on the ground travels back under the body exactly as fast as the body goes forward,
+// so it stays where it was put; a bad leg takes shorter steps, drags, swings out wide and gets less
+// of the body's weight. Fills FEET and returns the sideways lurch over whichever foot is loaded.
+function plantFeet(L, B, phase, st, move, hipX) {
+  let sway = 0;
+  for (let i = 0; i < 2; i++) {
+    const s = i ? 1 : -1, f = FEET[i], bad = s === L.limpSide ? L.limp : 0;
+    const b = clamp(st.beta - .08 * bad + .05 * (L.limp - bad), .3, .78);
+    const R = Math.min(B.stride, b * st.cycle * .5) * move * (1 - .35 * bad);
+    let u = (phase / TAU + i * .5) % 1;
+    if (u < 0) u += 1;
+    let x, arc = 0, load = 0, pitch;
+    if (u < b) {
+      x = R * (1 - 2 * u / b); load = Math.sin(Math.PI * u / b);
+      pitch = 1 - .4 * smooth(.62, 1, u / b) * move;      // The heel comes up before the foot leaves.
+    } else {
+      const q = (u - b) / (1 - b), e = Math.pow(q, 1 + bad);
+      x = R * (2 * e * e * (3 - 2 * e) - 1);
+      arc = Math.sin(Math.PI * q) * move;
+      pitch = 1 - .4 * (1 - smooth(0, .55, q)) * move * (1 - bad);   // A dragged foot stays flat.
+    }
+    f.s = s; f.R = R; f.rel = x; f.x = hipX + x;
+    f.y = s * (B.stance + (.35 + 2.6 * bad) * arc);
+    f.up = arc * (1 - .8 * bad); f.yaw = s * (.08 + .5 * bad); f.bare = L.bare === s; f.pitch = pitch;
+    sway += s * load * (1 + 1.5 * bad);
+  }
+  return sway;
 }
 
 function drawZombie(c, z) {
@@ -703,32 +731,8 @@ function drawZombie(c, z) {
   const move = smooth(3, 24, vn), hipX = -1.2;
   const ca = Math.cos(z.ang), sa = Math.sin(z.ang);
 
-  // Feet. A foot on the ground travels back under the body exactly as fast as the body goes
-  // forward, so it stays where it was put; a bad leg takes shorter steps, drags, swings out wide
-  // and gets less of the body's weight.
-  let sway = 0;
-  for (let i = 0; i < 2; i++) {
-    const s = i ? 1 : -1, f = FEET[i], bad = s === L.limpSide ? L.limp : 0;
-    const b = clamp(st.beta - .08 * bad + .05 * (L.limp - bad), .3, .78);
-    const R = Math.min(B.stride, b * st.cycle * .5) * move * (1 - .35 * bad);
-    let u = (m.phase / TAU + i * .5) % 1;
-    if (u < 0) u += 1;
-    let x, arc = 0, load = 0, pitch;
-    if (u < b) {
-      x = R * (1 - 2 * u / b); load = Math.sin(Math.PI * u / b);
-      pitch = 1 - .4 * smooth(.62, 1, u / b) * move;      // The heel comes up before the foot leaves.
-    } else {
-      const q = (u - b) / (1 - b), e = Math.pow(q, 1 + bad);
-      x = R * (2 * e * e * (3 - 2 * e) - 1);
-      arc = Math.sin(Math.PI * q) * move;
-      pitch = 1 - .4 * (1 - smooth(0, .55, q)) * move * (1 - bad);   // A dragged foot stays flat.
-    }
-    f.s = s; f.R = R; f.rel = x; f.x = hipX + x;
-    f.y = s * (B.stance + (.35 + 2.6 * bad) * arc);
-    f.up = arc * (1 - .8 * bad); f.yaw = s * (.08 + .5 * bad); f.bare = L.bare === s; f.pitch = pitch;
-    sway += s * load * (1 + 1.5 * bad);
-  }
-  sway = sway * ZOMBIE_GAIT.SWAY * B.sway * (1 - .55 * run) * move
+  let sway = plantFeet(L, B, m.phase, st, move, hipX);
+  sway = sway * BODY_GAIT.SWAY * B.sway * (1 - .55 * run) * move
        + Math.sin(t * 1.3 + L.seed * 40) * .6 * (1 - move);           // Standing is not standing still.
 
   // Shoulders turn against the hips, and a throw winds the whole upper body up and lets it go.
@@ -747,8 +751,8 @@ function drawZombie(c, z) {
 
   // A round lands as a flinch in the direction it pushed.
   const kx = z.kx || 0, ky = z.ky || 0;
-  const bx = clamp((kx * ca + ky * sa) * .014, -2.5, 2.5) / (S * ZOMBIE_SCALE) - (z.hit > 0 ? z.hit * 4 : 0);
-  const by = clamp((ky * ca - kx * sa) * .014, -2.5, 2.5) / (S * ZOMBIE_SCALE);
+  const bx = clamp((kx * ca + ky * sa) * .014, -2.5, 2.5) / (S * BODY_SCALE) - (z.hit > 0 ? z.hit * 4 : 0);
+  const by = clamp((ky * ca - kx * sa) * .014, -2.5, 2.5) / (S * BODY_SCALE);
 
   // The light, turned into the body's frame and then into the upper body's.
   const blx = LIGHT_X * ca + LIGHT_Y * sa, bly = LIGHT_Y * ca - LIGHT_X * sa;
@@ -798,7 +802,7 @@ function drawZombie(c, z) {
   c.translate(z.x, z.y);
   // A soft shadow, laid in the world's axes: the light does not turn with the body.
   c.save();
-  const Sd = S * ZOMBIE_SCALE;
+  const Sd = S * BODY_SCALE;
   c.translate(SHADOW_X * S * .7, SHADOW_Y * S * .7); c.rotate(z.ang);
   c.scale(Sd * B.shoulder * 1.45 * .72, Sd * B.shoulder * 1.45);
   c.fillStyle = gradient(c, 'shadow');
@@ -868,7 +872,7 @@ function drawZombie(c, z) {
 
 // ---- what comes off ----
 // Drawn in the part's own frame: the caller has already moved, turned and scaled to it, including
-// ZOMBIE_SCALE, so a head on the street is the size it was on the shoulders.
+// BODY_SCALE, so a head on the street is the size it was on the shoulders.
 function drawLooseArm(c, part) {
   const L = lookOf(part), B = L.build, fine = quality.current.key !== 'low';
   const a = part.ang || 0, lx = LIGHT_X * Math.cos(a) + LIGHT_Y * Math.sin(a), ly = LIGHT_Y * Math.cos(a) - LIGHT_X * Math.sin(a);
@@ -912,24 +916,219 @@ function nearestDrop(g, p) {
   return best;
 }
 
-// Parcels ride on the courier's back, behind the torso: one sits centred, two sit shoulder
-// to shoulder. The count is readable at a glance, which is the whole point of putting them
-// on the sprite rather than only in the HUD.
-function drawCarriedParcels(c, carried, x, w, h) {
-  if (carried <= 0) return;
-  const offsets = carried === 1 ? [0] : [-h * .55, h * .55];
-  const bh = carried === 1 ? h : h * .82;
-  for (const oy of offsets) {
-    c.fillStyle = '#c9a26a'; roundRect(c, x, oy - bh / 2, w, bh, 2); c.fill();
-    c.strokeStyle = 'rgba(0,0,0,.32)'; c.lineWidth = 1; c.stroke();
-    c.fillStyle = '#e8d3a8'; c.fillRect(x, oy - .9, w, 1.8);      // Tape across the box.
+// ---------- the courier ----------
+// The one living person in the district, drawn by the same model as the dead: the same light, the
+// same measured proportions, feet planted by the distance covered. What the rules read off the
+// picture stays where it was. The lens of the flashlight sits on HAND_T and the pistol's muzzle on
+// HAND_G, because the beam and the rounds come from there; the bill of the cap says which way the
+// courier faces; the boxes on the backpack say how many parcels are carried.
+//
+// The torso always faces the aim, as the beam and the gun do. The hips face where the courier is
+// going, as far as a waist turns, and past that the legs walk backwards: strafing is a turned
+// pelvis and a side step, backing away is backing away.
+
+const angDiff = (a, b) => { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; else if (d < -Math.PI) d += TAU; return d; };
+
+function courierLook(p) {
+  let L = looks.get(p);
+  if (L) return L;
+  const WD = COURIER_WARDROBE, B = COURIER_BUILD, id = Math.max(0, p.id | 0);
+  const pick = list => list[id % list.length];
+  const cap = rgbOf(pick(WD.cap));
+  L = {
+    build: B, seed: .31 + id * .27, garment: 'jacket', sleeve: 1, limp: 0, limpSide: 1, bare: 0,
+    wR: B.shoulder, wL: B.shoulder, grain: [5 + id * 7, 11 - id * 3], stamps: {},
+    // Lying down, the same torso is seen along its length: shoulders to hips, not chest to back.
+    prone: Object.freeze(Object.assign({}, B, { chest: 1.8, back: 15 })),
+    tones: {
+      skin: tone(rgbOf(pick(WD.skin))), hair: tone(rgbOf(pick(WD.hair))), cloth: tone(rgbOf(WD.jacket)),
+      pants: tone(rgbOf(WD.pants)), shoe: tone(rgbOf(WD.shoe)), cap: tone(cap), bill: tone(shade(cap, -.2)),
+      stripe: tone(rgbOf(WD.stripe)), pack: tone(rgbOf(WD.pack)), parcel: tone(rgbOf(WD.parcel)),
+      torch: tone(rgbOf(WD.torch)), gun: tone(rgbOf(WD.gun)), flamer: tone(rgbOf(WD.flamer))
+    }
+  };
+  looks.set(p, L);
+  return L;
+}
+
+function courierMotion(p, L, prone) {
+  const now = performance.now();
+  let m = motions.get(p);
+  if (!m) {
+    m = { x: p.x, y: p.y, at: now, v: 0, phase: 0, time: L.seed * 100, hip: 0 };
+    motions.set(p, m);
+    return m;
+  }
+  const gap = now - m.at;
+  if (gap <= 0) return m;
+  const dt = Math.min(.1, gap / 1000);
+  const dx = p.x - m.x, dy = p.y - m.y, d = Math.sqrt(dx * dx + dy * dy);
+  m.x = p.x; m.y = p.y; m.at = now; m.time += dt;
+  const ease = k => 1 - Math.exp(-dt / k);
+  // A sprint is four pixels a frame. Anything much past that was put there — off the top of a
+  // ladder, into a new district — and is not a stride.
+  if (gap < 250 && d < 24) {
+    m.v += (d / dt - m.v) * ease(BODY_GAIT.SPEED_EASE);
+    let want = 0;
+    if (!prone && m.v > 8 && d > 1e-3) {
+      const rel = angDiff(Math.atan2(dy, dx), p.aim);
+      want = Math.abs(rel) <= 1.95 ? clamp(rel, -1.05, 1.05) : clamp(angDiff(rel + Math.PI, 0), -.9, .9);
+    }
+    m.hip += (want - m.hip) * ease(.12);
+    const ha = p.aim + m.hip, ca = Math.cos(ha), sa = Math.sin(ha);
+    const fwd = dx * ca + dy * sa, side = Math.abs(dy * ca - dx * sa) * .6;
+    const cycle = prone ? CRAWL_CYCLE : strideAt(L.build, m.v).cycle * BODY_SCALE;
+    m.phase += (fwd + (fwd < 0 ? -side : side)) / cycle * TAU;
+  } else m.v = 0;
+  return m;
+}
+
+// Two bones from the shoulder to a hand that has to be at (tx, ty), `tz` above or below the
+// shoulder. The elbow falls toward the pole: down and a little back for something held at the
+// chest, which tucks it in against the ribs; out to the side for elbows on the ground.
+function reachArm(A, s, jx, jy, tx, ty, tz, len, poleY, poleZ, poleX = 0) {
+  const a = UPPER * len, b = FORE * len;
+  let dx = tx - jx, dy = ty - jy, dz = tz;
+  let d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const far = (a + b) * .998;
+  if (d > far) { const k = far / d; dx *= k; dy *= k; dz *= k; d = far; }
+  d = Math.max(d, .01);
+  const ux = dx / d, uy = dy / d, uz = dz / d;
+  const ca = clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1), sa = Math.sqrt(1 - ca * ca);
+  let px = poleX, py = s * poleY, pz = poleZ;
+  const pd = px * ux + py * uy + pz * uz;
+  px -= pd * ux; py -= pd * uy; pz -= pd * uz;
+  const pn = Math.sqrt(px * px + py * py + pz * pz) || 1;
+  A.jx = jx; A.jy = jy;
+  A.ex = jx + (ux * ca + px / pn * sa) * a; A.ey = jy + (uy * ca + py / pn * sa) * a;
+  A.ez = (uz * ca + pz / pn * sa) * a;
+  A.wx = jx + dx; A.wy = jy + dy;
+  A.hx = .88; A.hy = 0; A.curl = 1;             // A fist round whatever it holds, pointing ahead.
+}
+
+function paintCourierTorso(c, L, B, T, prone, tex) {
+  const W = B.shoulder, K = -B.back, F = B.chest, nx = 1.3;
+  torsoPath(c, L, B, 0);
+  c.fillStyle = T.cloth.m; c.fill();
+  c.save(); c.clip();
+  if (tex) { c.save(); c.translate(L.grain[0], L.grain[1]); c.fillStyle = grainPat; c.fill(); c.restore(); }
+  // Reflective strips over each shoulder and down the back, the part of a courier's jacket that
+  // a headlight finds first.
+  c.strokeStyle = T.stripe.m; c.lineWidth = 1.2; c.lineCap = 'butt';
+  c.beginPath();
+  for (let s = -1; s <= 1; s += 2) { c.moveTo(F + 1, s * W * .52); c.lineTo(K - 1, s * W * (prone ? .4 : .52)); }
+  c.stroke();
+  c.strokeStyle = T.cloth.dd; c.lineWidth = .4;        // The zip.
+  c.beginPath(); c.moveTo(nx + 2, 0); c.lineTo(F + 1, .2); c.stroke();
+  c.restore();
+  c.lineCap = 'round';
+  c.strokeStyle = T.cloth.d; c.lineWidth = 1.3;       // Stand collar.
+  c.beginPath(); c.ellipse(nx, 0, 2.6, 3.2, 0, 0, TAU); c.stroke();
+  // The delivery backpack: a box on the back, lid seam, the firm's patch, straps over the shoulders.
+  const [x0, x1] = packSpan(B, prone);
+  roundRect(c, x0, -W * .62, x1 - x0, W * 1.24, 1.3);
+  c.fillStyle = T.pack.m; c.fill();
+  c.strokeStyle = T.pack.dd; c.lineWidth = .5; c.stroke();
+  roundRect(c, x0 + .8, -W * .62 + .8, x1 - x0 - 1.6, W * 1.24 - 1.6, .8);
+  c.strokeStyle = T.pack.d; c.lineWidth = .4; c.stroke();
+  c.fillStyle = COURIER_WARDROBE.logo;
+  roundRect(c, (x0 + x1) / 2 - 1.6, -1, 3.2, 2, .5); c.fill();
+  c.strokeStyle = T.pack.dd; c.lineWidth = 1.2;
+  c.beginPath();
+  for (let s = -1; s <= 1; s += 2) { c.moveTo(x1, s * W * .42); c.lineTo(prone ? 1.2 : 2.6, s * W * .34); }
+  c.stroke();
+}
+// Where the backpack sits along the body, relative to the shoulder line.
+const packSpan = (B, prone) => prone ? [-B.back + 3, -2.2] : [-B.back - 2.2, -.6];
+
+function paintCourierHead(c, L, B, T, tex) {
+  const hl = B.headLen, hw = B.headWid;
+  for (let s = -1; s <= 1; s += 2) ellipse(c, -.4, s * hw * .95, 1.2, .8, s * .3, T.skin.d);
+  c.beginPath(); c.ellipse(-.2, 0, hl, hw, 0, 0, TAU);
+  c.fillStyle = T.skin.m; c.fill();
+  if (tex) { c.globalAlpha = .5; c.fillStyle = grainPat; c.fill(); c.globalAlpha = 1; }
+  ellipse(c, -.2 - hl * .18, 0, hl * .86, hw * .97, 0, T.hair.m);   // What shows under the cap.
+  ellipse(c, .1, 0, hl * .84, hw * .9, 0, T.cap.m);                 // The crown.
+  c.globalAlpha = .45; c.strokeStyle = T.cap.dd; c.lineWidth = .3;  // Panel seams to the button.
+  c.beginPath();
+  for (const a of [.8, -.8, 2.3, -2.3]) {
+    c.moveTo(-.3, 0); c.lineTo(-.3 + Math.cos(a) * hl * .82, Math.sin(a) * hw * .86);
+  }
+  c.stroke(); c.globalAlpha = 1;
+  ellipse(c, -.3, 0, .5, .5, 0, T.cap.d);
+  // The bill: the one part of a head from above that says which way it looks.
+  c.beginPath();
+  c.moveTo(hl * .55, -hw * .86);
+  c.quadraticCurveTo(hl + 3.6, -hw * .78, hl + 3.8, 0);
+  c.quadraticCurveTo(hl + 3.6, hw * .78, hl * .55, hw * .86);
+  c.closePath();
+  c.fillStyle = T.bill.m; c.fill();
+  c.strokeStyle = T.bill.dd; c.lineWidth = .4; c.stroke();
+  c.strokeStyle = T.bill.l; c.lineWidth = .3;
+  c.beginPath(); c.moveTo(hl * .7, -hw * .7); c.quadraticCurveTo(hl + 2.9, -hw * .62, hl + 3.1, 0);
+  c.quadraticCurveTo(hl + 2.9, hw * .62, hl * .7, hw * .7); c.stroke();
+}
+
+function drawCourierHead(c, L, B, T, ang) {
+  const hl = B.headLen, hw = B.headWid;
+  stamp(c, L, 'head', 0, -hl - 2, -hw - HEAD_PAD, 2 * hl + 6.5, 2 * (hw + HEAD_PAD),
+    g => paintCourierHead(g, L, B, L.tones, textures(c)));
+  c.beginPath(); c.ellipse(-.2, 0, hl, hw, 0, 0, TAU);
+  lightPath(c, 'head', -.2, 0, hl * 1.05, hw * 1.05, ang);
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = .5; c.stroke();
+}
+
+function drawCourierTorso(c, L, B, T, xs, ang, prone, carried) {
+  const W = B.shoulder, key = prone ? 'prone' : 'torso';
+  stamp(c, L, key, xs, -B.back - TORSO_PAD, -W - TORSO_PAD, B.back + B.chest + 2 * TORSO_PAD, 2 * W + 2 * TORSO_PAD,
+    g => paintCourierTorso(g, L, B, L.tones, prone, textures(c)));
+  torsoPath(c, L, B, xs);
+  lightPath(c, 'torso', xs + (B.chest - B.back) * .5, 0, (B.chest + B.back) * .62, W * 1.12, ang);
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = .6; c.stroke();
+  // The backpack stands proud of the back, so it takes the light for itself.
+  const [x0, x1] = packSpan(B, prone), ph = W * 1.24;
+  roundRect(c, xs + x0, -ph / 2, x1 - x0, ph, 1.3);
+  lightPath(c, 'torso', xs + (x0 + x1) / 2, 0, (x1 - x0) * .7, ph * .7, ang);
+  // Parcels ride on top of it: one sits centred, two sit side by side. The count is readable at
+  // a glance, which is the whole point of putting them on the figure rather than only in the HUD.
+  const n = Math.min(carried | 0, 2), len = x1 - x0;
+  for (let i = 0; i < n; i++) {
+    const oy = n === 1 ? 0 : (i ? 1 : -1) * ph * .25, bw = len * (n === 1 ? .78 : .72), bh = ph * (n === 1 ? .62 : .44);
+    c.save();
+    c.translate(xs + (x0 + x1) / 2, oy); c.rotate(i ? .07 : -.05);
+    roundRect(c, -bw / 2, -bh / 2, bw, bh, .6);
+    c.fillStyle = T.parcel.m; c.fill();
+    lightPath(c, 'torso', 0, 0, bw * .75, bh * .75, ang + (i ? .07 : -.05));
+    c.strokeStyle = T.parcel.dd; c.lineWidth = .45; c.stroke();
+    c.fillStyle = COURIER_WARDROBE.tape; c.fillRect(-bw / 2, -.45, bw, .9);
+    c.fillStyle = COURIER_WARDROBE.label; c.fillRect(bw * .1, -bh * .4, bw * .28, bh * .24);
+    c.restore();
+  }
+}
+
+// What is in each hand, laid along the aim from the fist. The fist is drawn over it afterwards.
+function drawHeld(c, A, what, T, p, lx, ly, fine) {
+  const x = A.wx, y = A.wy;
+  if (what === 'torch') {
+    limb(c, x - 1.2, y, x + 3.6, y, 2.1, T.torch, lx, ly, fine);
+    limb(c, x + 3.4, y, x + 4.3, y, 2.8, T.torch, lx, ly, fine);           // The head, wider.
+    const lit = p.torch && p.batt > 0;
+    ellipse(c, x + 4.55, y, .4, 1.15, 0, lit ? `rgba(255,242,200,${.5 + .5 * p.flick})` : '#3c434b');
+  } else if (what === 'gun') {
+    limb(c, x - .6, y, x + 3.9, y, 1.6, T.gun, lx, ly, fine);
+    c.strokeStyle = T.gun.l; c.lineWidth = .35;                              // The slide catches the light.
+    c.beginPath(); c.moveTo(x + .2, y - .25); c.lineTo(x + 3.7, y - .25); c.stroke();
+  } else {                                        // The flamethrower's wand; its tank rides on the pack.
+    limb(c, x - 2.4, y, x + 6, y, 2, T.flamer, lx, ly, fine);
+    limb(c, x + 5.6, y, x + 6.3, y, 2.6, T.gun, lx, ly, fine);
+    ellipse(c, x + 6.5, y, .5, .5, 0, p.flaming ? '#ffd27a' : `rgba(255,150,60,${.55 + .35 * Math.sin(performance.now() * .02)})`);
   }
 }
 
 function drawPlayer(c, p, g) {
   if (p.inv > 0 && ((p.inv * 12) | 0) % 2 === 0) return;   // Flash after an impact.
-  // A courier who is down is flat on the street, which is the crawl pose holding still, with a
-  // ring underneath that fills as their partner gets them back up.
+  // A courier who is down is flat on the street, with a ring underneath that fills as their
+  // partner gets them back up.
   if (p.down) {
     c.save(); c.translate(p.x, p.y);
     c.strokeStyle = 'rgba(255,91,77,.85)'; c.lineWidth = 2.4;
@@ -940,88 +1139,160 @@ function drawPlayer(c, p, g) {
     }
     c.restore();
   }
-  const crawling = p.sneaking || p.down, sw = Math.sin(p.walk) * 3.4;
+  const L = courierLook(p), B = L.build, T = L.tones, fine = quality.current.key !== 'low';
+  const climbing = p.climb > 0 && !p.down, prone = (p.sneaking || p.down) && !climbing;
+  const m = courierMotion(p, L, prone);
 
-  if (crawling) {
-    const stride = Math.sin(p.walk) * 1.8, sway = Math.cos(p.walk) * .7;
-    c.save(); c.translate(p.x, p.y); c.rotate(p.aim);
-    c.fillStyle = 'rgba(0,0,0,.25)';
-    c.beginPath(); c.ellipse(-2, 4, 22, 8.5, 0, 0, 6.283); c.fill();
-
-    // A purpose-built top-down crawl pose: alternating legs extend behind the torso.
-    for (const side of [-1, 1]) {
-      const lx = -17 + stride * side, ly = side * 5 + sway * side;
-      c.fillStyle = '#38507a'; roundRect(c, lx, ly - 2.8, 14, 5.6, 2.8); c.fill();
-      c.fillStyle = '#26314a'; roundRect(c, lx - 4, ly - 2.5, 6, 5, 2); c.fill();
+  // On the ladder the courier faces the wall and is drawn part of the way up it, growing toward
+  // the size they will be on the roof; the rules move them there in one go when the climb ends.
+  let x = p.x, y = p.y, ang = p.aim, lift = p.roof ? ROOF_LIFT : 1, rung = 0;
+  if (climbing) {
+    let l = p.climbTo;
+    if (!l && g && g.ladders) {                   // A partner's ladder never crosses the wire.
+      let best = 40;
+      for (const o of g.ladders) {
+        const d = p.roof ? Math.hypot(p.x - o.topX, p.y - o.topY) : Math.hypot(p.x - o.x, p.y - o.y);
+        if (d < best) { best = d; l = o; }
+      }
     }
-
-    // Arms reach forward in opposition to the legs, giving the crawl a readable cycle.
-    for (const side of [-1, 1]) {
-      const reach = stride * -side;
-      c.fillStyle = '#e8b48a'; roundRect(c, -1 + reach, side * 9 - 2.4, 14, 4.8, 2.4); c.fill();
-      c.beginPath(); c.arc(13 + reach, side * 9, 2.8, 0, 6.283); c.fill();
+    const q = 1 - clamp(p.climb / CLIMB_TIME, 0, 1), up = !p.roof, h = up ? q : 1 - q;
+    if (l) {
+      const ex = up ? l.topX : l.x, ey = up ? l.topY : l.y;
+      x += (ex - x) * q; y += (ey - y) * q; ang = l.ang + Math.PI;
     }
-
-    // Backpack and torso retain their full width; nothing is globally squashed.
-    c.fillStyle = '#b7452c'; roundRect(c, -12, -6.5, 8, 13, 3); c.fill();
-    c.fillStyle = '#e0603f'; roundRect(c, -8, -8, 19, 16, 6); c.fill();
-    c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
-    // Prone, the back faces the camera: the load sits on top of the torso, not behind the
-    // hips, and is drawn after the torso for the same reason.
-    drawCarriedParcels(c, p.carried, -7.5, 9, 8);
-
-    // Head and cap point forward, making the facing direction obvious from above.
-    c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(10, 0, 7.2, 0, 6.283); c.fill();
-    c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
-    c.fillStyle = '#3b3630'; c.beginPath(); c.arc(8, 0, 6.8, 1.55, 4.73); c.fill();
-    c.fillStyle = '#ffd766'; roundRect(c, 14, -5.5, 4.5, 11, 2); c.fill();
-
-    c.fillStyle = '#2f3a46'; roundRect(c, 12 - stride, -11, 9, 4.5, 1.5); c.fill();
-    if (p.torch && p.batt > 0) {
-      c.fillStyle = `rgba(255,242,200,${.5 + .5 * p.flick})`;
-      c.fillRect(20.5 - stride, -10.5, 2.5, 3.5);
-    }
-    c.fillStyle = '#33383f'; roundRect(c, 12 + stride, 7.2, 10, 3.5, 1); c.fill();
-    c.restore();
-    return;
+    lift = 1 + (ROOF_LIFT - 1) * h;
+    rung = h;
   }
+  const Sd = BODY_SCALE * lift, ca = Math.cos(ang), sa = Math.sin(ang);
+  const blx = LIGHT_X * ca + LIGHT_Y * sa, bly = LIGHT_Y * ca - LIGHT_X * sa;
 
-  c.fillStyle = 'rgba(0,0,0,.28)';
-  c.beginPath(); c.ellipse(p.x + 3, p.y + 8, 14, 8, 0, 0, 6.283); c.fill();
-  // Legs face the movement direction and protrude from the body so the stride remains visible.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.ang); c.scale(1.22, 1.22);
-  for (const s of [-1, 1]) {
-    const oy = s * 8 + sw * s;
-    c.fillStyle = '#38507a'; roundRect(c, -9, oy - 3, 14, 6, 3); c.fill();
-    c.fillStyle = '#26314a';
-    roundRect(c, 1, oy - 2.5, 5, 5, 2); c.fill();                    // Boot.
+  c.save();
+  c.translate(x, y);
+  c.save();                                       // Shadow, in the world's axes.
+  c.globalAlpha = 1 - .5 * Math.sin(Math.PI * rung);
+  c.translate(SHADOW_X * .7 * lift, SHADOW_Y * .7 * lift); c.rotate(ang);
+  if (prone) { c.translate(-6 * Sd, 0); c.scale(Sd * 21, Sd * 11); }
+  else c.scale(Sd * B.shoulder * 1.45 * .72, Sd * B.shoulder * 1.45);
+  c.fillStyle = gradient(c, 'shadow');
+  c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.fill();
+  c.restore();
+  c.rotate(ang);
+  c.scale(Sd, Sd);
+  let close = fine;
+  if (fine && c.getTransform) { const tm = c.getTransform(); close = tm.a * tm.a + tm.b * tm.b >= 2.56; }
+
+  const what = p.weapon === 1 || p.flaming ? 'flamer' : 'gun';
+  const recoil = p.muzzle > 0 ? clamp(p.muzzle / .08, 0, 1) : 0;
+  const stag = clamp(p.stagger || 0, 0, .4) / .4;
+  const tk = p.takedown > 0 ? Math.sin(Math.PI * (1 - clamp(p.takedown / TAKEDOWN_LOCK, 0, 1))) : 0;
+  // Where the rules say the hands are, in the body's own pixels.
+  const torchX = HAND_T.f / BODY_SCALE - 4.5, torchY = HAND_T.s / BODY_SCALE;
+  const gunX = HAND_G.f / BODY_SCALE - (what === 'gun' ? 3.9 : 6.3), gunY = HAND_G.s / BODY_SCALE;
+  if (prone) drawProneCourier(c, p, L, T, m, ang, blx, bly, fine, close, what, torchX, torchY, gunX, gunY);
+  else {
+    const vn = m.v, st = strideAt(B, vn), run = st.run, move = climbing ? 0 : smooth(3, 24, vn), hipX = -1.2;
+    let sway = plantFeet(L, B, m.phase, st, move, hipX) * BODY_GAIT.SWAY * B.sway * (1 - .55 * run) * move;
+    if (climbing) for (let i = 0; i < 2; i++) {    // Feet on the rungs, one stepping up past the other.
+      const f = FEET[i], s = i ? 1 : -1, up = .5 + .5 * Math.sin(p.walk + i * Math.PI);
+      f.x = 1.5 + 1.6 * up; f.y = s * 3.2; f.up = up; f.pitch = .75; f.yaw = 0; f.rel = 0; f.R = 0;
+    }
+    const hip = climbing ? 0 : m.hip, ch = Math.cos(hip), sh = Math.sin(hip);
+    c.save(); c.rotate(hip);
+    const first = FEET[0].up <= FEET[1].up ? 0 : 1;
+    drawLeg(c, FEET[first], L, B, T, blx * ch + bly * sh, bly * ch - blx * sh, fine, close, hipX);
+    drawLeg(c, FEET[1 - first], L, B, T, blx * ch + bly * sh, bly * ch - blx * sh, fine, close, hipX);
+    c.restore();
+
+    // Upper body, square to the aim. A shot kicks it back, a hit knocks it, a takedown lunges.
+    const ux = -.4 * recoil - 1.8 * stag, uy = sway * .6;
+    const xs = B.shoulderX + 1.4 * run * B.lean + 1.2 * tk;
+    c.save(); c.translate(ux, uy);
+    const bob = Math.sin(m.phase * 2) * (.5 + .9 * run) * move;
+    for (let i = 0; i < 2; i++) {
+      const s = i ? 1 : -1, A = ARMS[i], jx = xs - .6, jy = s * (B.shoulder - 1.7);
+      if (climbing) {                             // Both hands on the rungs, one reaching past the other.
+        reachArm(A, s, jx, jy, 7.2, s * 4.4, 2.5 + 2.4 * Math.sin(p.walk + (i ? 0 : Math.PI)), B.armLen, .55, -1);
+        A.hx = .6;
+      } else if (s < 0) {
+        reachArm(A, s, jx, jy, torchX - ux - .6 * run, torchY - uy, -6.5 + bob, B.armLen, .25, -1, -.35);
+      } else {
+        reachArm(A, s, jx, jy, gunX - ux - 1.6 * recoil + 5 * tk - .6 * run, gunY - uy - 4 * tk, -5 + bob + .9 * recoil + 2 * tk,
+          B.armLen, .25, -1, -.35);
+      }
+    }
+    drawCourierTorso(c, L, B, T, xs, ang, false, p.carried);
+    if (what === 'flamer' && !climbing) drawFlamerTank(c, B, T, xs, blx, bly, fine);
+    for (let i = 0; i < 2; i++) {
+      const A = ARMS[i], s = i ? 1 : -1;
+      if (!climbing) drawHeld(c, A, s < 0 ? 'torch' : what, T, p, blx, bly, fine);
+      drawArm(c, A, s, L, B, T, blx, bly, fine, close);
+    }
+    const hx = xs + 1.3 + B.hunch * 2.4 + run * .8 * B.lean + .8 * tk, hy = uy * -.3;
+    ellipse(c, hx - blx * 1.6, hy - bly * 1.6, B.headLen * 1.05, B.headWid * 1.05, 0, 'rgba(0,0,0,.22)');
+    c.save(); c.translate(hx, hy); c.rotate(-.1 * stag);
+    drawCourierHead(c, L, B, T, ang - .1 * stag);
+    c.restore();
+    c.restore();
   }
   c.restore();
+}
 
-  // The torso faces the aim and flashlight direction.
-  c.save(); c.translate(p.x, p.y); c.rotate(p.aim); c.scale(1.22, 1.22);
-  // Left hand holds the flashlight; right hand holds the pistol.
-  c.fillStyle = '#e8b48a';
-  roundRect(c, 1, -11 - sw * .3, 9, 5, 2.5); c.fill();
-  roundRect(c, 1, 6 + sw * .3, 9, 5, 2.5); c.fill();
-  // Torso and bag.
-  c.fillStyle = '#e0603f'; roundRect(c, -10, -9, 20, 18, 6); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = 1.5; c.stroke();
-  c.fillStyle = '#b7452c'; roundRect(c, -11, -7, 8, 14, 3); c.fill();
-  drawCarriedParcels(c, p.carried, -12.5, 5.5, 9.5);
-  // Head.
-  c.fillStyle = '#f0c39a'; c.beginPath(); c.arc(2, 0, 7.5, 0, 6.283); c.fill();
-  c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.2; c.stroke();
-  c.fillStyle = '#3b3630'; c.beginPath(); c.arc(-.5, 0, 7.2, 1.6, 4.7); c.fill();  // Back of the head and hair.
-  c.fillStyle = '#ffd766'; roundRect(c, 3.5, -6, 4.5, 12, 2); c.fill();            // Cap visor.
-  // The flashlight beam originates from the fist.
-  c.fillStyle = '#2f3a46'; roundRect(c, 7, -10.5 - sw * .3, 8, 4.5, 1.5); c.fill();
-  if (p.torch && p.batt > 0) {
-    c.fillStyle = `rgba(255,242,200,${.5 + .5 * p.flick})`;
-    c.fillRect(14.5, -10 - sw * .3, 2.5, 3.5);
+function drawFlamerTank(c, B, T, xs, lx, ly, fine) {
+  // A slim fuel tank strapped to the side of the pack, on the gun side, with the hose to the wand.
+  const [x0, x1] = packSpan(B, false), y = B.shoulder * .7;
+  limb(c, xs + x0 + .4, y, xs + x1 - 1.4, y, 2.6, T.flamer, lx, ly, fine);
+  c.strokeStyle = '#1f2226'; c.lineWidth = .8;
+  c.beginPath(); c.moveTo(xs + x1 - 1.4, y); c.quadraticCurveTo(xs + 2, y + 2.2, ARMS[1].wx - 2.4, ARMS[1].wy); c.stroke();
+}
+
+// Flat on the street: shoulders up on the elbows, a knee drawn up to one side as the other leg
+// pushes, the gear held out in front. Down, the same body lies still with its arms out and the
+// head turned, and what was in the hands lies on the street beside them.
+function drawProneCourier(c, p, L, T, m, ang, lx, ly, fine, close, what, torchX, torchY, gunX, gunY) {
+  const B = L.prone, down = p.down;
+  const crawl = down ? 0 : smooth(3, 20, m.v), ph = m.phase;
+  const xs = 2.4, hipX = xs - B.back + 2.4;
+  const sw = Math.sin(ph) * 1.1 * crawl;          // The hips swing toward the knee coming up.
+  for (let i = 0; i < 2; i++) {
+    const s = i ? 1 : -1;
+    const bend = down ? 0 : crawl * (.5 + .5 * Math.sin(ph + (i ? Math.PI : 0))) + (1 - crawl) * (i ? .45 : .1);
+    const hy = s * 3.6 + sw;
+    const kx = hipX - 9.5 + 7 * bend, ky = s * (4.3 + 6.2 * bend + (down ? 1.2 : 0)) + sw * .6;
+    const fx = hipX - 18.5 + 7.5 * bend, fy = s * (4.6 + 6.9 * bend + (down ? 2.8 : 0)) + sw * .3;
+    const a = Math.atan2(fy - ky, fx - kx), fc = Math.cos(a), fs = Math.sin(a);
+    // Toes on the street and heels up: from above that is a short shoe, sole showing.
+    ellipse(c, fx + fc * 1.6, fy + fs * 1.6, 3, 1.9, a, T.shoe.m);
+    ellipse(c, fx + fc * .6, fy + fs * .6, 1.4, 1.5, a, '#cfcac0');
+    limb(c, fx, fy, kx, ky, 4.3, T.pants, lx, ly, fine);
+    limb(c, kx, ky, hipX, hy, 5.4 * B.leg, T.pants, lx, ly, fine);
   }
-  // Pistol.
-  c.fillStyle = '#33383f'; roundRect(c, 7, 6 + sw * .3, 9, 3.5, 1); c.fill();
+  for (let i = 0; i < 2; i++) {                   // Elbows on the ground, working in turn.
+    const s = i ? 1 : -1, A = ARMS[i], jx = xs - .6, jy = s * (B.shoulder - 1.7);
+    const pull = 1.4 * Math.sin(ph + (i ? 0 : Math.PI)) * crawl;
+    if (down) {
+      reachArm(A, s, jx, jy, 3.5, s * 15, -3.5, B.armLen, 1, -.2);
+      A.hx = .6; A.hy = s * .45; A.curl = .5;     // Open hands, fallen out to the sides.
+    } else if (s < 0) reachArm(A, s, jx, jy, torchX + pull, torchY, -3.5, B.armLen, 1, -.3);
+    else reachArm(A, s, jx, jy, gunX + pull, gunY, -3.5, B.armLen, 1, -.3);
+  }
+  for (let i = 0; i < 2; i++) {
+    const A = ARMS[i], s = i ? 1 : -1;
+    if (down) {                                   // Dropped, a little way past the open hand.
+      c.save(); c.translate(A.wx, A.wy); c.rotate(s * .9);
+      const H = { wx: 3, wy: 0 };
+      drawHeld(c, H, s < 0 ? 'torch' : what, T, p, lx, ly, fine);
+      c.restore();
+    } else drawHeld(c, A, s < 0 ? 'torch' : what, T, p, lx, ly, fine);
+    drawArm(c, A, s, L, B, T, lx, ly, fine, close);
+  }
+  c.save();
+  c.translate(0, sw * .4); c.rotate(Math.sin(ph) * .05 * crawl);
+  drawCourierTorso(c, L, B, T, xs, ang, true, p.carried);
+  const hx = xs + 4.4, hy = down ? -.6 : 0;
+  ellipse(c, hx - lx * 1.2, hy - ly * 1.2, B.headLen * 1.05, B.headWid * 1.05, 0, 'rgba(0,0,0,.22)');
+  c.save(); c.translate(hx, hy); c.rotate(down ? .9 : 0);
+  drawCourierHead(c, L, B, T, ang + (down ? .9 : 0));
+  c.restore();
   c.restore();
 }
 

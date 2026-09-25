@@ -260,8 +260,9 @@ Worth running, in this order:
 
 **Roofs** (`d9d17bb`) — still never run. Ladders on ~1 in 4 houses (`LADDER_*` in `world.js`); `E`
 climbs and descends, 0.9 s rooted; `keepOnRoof` clamps to the parapet; bullets get `b.high` and
-skip solids, trees and traffic; fog opens 1.7× further. Known gaps: **a courier on a roof looks
-identical to one on the street**, and the guest gets `climb` but plays no climbing animation.
+skip solids, trees and traffic; fog opens 1.7× further. A courier on a roof is drawn `ROOF_LIFT`
+larger, grown into on the ladder, and the climb is drawn on both ends: a guest has no `climbTo`, so
+`drawPlayer` finds the ladder itself.
 
 **Driving** (`8e4bae7`) — exercised by a purpose-built rig, not by the suite. Known gaps, all
 declared rather than discovered: a guest drives about 100 ms behind because its own body is not

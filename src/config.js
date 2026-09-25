@@ -361,7 +361,7 @@ const ZOMBIE_BUILDS = Object.freeze({
 // a body that does not is hard to read and hard to aim at, so the whole figure is drawn this much
 // larger. Proportions do not change, only the size they are drawn at; the shoulders then span the
 // body's circle, as they did before.
-const ZOMBIE_SCALE = 1.2;
+const BODY_SCALE = 1.2;
 
 // The stride is driven by how far a body actually moved, never by a clock, so a foot on the ground
 // stays where it was put. `CYCLE` is the distance one full stride (two steps) covers at a
@@ -373,7 +373,7 @@ const ZOMBIE_SCALE = 1.2;
 // `RUN_AT` px/s. The two easings are seconds: the drawn speed and the arms catch up with the body
 // over that long. Faster and a body snaps between poses when a co-op snapshot lands; slower and it
 // visibly glides into a stop.
-const ZOMBIE_GAIT = Object.freeze({
+const BODY_GAIT = Object.freeze({
   CYCLE: 36, CYCLE_PER_SPEED: .3,
   STANCE_WALK: .62, STANCE_RUN: .42, RUN_FROM: 70, RUN_AT: 150,
   SPEED_EASE: .12, REACH_EASE: .35,
@@ -411,6 +411,32 @@ const ZOMBIE_WARDROBE = Object.freeze({
   flash: Object.freeze([255, 214, 214]),     // The hit flash the old token used, kept so a hit reads the same.
   vest: Object.freeze([47, 55, 66]),         // The tank's riot vest: the slab shoulders it always had.
   courierBag: '#8e3a26'                      // A guard is a courier who did not make it: same bag, faded.
+});
+
+// ---------- how the courier is drawn ----------
+// By the same model as the horde, so the one living person in the district stands among the dead
+// as one of them would have. The build is a fit adult rather than a stooped corpse: upright, square
+// shoulders, a long reach to the stride. At WALK they are jogging and at RUN sprinting, so the cap
+// on a stride is what a running leg covers, and past it the cadence climbs to about 4.6 steps a
+// second, which is a sprint.
+const COURIER_BUILD = Object.freeze({ shoulder: 10.2, chest: 4.6, back: 5.6, shoulderX: .4, lean: .7,
+  hunch: .3, headLen: 5, headWid: 4.2, limb: .95, leg: 1, armLen: 1, stance: 3.8, stride: 19, sway: .5,
+  reach: 0, pallor: 0, limp: Object.freeze([0, 0]), limpShare: 0 });
+// Crawling is on elbows and knees and covers far less ground per cycle than a step does. At
+// SNEAK_SPEED this is a cycle and a half a second: busy enough to read as effort, slow enough that
+// each knee coming up can be seen.
+const CRAWL_CYCLE = 44;
+// A courier on a roof is some four metres nearer the camera. Drawn this much larger, which is the
+// one thing that says so from straight above, and grown into on the ladder rather than jumped to.
+const ROOF_LIFT = 1.08;
+const COURIER_WARDROBE = Object.freeze({
+  jacket: '#d65a3c', stripe: '#cfd3cf', pants: '#2f3b52', shoe: '#2a2f3a', pack: '#a8402a',
+  logo: '#f0c04c', parcel: '#c9a26a', tape: '#e8d3a8', label: '#f1ede2', torch: '#2f3a46',
+  gun: '#33383f', flamer: '#5d646c',
+  // One entry per courier on the shift, by id. The partner's cap is the blue its marker has on
+  // the minimap, so the two can be told apart on the street at a glance.
+  skin: Object.freeze(['#e6b690', '#c48a64']), hair: Object.freeze(['#3b3630', '#1f1a16']),
+  cap: Object.freeze(['#f0c04c', '#62bde8'])
 });
 
 // ---------- palettes ----------
@@ -516,7 +542,8 @@ return Object.freeze({
   LAMP_ARM, LAMP_FAULTY_SHARE, LAMP_HEAD_R, CROSSWALK_SETBACKS, CROSSWALK_MIN_GAP,
   LADDER_SHARE, LADDER_OUT, LADDER_IN,
   MADNESS_RESERVE, MADNESS_FIRST,
-  CAR_BUILDS, ZOMBIE_TYPES, TANK_TYPE, ZOMBIE_BUILDS, ZOMBIE_GAIT, ZOMBIE_WARDROBE, ZOMBIE_SCALE,
+  CAR_BUILDS, ZOMBIE_TYPES, TANK_TYPE, ZOMBIE_BUILDS, BODY_GAIT, ZOMBIE_WARDROBE, BODY_SCALE,
+  COURIER_BUILD, CRAWL_CYCLE, ROOF_LIFT, COURIER_WARDROBE,
   WALLS, ROOFS, CARCOL, BURNT_DEBRIS, HAND_T, HAND_G,
   RGB_LAMP, RGB_HEAD, RGB_WARM, RGB_RED, RGB_HAZARD, RGB_BEACON_RED, RGB_BEACON_BLUE,
   RGB_ROOF_RED, RGB_ROOF_BLUE, RGB_MUZZLE, RGB_FILTH, RGB_PARCEL, RGB_AMMO, RGB_GOAL,
